@@ -1,21 +1,41 @@
 {
+  "functions": {
+    "command-center-backend/command_center/wsgi.py": {
+      "runtime": "python3.11"
+    }
+  },
   "builds": [
     {
       "src": "command-center-backend/command_center/wsgi.py",
       "use": "@vercel/python",
       "config": {
-        "buildCommand": "bash build.sh"
+        "maxLambdaSize": "15mb",
+        "runtime": "python3.11"
       }
     }
   ],
   "routes": [
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/admin/(.*)",
+      "dest": "command-center-backend/command_center/wsgi.py"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "command-center-backend/command_center/wsgi.py"
     },
     {
-       "src": "/(.*)",
-       "dest": "command-center-backend/command_center/wsgi.py"
+      "src": "/(.*)",
+      "dest": "command-center-backend/command_center/wsgi.py"
     }
-  ]
+  ],
+  "outputDirectory": "command-center-backend/staticfiles",
+  "installCommand": "cd command-center-backend && pip install -r requirements.txt",
+  "buildCommand": "cd command-center-backend && python manage.py collectstatic --noinput && python manage.py migrate --noinput",
+  "env": {
+    "PYTHONPATH": "command-center-backend"
+  }
 }
