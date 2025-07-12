@@ -1,10 +1,13 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
-set -o errexit
+# Exit if any command fails
+set -e
 
-# Install project dependencies
+# Change to the backend directory
+cd command-center-backend
+
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Run collectstatic
+# Run Django's collectstatic
 python manage.py collectstatic --no-input
