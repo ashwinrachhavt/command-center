@@ -1,0 +1,265 @@
+{% extends 'admin/base.html' %}
+{% load i18n %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block title %}
+    Dashboard | {{ site_title|default:_('Django site admin') }}
+{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto py-12">
+    <h1 class="text-5xl font-extrabold mb-12 text-primary-600 tracking-tight drop-shadow-lg text-center">
+        Jobs Analytics Dashboard
+    </h1>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+        <div class="bg-gradient-to-br from-primary-700 to-primary-400 rounded-3xl p-10 shadow-2xl flex flex-col items-center text-white border-2 border-primary-500">
+            <span class="material-symbols-outlined text-5xl mb-2">work</span>
+            <div class="text-5xl font-extrabold mb-2">{{ total_jobs }}</div>
+            <div class="text-lg font-medium opacity-90">Total Jobs</div>
+        </div>
+        <div class="bg-gradient-to-br from-base-900 to-base-700 rounded-3xl p-10 shadow-2xl flex flex-col items-center text-white border-2 border-base-800">
+            <span class="material-symbols-outlined text-5xl mb-2">business</span>
+            <div class="text-3xl font-bold mb-2">{{ top_companies.0.company_name|default:"N/A" }}</div>
+            <div class="text-lg font-medium opacity-90">Top Company</div>
+        </div>
+        <div class="bg-gradient-to-br from-primary-800 to-primary-600 rounded-3xl p-10 shadow-2xl flex flex-col items-center text-white border-2 border-primary-700">
+            <span class="material-symbols-outlined text-5xl mb-2">location_on</span>
+            <div class="text-3xl font-bold mb-2">{{ top_locations.0.location|default:"N/A" }}</div>
+            <div class="text-lg font-medium opacity-90">Top Location</div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">show_chart</span>
+                Jobs Over Time
+            </h2>
+            <canvas id="jobsOverTimeChart" height="120"></canvas>
+        </div>
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">pie_chart</span>
+                Top Companies Distribution
+            </h2>
+            <canvas id="topCompaniesPieChart" height="120"></canvas>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">business</span>
+                Top 5 Companies
+            </h2>
+            <ul class="divide-y divide-base-200 dark:divide-base-700">
+                {% for c in top_companies|slice:":5" %}
+                <li class="flex justify-between py-3">
+                    <span class="font-medium">{{ c.company_name|default:"(Unknown)" }}</span>
+                    <span class="text-base-400 font-mono">{{ c.count }}</span>
+                </li>
+                {% empty %}
+                <li class="py-3 text-base-400">No data</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">location_on</span>
+                Top 5 Locations
+            </h2>
+            <ul class="divide-y divide-base-200 dark:divide-base-700">
+                {% for l in top_locations|slice:":5" %}
+                <li class="flex justify-between py-3">
+                    <span class="font-medium">{{ l.location|default:"(Unknown)" }}</span>
+                    <span class="text-base-400 font-mono">{{ l.count }}</span>
+                </li>
+                {% empty %}
+                <li class="py-3 text-base-400">No data</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-12">
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">badge</span>
+                Contract Types
+            </h2>
+            <ul class="divide-y divide-base-200 dark:divide-base-700">
+                {% for ct in contract_types %}
+                <li class="flex justify-between py-3">
+                    <span class="font-medium">{{ ct.contract_type|default:"(Unknown)" }}</span>
+                    <span class="text-base-400 font-mono">{{ ct.count }}</span>
+                </li>
+                {% empty %}
+                <li class="py-3 text-base-400">No data</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="bg-base-100 dark:bg-base-900 rounded-2xl p-8 shadow-lg border border-base-200 dark:border-base-800">
+            <h2 class="text-2xl font-bold mb-6 text-primary-600 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">school</span>
+                Experience Levels
+            </h2>
+            <ul class="divide-y divide-base-200 dark:divide-base-700">
+                {% for el in experience_levels %}
+                <li class="flex justify-between py-3">
+                    <span class="font-medium">{{ el.experience_level|default:"(Unknown)" }}</span>
+                    <span class="text-base-400 font-mono">{{ el.count }}</span>
+                </li>
+                {% empty %}
+                <li class="py-3 text-base-400">No data</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+        <div class="bg-gradient-to-br from-primary-800 to-primary-500 rounded-3xl p-10 shadow-2xl text-white border-2 border-primary-700">
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">new_releases</span>
+                Latest Job
+            </h2>
+            {% if latest_job %}
+                <div class="font-semibold text-xl mb-1">{{ latest_job.title }}</div>
+                <div class="text-base-200 mb-2">{{ latest_job.company_name }} &mdash; {{ latest_job.published_at|date:"Y-m-d" }}</div>
+                <div class="text-base-300 text-sm">{{ latest_job.location }}</div>
+            {% else %}
+                <div class="text-base-200">No data</div>
+            {% endif %}
+        </div>
+        <div class="bg-gradient-to-br from-base-900 to-base-700 rounded-3xl p-10 shadow-2xl text-white border-2 border-base-800">
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span class="material-symbols-outlined text-xl">history</span>
+                Earliest Job
+            </h2>
+            {% if earliest_job %}
+                <div class="font-semibold text-xl mb-1">{{ earliest_job.title }}</div>
+                <div class="text-base-200 mb-2">{{ earliest_job.company_name }} &mdash; {{ earliest_job.published_at|date:"Y-m-d" }}</div>
+                <div class="text-base-300 text-sm">{{ earliest_job.location }}</div>
+            {% else %}
+                <div class="text-base-200">No data</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            // Jobs Over Time (Fake Data Example)
+            const jobsOverTimeCtx = document.getElementById('jobsOverTimeChart').getContext('2d');
+            const jobsOverTimeChart = new window.Chart(jobsOverTimeCtx, {
+                type: 'line',
+                data: {
+                    labels: [
+                        {% for i in 11|make_list %}"{{ now|date:"Y-m" | add:"-" | add:forloop.counter|stringformat:"02d" }}"{% if not forloop.last %}, {% endif %}{% endfor %}
+                    ],
+                    datasets: [{
+                        label: 'Jobs Posted',
+                        data: [
+                            {% for i in 11|make_list %}{{ 50|add:forloop.counter }},{% endfor %}
+                            {{ total_jobs|default:0 }}
+                        ],
+                        fill: true,
+                        borderColor: 'rgb(147, 51, 234)',
+                        backgroundColor: 'rgba(147, 51, 234, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 4,
+                        pointBackgroundColor: 'rgb(147, 51, 234)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(31,41,55,0.95)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(147, 51, 234, 0.7)',
+                            borderWidth: 1,
+                            padding: 12,
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { display: false },
+                            ticks: { color: "#a3a3a3", font: { family: 'Inter, sans-serif' } }
+                        },
+                        y: { 
+                            beginAtZero: true, 
+                            grid: { color: "#eee" },
+                            ticks: { color: "#a3a3a3", font: { family: 'Inter, sans-serif' } }
+                        }
+                    }
+                }
+            });
+
+            // Top Companies Pie Chart
+            const topCompaniesCtx = document.getElementById('topCompaniesPieChart').getContext('2d');
+            const topCompaniesLabels = [
+                {% for c in top_companies|slice:":5" %}
+                    "{{ c.company_name|default:"(Unknown)" }}"{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            ];
+            const topCompaniesData = [
+                {% for c in top_companies|slice:":5" %}
+                    {{ c.count }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            ];
+            const topCompaniesPieChart = new window.Chart(topCompaniesCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: topCompaniesLabels,
+                    datasets: [{
+                        data: topCompaniesData,
+                        backgroundColor: [
+                            'rgba(147, 51, 234, 0.7)',
+                            'rgba(107, 33, 168, 0.7)',
+                            'rgba(192, 132, 252, 0.7)',
+                            'rgba(88, 28, 135, 0.7)',
+                            'rgba(233, 213, 255, 0.7)'
+                        ],
+                        borderWidth: 2,
+                        borderColor: "#fff"
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: "70%",
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: {
+                                color: "#a3a3a3",
+                                font: { family: 'Inter, sans-serif', size: 14 }
+                            }
+                        },
+                        title: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(31,41,55,0.95)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(147, 51, 234, 0.7)',
+                            borderWidth: 1,
+                            padding: 12,
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+{% endblock %}
