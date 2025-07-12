@@ -1,31 +1,29 @@
 {
   "version": 2,
+  "installCommand": "bash build.sh",
   "builds": [
     {
       "src": "command-center-backend/command_center/wsgi.py",
       "use": "@vercel/python",
       "config": {
-        "maxLambdaSize": "15mb",
-        "runtime": "python3.11"
+        "runtime": "python3.11",
       }
     },
     {
-      "src": "command-center-backend/staticfiles/**",
+      "src": "staticfiles/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/static/(.*)",
-      "dest": "/command-center-backend/staticfiles/$1"
+      "dest": "/staticfiles/$1"
     },
     {
       "src": "/(.*)",
       "dest": "command-center-backend/command_center/wsgi.py"
     }
   ],
-  "installCommand": "bash build.sh",
-  "buildCommand": "echo 'Build completed via build.sh'",
   "env": {
     "PYTHONPATH": "command-center-backend"
   }
