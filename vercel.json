@@ -9,6 +9,7 @@
         "runtime": "python3.11"
       }
     },
+    
     {
       "src": "command-center-backend/staticfiles/**",
       "use": "@vercel/static"
