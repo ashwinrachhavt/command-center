@@ -137,7 +137,8 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # Security settings for production
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
+    # Note: SECURE_SSL_REDIRECT is disabled for Vercel compatibility
+    # SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
@@ -146,6 +147,9 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     X_FRAME_OPTIONS = "DENY"
+    
+    # Additional security headers
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 from django.templatetags.static import static
 from django.urls import reverse_lazy
