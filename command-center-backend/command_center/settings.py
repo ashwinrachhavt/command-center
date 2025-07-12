@@ -83,17 +83,28 @@ WSGI_APPLICATION = "command_center.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Default to SQLite for local development
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
-
-# Use PostgreSQL for production if DATABASE_URL is provided
+# Use external database for production, SQLite for local development only
 if config("DATABASE_URL", default=None):
-    DATABASES["default"] = dj_database_url.parse(config("DATABASE_URL"))
+    # Production: Use external database (PostgreSQL, MySQL, etc.)
+    DATABASES = {
+        "default": dj_database_url.parse(config("DATABASE_URL"))
+    }
+else:
+    # Local development: Use SQLite
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
+# For Vercel deployment, DATABASE_URL is required
+if not DEBUG and not config("DATABASE_URL", default=None):
+    raise ValueError(
+        "DATABASE_URL environment variable is required for production deployment. "
+        "Please set up an external database (PostgreSQL, MySQL, etc.) and add the "
+        "DATABASE_URL to your Vercel environment variables."
+    )
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

@@ -3,7 +3,7 @@
 # Exit if any command fails
 set -e
 
-echo "Starting Django build process for Vercel..."
+echo "Starting Django build process for Vercel serverless deployment..."
 
 # Change to the backend directory
 cd command-center-backend
@@ -15,33 +15,23 @@ pip install -r requirements.txt
 
 echo "Collecting static files..."
 # Run Django's collectstatic with verbose output
+# Note: This creates static files that will be served by Vercel's static hosting
 python manage.py collectstatic --noinput --verbosity=1
 
-echo "Running database migrations..."
-# Run migrations (this will create SQLite database if it doesn't exist)
-python manage.py migrate --noinput
-
-echo "Creating superuser if it doesn't exist..."
-# Create a superuser if none exists (for admin access)
-python manage.py shell -c "
-from django.contrib.auth import get_user_model
-User = get_user_model()
-if not User.objects.filter(is_superuser=True).exists():
-    try:
-        User.objects.create_superuser('admin', 'admin@example.com', 'admin123')
-        print('✓ Superuser created successfully')
-    except Exception as e:
-        print(f'Warning: Could not create superuser: {e}')
-else:
-    print('✓ Superuser already exists')
-"
-
 echo "Checking Django configuration..."
-# Quick Django check
-python manage.py check --deploy
+# Quick Django check (skip database checks since we don't have DB at build time)
+python manage.py check --deploy --skip-checks=database
 
 echo "✓ Build process completed successfully!"
-echo "Your Django app is ready for deployment!"
-echo "Access your app at: https://your-project-name.vercel.app"
-echo "Admin interface: https://your-project-name.vercel.app/admin"
-echo "API endpoint: https://your-project-name.vercel.app/api"
+echo ""
+echo "📋 IMPORTANT: Post-deployment setup required:"
+echo "1. Set up an external database (PostgreSQL recommended)"
+echo "2. Add DATABASE_URL to Vercel environment variables"
+echo "3. After first deployment, run migrations manually:"
+echo "   - Visit https://your-project.vercel.app/admin (will show error until DB is set up)"
+echo "   - Or use Vercel CLI: vercel env add DATABASE_URL"
+echo ""
+echo "🔗 Your app will be available at:"
+echo "   - Main: https://your-project-name.vercel.app"
+echo "   - Admin: https://your-project-name.vercel.app/admin"
+echo "   - API: https://your-project-name.vercel.app/api"

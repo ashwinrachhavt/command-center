@@ -9,7 +9,6 @@
         "runtime": "python3.11"
       }
     },
-    
     {
       "src": "command-center-backend/staticfiles/**",
       "use": "@vercel/static"
@@ -25,6 +24,8 @@
       "dest": "command-center-backend/command_center/wsgi.py"
     }
   ],
+  "installCommand": "bash build.sh",
+  "buildCommand": "echo 'Build completed via build.sh'",
   "env": {
     "PYTHONPATH": "command-center-backend"
   }
