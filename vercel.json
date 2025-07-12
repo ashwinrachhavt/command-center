@@ -1,0 +1,14 @@
+{
+    "builds": [
+      {
+        "src": "command-center-backend/command_center/wsgi.py",
+        "use": "@vercel/python"
+      }
+    ],
+    "routes": [
+      {
+        "src": "/(.*)",
+        "dest": "command-center-backend/command_center/wsgi.py"
+      }
+    ]
+  }
