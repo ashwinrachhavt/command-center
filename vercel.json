@@ -6,7 +6,7 @@
       "src": "command-center-backend/command_center/wsgi.py",
       "use": "@vercel/python",
       "config": {
-        "runtime": "python3.11",
+        "runtime": "python3.11"
       }
     },
     {
