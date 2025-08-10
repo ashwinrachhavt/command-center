@@ -17,7 +17,26 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import redirect
 from job_automation_agent.views import ChatbotView
+
+def home_view(request):
+    """Simple home view that provides API information"""
+    return JsonResponse({
+        "message": "Command Center API is running!",
+        "version": "1.0.0",
+        "endpoints": {
+            "admin": "/admin/",
+            "chatbot": "/admin/chatbot/",
+        },
+        "status": "healthy"
+    })
+
+def root_redirect(request):
+    """Redirect root to admin"""
+    return redirect('/admin/')
 
 original_get_urls = admin.site.get_urls
 def get_urls():
@@ -29,5 +48,7 @@ def get_urls():
 admin.site.get_urls = get_urls
 
 urlpatterns = [
+    path("", root_redirect, name="home"),
+    path("api/", home_view, name="api_home"),
     path("admin/", admin.site.urls),
 ]
