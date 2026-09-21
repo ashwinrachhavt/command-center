@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic application fixture</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      body {
+        max-width: 600px;
+        margin: 60px auto;
+        padding: 24px;
+        font: 16px system-ui;
+        background: #f5f6f5;
+        color: #223;
+      }
+      label {
+        display: block;
+        margin: 20px 0 8px;
+      }
+      input,
+      textarea,
+      select {
+        width: 100%;
+        padding: 12px;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 24px;
+        padding: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Orbit Labs · Synthetic application</h1>
+    <p>A controlled test form. Nothing is sent to an employer.</p>
+    <form id="application">
+      <label for="name">Full name</label
+      ><input id="name" name="full_name" required /><label for="email"
+        >Email address</label
+      ><input id="email" type="email" name="email" /><label for="role"
+        >Role</label
+      ><select id="role" name="role">
+        <option value="">Choose a role</option>
+        <option value="Staff Engineer">Staff Engineer</option>
+        <option value="Product Engineer">Product Engineer</option></select
+      ><label for="motivation">Why this role?</label
+      ><textarea id="motivation" name="motivation"></textarea
+      ><label for="password">Password (must never be shared)</label
+      ><input id="password" type="password" value="synthetic-secret" /><button
+        type="submit"
+      >
+        Submit test application
+      </button>
+    </form>
+    <p id="outcome" role="status">Not submitted</p>
+    <script>
+      document.getElementById("application").addEventListener("submit", (e) => {
+        e.preventDefault();
+        document.getElementById("outcome").textContent =
+          "Synthetic submission received";
+      });
+    </script>
+  </body>
+</html>

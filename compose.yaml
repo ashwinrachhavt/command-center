@@ -1,0 +1,151 @@
+name: command-center
+
+x-api: &api
+  image: command-center-api:local
+  build:
+    context: apps/api
+  environment: &api-environment
+    CC_API_TOKEN: ${CC_API_TOKEN:?Run python3 scripts/bootstrap.py}
+    CC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-command_center}:${POSTGRES_PASSWORD:?Run bootstrap}@db:5432/${POSTGRES_DB:-command_center}
+    CC_FIRECRAWL_URL: http://firecrawl:3002
+    CC_FIRECRAWL_API_KEY: ${CC_FIRECRAWL_API_KEY:-}
+    CC_SEARXNG_URL: http://searxng:8080
+    CC_AUTH_MODE: clerk
+    CC_CLERK_ISSUER: ${CC_CLERK_ISSUER:-}
+    CC_CLERK_AUTHORIZED_PARTIES: ${CC_CLERK_AUTHORIZED_PARTIES:-["http://localhost:3001"]}
+    CC_WEB_ORIGIN: http://localhost:3001
+    CC_INTERNAL_API_URL: http://api:8000
+    CC_REDIS_URL: redis://redis:6379/0
+    CC_AGENT_CONFIG: /app/agents/profiles.toml
+    CC_AGENT_SKILLS_DIR: /app/agents/skills
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+    CC_COMPOSIO_AUTH_CONFIGS: ${CC_COMPOSIO_AUTH_CONFIGS:-{}}
+  volumes:
+    - ./agents:/app/agents:ro
+  init: true
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    <<: *api
+    command: ["celery", "-A", "command_center.agents.queue:celery", "worker", "--loglevel=WARNING", "--concurrency=2"]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  beat:
+    <<: *api
+    command: ["celery", "-A", "command_center.agents.queue:celery", "beat", "--loglevel=WARNING", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-command_center}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run bootstrap}
+      POSTGRES_DB: ${POSTGRES_DB:-command_center}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    <<: *api
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *api
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    networks:
+      - default
+      - research
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  web:
+    build:
+      context: apps/web
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+    env_file:
+      - path: apps/web/.env
+        required: false
+    environment:
+      CC_API_URL: http://api:8000
+      CC_WEB_ORIGIN: http://localhost:3001
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3001}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    init: true
+    restart: unless-stopped
+
+  db-test:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test-only
+      POSTGRES_DB: command_center_test
+    ports:
+      - "127.0.0.1:55433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "test", "-d", "command_center_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  research:
+    external: true
+    name: ${RESEARCH_DOCKER_NETWORK:-local-services}

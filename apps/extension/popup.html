@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Command Center</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="mark">⌘</span
+      ><span>Command Center<small>Browser companion</small></span
+      ><a
+        href="http://localhost:3001/browser"
+        target="_blank"
+        rel="noopener"
+        aria-label="Open workspace"
+        >↗</a
+      >
+    </header>
+    <main>
+      <section id="pairing">
+        <h1>A little help.<br />Right where you need it.</h1>
+        <p>
+          Pair this browser with your workspace. Your signed-in sessions stay
+          here.
+        </p>
+        <form id="pair-form">
+          <label for="api-url">Local API</label
+          ><select id="api-url">
+            <option value="http://localhost:8000">localhost:8000</option>
+            <option value="http://127.0.0.1:8000">
+              127.0.0.1:8000
+            </option></select
+          ><label for="code">Pairing code</label
+          ><input
+            id="code"
+            required
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Paste code from your workspace"
+          /><button type="submit">Connect browser <span>→</span></button>
+        </form>
+      </section>
+      <section id="connected" hidden>
+        <div class="status">
+          <i></i>Connected to your workspace<button
+            id="disconnect"
+            type="button"
+            class="text-button"
+          >
+            Disconnect
+          </button>
+        </div>
+        <h1>Make the next step<br />a little easier.</h1>
+        <p>
+          Share the current form’s labels and options. Prepare answers in your
+          workspace, then review them here.
+        </p>
+        <button id="share" type="button">Share this form <span>↗</span></button
+        ><button id="refresh" type="button" class="secondary">
+          Check fill proposals
+        </button>
+        <div id="proposals"></div>
+      </section>
+      <p id="message" role="status" aria-live="polite"></p>
+      <footer>Cookies stay in Chrome. You stay in control.</footer>
+    </main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

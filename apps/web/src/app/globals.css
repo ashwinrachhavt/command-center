@@ -1,0 +1,158 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/mermaid/dist/*.js";
+@custom-variant dark (&:is(.dark *));
+:root {
+  color-scheme: dark;
+  --background: #101213;
+  --foreground: #edf0ef;
+  --card: #17191a;
+  --card-foreground: #edf0ef;
+  --popover: #1b1e1f;
+  --popover-foreground: #edf0ef;
+  --primary: #58cfaa;
+  --primary-foreground: #08251b;
+  --secondary: #25292b;
+  --secondary-foreground: #e3e8e6;
+  --muted: #222627;
+  --muted-foreground: #9ba5a2;
+  --accent: #252b29;
+  --accent-foreground: #eff5f2;
+  --destructive: #f08686;
+  --border: #2a2e2f;
+  --input: #343b3b;
+  --ring: #58cfaa;
+  --sidebar: #161819;
+  --sidebar-foreground: #b3bcb8;
+  --sidebar-accent: #252c29;
+  --sidebar-accent-foreground: #f0f5f2;
+  --sidebar-border: #292e2c;
+  --radius: 0.5rem;
+}
+@theme inline {
+  --font-sans: var(--font-geist), sans-serif;
+  --font-heading: var(--font-geist), sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    font-size: 14px;
+  }
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  ::selection {
+    background: #326e59;
+    color: #fff;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #39433f transparent;
+  }
+}
+.stage-researching,
+.stage-new,
+.stage-open,
+.stage-queued {
+  color: #a8b5c0;
+  background: #8293a314;
+  border-color: #8293a330;
+}
+.stage-preparing,
+.stage-connected,
+.stage-in_progress,
+.stage-running {
+  color: #d2b3ed;
+  background: #a67ac214;
+  border-color: #a67ac230;
+}
+.stage-applied,
+.stage-warm {
+  color: #93bdef;
+  background: #6098d414;
+  border-color: #6098d430;
+}
+.stage-interviewing,
+.stage-snoozed {
+  color: #e4c38a;
+  background: #d9a75114;
+  border-color: #d9a75130;
+}
+.stage-offer,
+.stage-advocate,
+.stage-done,
+.stage-completed,
+.stage-applied-fill {
+  color: #71d8ae;
+  background: #41b78b14;
+  border-color: #41b78b30;
+}
+.stage-closed,
+.stage-cancelled,
+.stage-failed,
+.stage-rejected {
+  color: #d5a3a3;
+  background: #bf7a7a14;
+  border-color: #bf7a7a30;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  [role="combobox"] {
+    font-size: 16px;
+  }
+  button,
+  [role="button"],
+  [role="combobox"] {
+    min-height: 44px;
+  }
+}
