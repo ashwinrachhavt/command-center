@@ -23,6 +23,7 @@ from command_center.db.spending import (
     SpendingRateCard,
     SpendingReservation,
     SpendingWorkBudget,
+    ensure_default_spending_policy,
     utc_month,
 )
 from command_center.integrations.composio_actions import CONNECTED_OPERATION_LABELS
@@ -429,6 +430,27 @@ def update_policy(
         key=key,
         operation="PUT:spending-policy",
         payload=body.model_dump(mode="json"),
+        change=change,
+    )
+
+
+@router.post("/defaults", response_model=SpendingSummary)
+def apply_defaults(
+    identity: CurrentIdentity,
+    db: Database,
+    key: WriteKey,
+) -> dict[str, Any]:
+    def change(request_id: UUID) -> dict[str, Any]:
+        ensure_default_spending_policy(db, identity.id, request_id=request_id)
+        db.flush()
+        return dict(jsonable_encoder(spending(identity, db)))
+
+    return RequestReceipt.execute(
+        db,
+        actor_id=identity.id,
+        key=key,
+        operation="POST:spending-defaults",
+        payload={},
         change=change,
     )
 

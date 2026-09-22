@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Wallet, X } from "lucide-react";
+import { Plus, Save, Sparkles, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -484,6 +484,8 @@ function PolicyForm({
 }
 
 export function SpendingSettings() {
+  const queryClient = useQueryClient();
+  const [defaultIntent] = useState(() => new RetainedRequestIntent());
   const summary = useQuery({
     queryKey: ["spending"],
     queryFn: () => api<Summary>("spending"),
@@ -492,6 +494,20 @@ export function SpendingSettings() {
   const cards = useQuery({
     queryKey: ["spending-rate-cards"],
     queryFn: () => api<RateCard[]>("spending/rate-cards"),
+  });
+  const applyDefaults = useMutation({
+    mutationFn: () => {
+      const target = "spending/defaults";
+      const body = {};
+      const request = defaultIntent.forRequest("POST", target, body);
+      return api(target, { method: "POST", body, key: request.key });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["spending"] });
+      void queryClient.invalidateQueries({ queryKey: ["spending-rate-cards"] });
+      toast.success("Default spending controls and rate card applied");
+    },
+    onError: (e) => toast.error(e.message),
   });
   return (
     <section className="rounded-xl border border-border bg-card p-6">
@@ -510,6 +526,32 @@ export function SpendingSettings() {
         <LoadingRows />
       ) : (
         <>
+          {(!summary.data.configured || !summary.data.active) && (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/10 p-3.5">
+              <div>
+                <p className="text-xs font-medium text-foreground">
+                  Quick Win: Activate Recommended Defaults
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Provisions standard rates for OpenAI, Gemini, Mistral and
+                  Cohere with $100/mo and $10/task limits.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                disabled={applyDefaults.isPending}
+                onClick={() => applyDefaults.mutate()}
+              >
+                {applyDefaults.isPending ? (
+                  <Spinner />
+                ) : (
+                  <Sparkles className="size-3.5 mr-1" />
+                )}
+                Apply recommended defaults
+              </Button>
+            </div>
+          )}
           {summary.data.readiness && (
             <p className="mb-4 text-sm text-muted-foreground">
               {summary.data.readiness.message}
