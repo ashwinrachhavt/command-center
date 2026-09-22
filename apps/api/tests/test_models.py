@@ -65,7 +65,12 @@ def test_task_completion_and_audit_share_a_transaction(session: Session, actor: 
     task.reopen(actor_id=actor.id, request_id=uuid4())
     session.flush()
     assert task.completed_at is None
-    assert session.scalar(select(func.count()).select_from(AuditEvent)) == 2
+    assert (
+        session.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.subject_id == task.id)
+        )
+        == 2
+    )
 
 
 def test_failed_audit_rolls_back_task_change(session: Session, actor: Actor) -> None:
@@ -78,7 +83,12 @@ def test_failed_audit_rolls_back_task_change(session: Session, actor: Actor) -> 
     session.refresh(task)
     assert task.state == "open"
     assert task.completed_at is None
-    assert session.scalar(select(func.count()).select_from(AuditEvent)) == 0
+    assert (
+        session.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.subject_id == task.id)
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,9 @@ from alembic import context
 
 from command_center.core.config import Settings
 from command_center.db import (  # noqa: F401
+    agent_events,
     agents,
+    application_preparations,
     artifacts,
     browser,
     conversations,

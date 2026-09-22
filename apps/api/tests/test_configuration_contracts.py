@@ -1,5 +1,6 @@
 import runpy
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from dotenv import dotenv_values
@@ -7,7 +8,14 @@ from pydantic import ValidationError
 
 from command_center.agents.config import load_profiles
 from command_center.agents.readiness import wait_until_ready
-from command_center.api.browser_contracts import ApplyMessage, FormField
+from command_center.api.browser_contracts import (
+    ApplyMessage,
+    FileTransfer,
+    FillCreate,
+    FormField,
+    InspectMessage,
+    SnapshotCreate,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 sync = runpy.run_path(str(ROOT / "scripts/sync_env.py"))["sync"]
@@ -85,6 +93,87 @@ def test_browser_contract_rejects_oversized_options_and_unversioned_messages():
         FormField(id="f0", label="Role", type="select", options=["x" * 301])
     with pytest.raises(ValidationError):
         ApplyMessage.model_validate({"action": "apply", "command": {}})
+
+
+def test_browser_v2_contract_preserves_value_metadata_and_rejects_v1():
+    field = FormField.model_validate(
+        {
+            "id": "f2",
+            "label": "Authorization",
+            "type": "radio",
+            "required": True,
+            "options": ["yes", "no"],
+            "option_labels": {"yes": "Yes", "no": "No"},
+            "value_state": "present",
+            "autocomplete": "off",
+        }
+    )
+    snapshot = SnapshotCreate.model_validate(
+        {
+            "id": "00000000-0000-0000-0000-000000000002",
+            "protocol_version": 2,
+            "page_url": "https://example.com/apply",
+            "title": "Synthetic application",
+            "fields": [field.model_dump()],
+        }
+    )
+    assert snapshot.protocol_version == 2
+    assert field.value_state == "present"
+    assert field.option_labels["yes"] == "Yes"
+    with pytest.raises(ValidationError):
+        FormField.model_validate(
+            {
+                **field.model_dump(),
+                "option_labels": {"maybe": "Maybe"},
+            }
+        )
+    with pytest.raises(ValidationError):
+        InspectMessage.model_validate({"version": 1, "action": "inspect"})
+    with pytest.raises(ValidationError):
+        SnapshotCreate.model_validate(
+            {
+                "id": "00000000-0000-0000-0000-000000000002",
+                "protocol_version": 1,
+                "page_url": "https://example.com/apply",
+                "title": "Legacy",
+                "fields": [],
+            }
+        )
+
+
+def test_fill_contract_requires_disjoint_requested_fields_and_explicit_replacements():
+    version_id = "00000000-0000-0000-0000-000000000004"
+    base = {
+        "snapshot_id": "00000000-0000-0000-0000-000000000003",
+        "fields": {"f0": "Synthetic person"},
+        "uploads": {"f1": version_id},
+        "replace_fields": ["f0"],
+    }
+    assert FillCreate.model_validate(base).uploads["f1"] == UUID(version_id)
+    with pytest.raises(ValidationError):
+        FillCreate.model_validate({"snapshot_id": base["snapshot_id"]})
+    with pytest.raises(ValidationError):
+        FillCreate.model_validate({**base, "uploads": {"f0": version_id}})
+    with pytest.raises(ValidationError):
+        FillCreate.model_validate({**base, "replace_fields": ["f9"]})
+
+
+def test_file_transfer_validates_exact_bytes_size_and_digest():
+    import base64
+    import hashlib
+
+    content = b"synthetic resume bytes"
+    payload = {
+        "version_id": "00000000-0000-0000-0000-000000000005",
+        "filename": "resume.txt",
+        "media_type": "text/plain",
+        "size_bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "data_base64": base64.b64encode(content).decode(),
+    }
+    assert FileTransfer.model_validate(payload).size_bytes == len(content)
+    with pytest.raises(ValidationError):
+        FileTransfer.model_validate({**payload, "sha256": "0" * 64})
 
 
 def test_combined_directive_and_skills_are_bounded_before_enqueue(tmp_path):

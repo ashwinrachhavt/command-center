@@ -5,6 +5,8 @@ import { isResource } from "../../src/components/workspace/context";
 import { Records } from "../../src/components/workspace/records";
 import { Overview } from "../../src/components/workspace/overview";
 import { Agents } from "../../src/components/workspace/agents";
+import { BrowserPage } from "../../src/components/workspace/browser";
+import { MemoryPage } from "../../src/components/workspace/memory";
 import { Settings } from "../../src/components/workspace/settings";
 import { installNavigation, usePathname } from "./navigation";
 import "../../src/app/globals.css";
@@ -66,6 +68,15 @@ const tasks = [
     state: "open",
     priority: 2,
     due_date: "2026-09-24",
+  },
+  {
+    ...base,
+    id: "task-stream",
+    title: "Review streamed application guidance",
+    opportunity_id: opportunities[0].id,
+    state: "open",
+    priority: 1,
+    due_date: null,
   },
 ];
 const artifact = {
@@ -132,8 +143,28 @@ const sessions: Record<string, unknown>[] = [
     opportunity_id: "opportunity-1",
     last_sequence: 3,
   },
+  {
+    ...conversationBase,
+    id: "session-stream",
+    title: "Streamed work conversation",
+    task_id: "task-stream",
+    opportunity_id: null,
+    last_sequence: 1,
+  },
 ];
 const sessionMessages: Record<string, Record<string, unknown>[]> = {
+  "session-stream": [
+    {
+      ...conversationBase,
+      id: "message-stream-user",
+      session_id: "session-stream",
+      run_id: "run-stream-a",
+      sequence: 1,
+      author: "user",
+      profile: "application",
+      content: "Prepare grounded application guidance.",
+    },
+  ],
   "session-opportunity-1": [
     {
       ...conversationBase,
@@ -169,6 +200,36 @@ const sessionMessages: Record<string, Record<string, unknown>[]> = {
   ],
 };
 const sessionRuns: Record<string, Record<string, unknown>[]> = {
+  "session-stream": [
+    {
+      ...conversationBase,
+      id: "run-stream-a",
+      title: "Grounded application guidance",
+      prompt: "Prepare grounded application guidance.",
+      profile: "application",
+      state: "running",
+      output: null,
+      error_code: null,
+      completed_at: null,
+      session_id: "session-stream",
+      input_sequence: 1,
+      consumed_sequence: 1,
+    },
+    {
+      ...conversationBase,
+      id: "run-stream-b",
+      title: "Independent background check",
+      prompt: "Check the saved evidence.",
+      profile: "research",
+      state: "running",
+      output: null,
+      error_code: null,
+      completed_at: null,
+      session_id: "session-stream",
+      input_sequence: 1,
+      consumed_sequence: 1,
+    },
+  ],
   "session-opportunity-1": [
     {
       ...conversationBase,
@@ -359,6 +420,47 @@ const profileFacts: Record<string, unknown>[] = [
     },
   },
 ];
+const priorMemoryRevision = {
+  id: "memory-revision-approved",
+  version: 1,
+  title: "Synthetic communication preference",
+  content: "Use short synthetic status updates.",
+  kind: "preference",
+  scope_type: "global",
+  scope_id: null,
+  valid_until: null,
+  source: "legacy_human",
+  source_run_id: null,
+  source_artifact_id: null,
+  reason: "Preserved explicit legacy human-authored memory.",
+  review_state: "approved",
+  created_at: "2026-09-21T10:00:00Z",
+};
+const proposedMemoryRevision = {
+  ...priorMemoryRevision,
+  id: "memory-revision-proposed",
+  version: 2,
+  content: "Use concise synthetic summaries with one clear next step.",
+  source: "agent",
+  source_run_id: "run-memory-synthetic",
+  reason: "This preference recurred during the synthetic task.",
+  review_state: "proposed",
+  created_at: "2026-09-21T11:00:00Z",
+};
+const memoryItems: Record<string, unknown>[] = [
+  {
+    id: "memory-synthetic",
+    row_version: 2,
+    title: proposedMemoryRevision.title,
+    content: proposedMemoryRevision.content,
+    kind: proposedMemoryRevision.kind,
+    source: proposedMemoryRevision.source,
+    updated_at: "2026-09-21T11:00:00Z",
+    current: proposedMemoryRevision,
+    active: priorMemoryRevision,
+  },
+];
+let latestMemoryReview: Record<string, unknown> | undefined;
 const opportunityResearch: Record<string, Record<string, unknown>[]> = {};
 const leadRequestKeys: Record<string, string[]> = {};
 const documentRequestKeys: Record<string, string[]> = {};
@@ -367,9 +469,305 @@ const terminalDetailsAvailable = new Set<string>();
 let pendingTerminalRunId: string | undefined;
 let retryImportFailures = 0;
 let staleReview = true;
+const browserSnapshots: Record<string, unknown>[] = [
+  {
+    id: "snapshot-application-1",
+    protocol_version: 2,
+    title: "Northstar application",
+    origin: "https://jobs.example.test",
+    page_url: "https://jobs.example.test/apply",
+    created_at: "2026-09-21T10:20:00Z",
+    fields: [
+      {
+        id: "f0",
+        label: "Full name",
+        type: "text",
+        required: true,
+        options: [],
+        option_labels: {},
+        value_state: "empty",
+        autocomplete: "name",
+        accept: "",
+        unsupported_reason: null,
+      },
+      {
+        id: "f1",
+        label: "Email",
+        type: "email",
+        required: true,
+        options: [],
+        option_labels: {},
+        value_state: "present",
+        autocomplete: "email",
+        accept: "",
+        unsupported_reason: null,
+      },
+      {
+        id: "f2",
+        label: "Why are you interested in this role?",
+        type: "textarea",
+        required: true,
+        options: [],
+        option_labels: {},
+        value_state: "empty",
+        autocomplete: "",
+        accept: "",
+        unsupported_reason: null,
+      },
+      {
+        id: "f3",
+        label: "Resume",
+        type: "file",
+        required: true,
+        options: [],
+        option_labels: {},
+        value_state: "empty",
+        autocomplete: "",
+        accept: ".pdf,application/pdf",
+        unsupported_reason: null,
+      },
+      {
+        id: "f4",
+        label: "Custom eligibility widget",
+        type: "unsupported",
+        required: true,
+        options: [],
+        option_labels: {},
+        value_state: "empty",
+        autocomplete: "",
+        accept: "",
+        unsupported_reason: "Complete this custom control in the browser.",
+      },
+    ],
+  },
+  {
+    id: "snapshot-application-2",
+    protocol_version: 2,
+    title: "Second application page",
+    origin: "https://jobs.example.test",
+    page_url: "https://jobs.example.test/apply/second",
+    created_at: "2026-09-21T10:21:00Z",
+    fields: [
+      {
+        id: "f0",
+        label: "Additional note",
+        type: "textarea",
+        required: false,
+        options: [],
+        option_labels: {},
+        value_state: "empty",
+        autocomplete: "",
+        accept: "",
+        unsupported_reason: null,
+      },
+    ],
+  },
+];
+const browserResumeOptions = {
+  default_version_id: "resume-version-1",
+  items: [
+    {
+      version_id: "resume-version-1",
+      artifact_id: "artifact-resume",
+      title: "Synthetic resume",
+      filename: "synthetic-resume.pdf",
+      media_type: "application/pdf",
+      size_bytes: 24576,
+      sha256: "a".repeat(64),
+      version: 1,
+    },
+    {
+      version_id: "resume-version-specialized",
+      artifact_id: "artifact-resume-specialized",
+      title: "Synthetic product resume",
+      filename: "synthetic-product-resume.pdf",
+      media_type: "application/pdf",
+      size_bytes: 32768,
+      sha256: "b".repeat(64),
+      version: 2,
+    },
+  ],
+};
+let browserPreparation: Record<string, unknown> | undefined;
+let browserPreparationVersion = 0;
+let generationPolls = 0;
+const browserCommands: Record<string, unknown>[] = [];
+const applicationGenerationRun: Record<string, unknown> = {
+  ...conversationBase,
+  id: "run-application-generation",
+  profile: "application",
+  title: "Draft application answers",
+  prompt: "Draft grounded answers for the shared form.",
+  state: "completed",
+  output: null,
+  error: null,
+};
+sessionRuns["session-application"] = [applicationGenerationRun];
+
+function makeBrowserPreparation(body: Record<string, unknown>) {
+  browserPreparationVersion += 1;
+  const resume = browserResumeOptions.items.find(
+    (item) => item.version_id === body.resume_version_id,
+  );
+  return {
+    id: "preparation-application-1",
+    snapshot_id: "snapshot-application-1",
+    task_id: "task-application-1",
+    opportunity_id: body.opportunity_id ?? null,
+    artifact_id: "artifact-application-package",
+    version_id: `preparation-version-${browserPreparationVersion}`,
+    version: browserPreparationVersion,
+    resume: resume ?? null,
+    replace_fields: [],
+    upload_fields: [],
+    fields: [
+      {
+        field_id: "f0",
+        status: "suggested",
+        value: "Synthetic Candidate",
+        reason: "Matched an approved full-name fact.",
+        evidence: [
+          {
+            fact_id: "fact-name",
+            revision_id: "revision-name-approved",
+            value: "Synthetic Candidate",
+            context: null,
+            source_version_id: "resume-extraction-version-1",
+          },
+        ],
+      },
+      {
+        field_id: "f1",
+        status: "preserved",
+        value: null,
+        reason: "The browser reported an existing value.",
+        evidence: [],
+      },
+      {
+        field_id: "f2",
+        status: "needs_input",
+        value: null,
+        reason: "No approved answer matches this question and opportunity.",
+        evidence: [],
+      },
+      {
+        field_id: "f4",
+        status: "unsupported",
+        value: null,
+        reason: "Complete this custom control in the browser.",
+        evidence: [],
+      },
+    ],
+    created_at: "2026-09-21T10:22:00Z",
+  };
+}
 
 function page(items: Record<string, unknown>[], limit = 100) {
   return { items, total: items.length, limit, offset: 0 };
+}
+
+const streamAttempts: Record<string, number> = {};
+const streamAfterSequences: Record<string, number[]> = {};
+const encoder = new TextEncoder();
+
+function streamEvent(
+  runId: string,
+  sequence: number,
+  type: string,
+  data: Record<string, unknown>,
+) {
+  return `event: agent_event\nid: ${sequence}\ndata: ${JSON.stringify({
+    sequence,
+    run_id: runId,
+    type,
+    role: type.startsWith("tool-") ? "tool" : "assistant",
+    data,
+    created_at: "2026-09-21T10:30:00Z",
+  })}\n\n`;
+}
+
+function eventResponse(runId: string, afterSequence: number) {
+  streamAttempts[runId] = (streamAttempts[runId] ?? 0) + 1;
+  (streamAfterSequences[runId] ??= []).push(afterSequence);
+  const attempt = streamAttempts[runId];
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (value: string) => {
+        if (!cancelled) controller.enqueue(encoder.encode(value));
+      };
+      if (runId === "run-stream-a" && attempt === 1) {
+        const first = streamEvent(runId, 1, "text-delta", {
+          message_id: "stream-message-a",
+          delta: "## Streaming answer\n\n**Grounded",
+        });
+        send(first.slice(0, 37));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        send(first.slice(37));
+        send(
+          streamEvent(runId, 2, "tool-input-available", {
+            tool_call_id: "tool-a",
+            tool_name: "document_read",
+            input: { version_id: "resume-version-1" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (!cancelled) controller.close();
+        return;
+      }
+      const events =
+        runId === "run-stream-a"
+          ? [
+              streamEvent(runId, 2, "tool-input-available", {
+                tool_call_id: "tool-a",
+                tool_name: "duplicate_should_not_render",
+                input: { duplicate: true },
+              }),
+              streamEvent(runId, 3, "text-delta", {
+                message_id: "stream-message-a",
+                delta: " evidence** is ready.",
+              }),
+              streamEvent(runId, 4, "tool-output-available", {
+                tool_call_id: "tool-a",
+                output: { cited_versions: 1 },
+              }),
+              streamEvent(runId, 5, "usage", {
+                input_tokens: 120,
+                output_tokens: 30,
+                total_tokens: 150,
+              }),
+              streamEvent(runId, 6, "run-status", { state: "completed" }),
+            ]
+          : [
+              streamEvent(runId, 1, "text-delta", {
+                message_id: "stream-message-b",
+                delta: "Independent **second** stream.",
+              }),
+              streamEvent(runId, 2, "run-status", { state: "completed" }),
+            ];
+      for (const event of events) {
+        send(event);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+      const run = (sessionRuns["session-stream"] ?? []).find(
+        (item) => item.id === runId,
+      );
+      if (run) {
+        run.state = "completed";
+        run.completed_at = "2026-09-21T10:31:00Z";
+      }
+      if (!cancelled) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 const fixtureFetch: typeof fetch = async (input, init) => {
@@ -387,13 +785,133 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     failedLeadRequests[name] = (failedLeadRequests[name] ?? 0) + 1;
     return failedLeadRequests[name] <= 2;
   };
+  if (route === "test/stream-state")
+    return Response.json({
+      attempts: streamAttempts,
+      after: streamAfterSequences,
+    });
+  const eventMatch = route.match(/^agent-runs\/([^/]+)\/events$/);
+  if (eventMatch)
+    return eventResponse(
+      eventMatch[1],
+      Number(url.searchParams.get("after_sequence") ?? 0),
+    );
   if (route === "test/lead-request-keys") return Response.json(leadRequestKeys);
   if (route === "test/document-request-keys")
     return Response.json(documentRequestKeys);
+  if (route === "test/latest-browser-command")
+    return Response.json(browserCommands.at(-1) ?? null);
+  if (route === "test/latest-browser-preparation")
+    return Response.json(browserPreparation ?? null);
+  if (route === "test/latest-memory-review")
+    return Response.json(latestMemoryReview ?? null);
+  if (route === "browser/devices" && method === "GET")
+    return Response.json([
+      {
+        id: "browser-device-1",
+        name: "Synthetic Chrome",
+        paired_at: "2026-09-21T10:00:00Z",
+        last_seen_at: "2026-09-21T10:20:00Z",
+        revoked_at: null,
+      },
+    ]);
+  if (route === "browser/snapshots" && method === "GET")
+    return Response.json(browserSnapshots);
+  if (route === "browser/resumes" && method === "GET")
+    return Response.json(browserResumeOptions);
+  if (route === "browser/commands" && method === "GET")
+    return Response.json(browserCommands);
+  if (route === "browser/commands" && method === "POST") {
+    const body = JSON.parse(String(init?.body));
+    const command = {
+      ...body,
+      id: `browser-command-${browserCommands.length + 1}`,
+      state: "pending",
+      created_at: "2026-09-21T10:25:00Z",
+      idempotency_key: idempotencyKey,
+    };
+    browserCommands.push(command);
+    return Response.json(command, { status: 201 });
+  }
+  const createPreparation = route.match(
+    /^browser\/snapshots\/([^/]+)\/preparations$/,
+  );
+  if (createPreparation && method === "POST") {
+    const body = JSON.parse(String(init?.body));
+    browserPreparation = makeBrowserPreparation(body);
+    return Response.json(browserPreparation, { status: 201 });
+  }
+  const preparationRoute = route.match(
+    /^browser\/preparations\/([^/]+)(?:\/(revisions|generate))?$/,
+  );
+  if (preparationRoute && browserPreparation) {
+    const action = preparationRoute[2];
+    if (!action && method === "GET") {
+      generationPolls += 1;
+      if (
+        applicationGenerationRun.state !== "completed" &&
+        generationPolls >= 2
+      ) {
+        browserPreparationVersion += 1;
+        browserPreparation.version = browserPreparationVersion;
+        browserPreparation.version_id = `preparation-version-${browserPreparationVersion}`;
+        const fields = browserPreparation.fields as Record<string, unknown>[];
+        const narrative = fields.find((item) => item.field_id === "f2");
+        if (narrative) {
+          narrative.status = "suggested";
+          narrative.value = "Generated grounded narrative from approved facts.";
+          narrative.reason = "Drafted by the application profile for review.";
+        }
+        applicationGenerationRun.state = "completed";
+      }
+      return Response.json(browserPreparation);
+    }
+    if (action === "generate" && method === "POST") {
+      generationPolls = 0;
+      applicationGenerationRun.state = "queued";
+      return Response.json({
+        conversation_id: "session-application",
+        run_id: applicationGenerationRun.id,
+      });
+    }
+    if (action === "revisions" && method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      browserPreparationVersion += 1;
+      browserPreparation.version = browserPreparationVersion;
+      browserPreparation.version_id = `preparation-version-${browserPreparationVersion}`;
+      browserPreparation.resume =
+        browserResumeOptions.items.find(
+          (item) => item.version_id === body.resume_version_id,
+        ) ?? null;
+      browserPreparation.replace_fields = body.replace_fields;
+      browserPreparation.upload_fields = body.upload_fields;
+      const currentFields = browserPreparation.fields as Record<
+        string,
+        unknown
+      >[];
+      for (const [fieldId, value] of Object.entries(body.fields)) {
+        let field = currentFields.find((item) => item.field_id === fieldId);
+        if (!field) {
+          field = { field_id: fieldId, evidence: [] };
+          currentFields.push(field);
+        }
+        field.status = value ? "suggested" : "needs_input";
+        field.value = value || null;
+        field.reason = value
+          ? "Saved in the reviewed user revision."
+          : "Cleared in the reviewed user revision.";
+      }
+      return Response.json(browserPreparation);
+    }
+  }
   if (route === "test/complete-active-run" && method === "POST") {
     const run = Object.values(sessionRuns)
       .flat()
-      .find((item) => ["queued", "running"].includes(String(item.state)));
+      .find(
+        (item) =>
+          ["queued", "running"].includes(String(item.state)) &&
+          !String(item.id).startsWith("run-stream-"),
+      );
     if (!run)
       return Response.json({ detail: "Active run not found" }, { status: 404 });
     run.state = "completed";
@@ -524,6 +1042,34 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     defaultResume.filename = selectedImport?.filename ?? null;
     defaultResume.byte_size = selectedImport?.byte_size ?? null;
     return Response.json(defaultResume);
+  }
+  if (route === "memories" && method === "GET")
+    return Response.json(page(memoryItems, 30));
+  const memoryReviewMatch = route.match(/^memories\/([^/]+)\/reviews$/);
+  if (memoryReviewMatch && method === "POST") {
+    const memory = memoryItems.find((item) => item.id === memoryReviewMatch[1]);
+    if (!memory)
+      return Response.json({ detail: "Memory not found" }, { status: 404 });
+    const body = JSON.parse(String(init?.body)) as {
+      revision_id: string;
+      decision: "approved" | "rejected" | "revoked";
+    };
+    latestMemoryReview = body;
+    const current = memory.current as Record<string, unknown>;
+    const active = memory.active as Record<string, unknown> | null;
+    const revision = current.id === body.revision_id ? current : active;
+    if (!revision)
+      return Response.json({ detail: "Revision not found" }, { status: 404 });
+    revision.review_state = body.decision;
+    memory.active =
+      body.decision === "approved"
+        ? revision
+        : body.decision === "revoked"
+          ? null
+          : memory.active;
+    memory.row_version = Number(memory.row_version) + 1;
+    memory.source = current.source;
+    return Response.json(memory);
   }
   if (route === "profile/facts" && method === "GET")
     return Response.json(page(profileFacts, 100));
@@ -1111,6 +1657,10 @@ function Preview() {
           <Agents />
         ) : path === "/settings" ? (
           <Settings />
+        ) : path === "/browser" ? (
+          <BrowserPage />
+        ) : path === "/memory" ? (
+          <MemoryPage />
         ) : (
           <Records
             key={path}

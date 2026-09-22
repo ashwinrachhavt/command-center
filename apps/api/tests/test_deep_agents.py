@@ -83,12 +83,16 @@ def test_specialist_capability_cannot_use_lead_tools(agent_server, engine):
     token = issue_run_token(agent_server, run.id, run.lease_id, role="research")
     with httpx.Client(base_url=agent_server.internal_api_url, trust_env=False) as http:
         headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": str(uuid4())}
-        assert http.get("/api/v1/memories", headers=headers).status_code == 200
+        assert http.get("/api/v1/memories/retrieve", headers=headers).status_code == 200
+        assert http.get("/api/v1/memories", headers=headers).status_code == 403
         denied = http.post("/api/v1/tasks", json={"title": "Must not exist"}, headers=headers)
         assert denied.status_code == 403
         unknown = issue_run_token(agent_server, run.id, run.lease_id, role="unknown")
         assert (
-            http.get("/api/v1/memories", headers={"Authorization": f"Bearer {unknown}"}).status_code
+            http.get(
+                "/api/v1/memories/retrieve",
+                headers={"Authorization": f"Bearer {unknown}"},
+            ).status_code
             == 403
         )
     with Session(engine) as db:

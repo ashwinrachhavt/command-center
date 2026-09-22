@@ -162,6 +162,9 @@ class AgentRun(OwnedRecord, Base):
                 run.id,
                 profile=run.profile,
             )
+            from command_center.db.agent_events import AgentEvent
+
+            AgentEvent.append_status(session, run, "running")
         return run
 
     def finish(
@@ -201,6 +204,9 @@ class AgentRun(OwnedRecord, Base):
         self.state, self.output, self.error_code = state, output, error_code
         self.completed_at, self.lease_id, self.lease_expires_at = utc_now(), None, None
         if session:
+            from command_center.db.agent_events import AgentEvent
+
+            AgentEvent.append_status(session, self, state)
             record_event(
                 session,
                 self.owner_id,

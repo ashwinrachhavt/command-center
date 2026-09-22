@@ -193,9 +193,17 @@ def test_browser_pairing_single_use_and_fill_cannot_replay(client):
     device_headers = {"Authorization": "Bearer " + exchanged.json()["token"]}
     snapshot = {
         "id": str(uuid4()),
+        "protocol_version": 2,
         "page_url": "https://example.com/apply",
         "title": "Synthetic form",
-        "fields": [{"id": "f0", "label": "Name", "type": "text"}],
+        "fields": [
+            {
+                "id": "f0",
+                "label": "Name",
+                "type": "text",
+                "value_state": "empty",
+            }
+        ],
     }
     captured = client.post("/api/v1/browser/snapshots", json=snapshot, headers=device_headers)
     assert captured.status_code == 201, captured.text
@@ -216,15 +224,27 @@ def test_browser_pairing_single_use_and_fill_cannot_replay(client):
     assert client.post(path + "/claim", headers=device_headers).status_code == 200
     assert client.post(path + "/claim", headers=device_headers).status_code == 409
     assert (
-        client.post(path + "/result", json={"state": "applied"}, headers=device_headers).status_code
+        client.post(
+            path + "/result",
+            json={"state": "applied", "field_results": {"f0": {"status": "filled"}}},
+            headers=device_headers,
+        ).status_code
         == 200
     )
     assert (
-        client.post(path + "/result", json={"state": "applied"}, headers=device_headers).status_code
+        client.post(
+            path + "/result",
+            json={"state": "applied", "field_results": {"f0": {"status": "filled"}}},
+            headers=device_headers,
+        ).status_code
         == 200
     )
     assert (
-        client.post(path + "/result", json={"state": "failed"}, headers=device_headers).status_code
+        client.post(
+            path + "/result",
+            json={"state": "failed", "field_results": {"f0": {"status": "failed"}}},
+            headers=device_headers,
+        ).status_code
         == 409
     )
     assert post(client, f"browser/devices/{pairing['device_id']}/revoke", {}).status_code == 200

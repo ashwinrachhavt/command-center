@@ -1,12 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { CircleStop, FileText } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { CircleStop, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   Tool,
   ToolContent,
   ToolHeader,
+  ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import {
@@ -17,9 +24,9 @@ import {
   type RunArtifact,
   type RunStep,
 } from "@/lib/api";
-import { AgentResponse } from "./agent-response";
 import { useWorkspaceContext } from "./context";
 import { ErrorState, Status } from "./primitives";
+import { useRunEvents } from "./use-run-events";
 
 const activeStates = new Set(["queued", "running"]);
 
@@ -35,13 +42,17 @@ export function RunActivity({
   onCancel?: (run: Run) => void;
 }) {
   const context = useWorkspaceContext();
+  const queryClient = useQueryClient();
+  const reconciledState = useRef("");
   const active = activeStates.has(run.state);
+  const stream = useRunEvents(run.id, active);
   const steps = useQuery({
     queryKey: ["agent-run-steps", run.id, run.state],
     queryFn: ({ signal }) =>
       api<RunStep[]>(`agent-runs/${run.id}/steps`, { signal }),
     refetchInterval: active ? 2500 : false,
   });
+
   const artifacts = useQuery({
     queryKey: ["agent-run-artifacts", run.id, run.state],
     queryFn: ({ signal }) =>
@@ -50,6 +61,22 @@ export function RunActivity({
       }),
     refetchInterval: active ? 2500 : false,
   });
+
+  useEffect(() => {
+    const state = stream.runStatus?.state;
+    if (!state || activeStates.has(state) || reconciledState.current === state)
+      return;
+    reconciledState.current = state;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["agent-session-runs"] }),
+      queryClient.invalidateQueries({ queryKey: ["agent-session-messages"] }),
+      steps.refetch(),
+      artifacts.refetch(),
+    ]);
+  }, [artifacts, queryClient, steps, stream.runStatus?.state]);
+
+  const showLiveActivity =
+    active || (!!stream.runStatus && showOutput && !run.output);
 
   return (
     <section
@@ -91,6 +118,75 @@ export function RunActivity({
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           Cancelled. Completed activity remains in this conversation.
         </p>
+      ) : null}
+
+      {showLiveActivity ? (
+        <div className="mt-4 border-t border-border pt-4" aria-label="Live activity">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <p className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">
+              {stream.connection === "live"
+                ? "Live activity"
+                : stream.connection === "connecting"
+                  ? "Connecting to live activity…"
+                  : stream.connection === "complete"
+                    ? "Live activity complete"
+                    : "Live activity disconnected"}
+            </p>
+            {stream.connection === "disconnected" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={stream.retry}
+              >
+                <RefreshCw />
+                Retry stream
+              </Button>
+            ) : null}
+          </div>
+          {stream.connectionError ? (
+            <p className="mb-3 text-xs text-muted-foreground" role="status">
+              Saved work continues in the background. Reconnect to resume live
+              updates from event {stream.lastSequence + 1}.
+            </p>
+          ) : null}
+          {stream.messages.map((message) => (
+            <Message key={message.id} from="assistant" className="mb-3">
+              <MessageContent>
+                <MessageResponse
+                  mode="streaming"
+                  parseIncompleteMarkdown
+                  skipHtml
+                  disallowedElements={["img", "iframe", "script", "style"]}
+                  className="text-base leading-7 [&_a:visited]:text-primary/70"
+                >
+                  {message.content}
+                </MessageResponse>
+              </MessageContent>
+            </Message>
+          ))}
+          {stream.tools.map((tool) => (
+            <Tool key={tool.id} className="mb-2">
+              <ToolHeader
+                type="dynamic-tool"
+                toolName={tool.name}
+                title={label(tool.name)}
+                state={tool.state}
+              />
+              <ToolContent>
+                {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}
+                <ToolOutput output={tool.output} errorText={tool.errorText} />
+              </ToolContent>
+            </Tool>
+          ))}
+          {stream.usage ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {stream.usage.total.toLocaleString()} tokens ·{" "}
+              {stream.usage.input.toLocaleString()} input ·{" "}
+              {stream.usage.output.toLocaleString()} output
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {steps.error ? (
@@ -182,7 +278,14 @@ export function RunActivity({
           <p className="mb-2 text-[11px] font-medium text-muted-foreground">
             Run outcome
           </p>
-          <AgentResponse>{run.output}</AgentResponse>
+          <MessageResponse
+            mode="static"
+            skipHtml
+            disallowedElements={["img", "iframe", "script", "style"]}
+            className="text-base leading-7 [&_a:visited]:text-primary/70"
+          >
+            {run.output}
+          </MessageResponse>
         </div>
       ) : null}
     </section>

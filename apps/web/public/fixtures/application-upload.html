@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hidden upload synthetic application</title>
+    <style>
+      #resume { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+      label[for="resume"] { display: inline-block; padding: 12px; border: 1px solid; }
+    </style>
+  </head>
+  <body>
+    <h1>Associated hidden file control</h1>
+    <form id="application">
+      <label for="resume">Upload resume</label>
+      <input id="resume" name="resume" type="file" accept=".pdf,application/pdf" required />
+      <label for="portfolio">Portfolio URL</label>
+      <input id="portfolio" name="portfolio" type="url" />
+      <button type="submit">Submit</button>
+    </form>
+    <p id="outcome">Not submitted</p>
+  </body>
+</html>

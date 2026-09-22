@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Custom widget synthetic application</title>
+  </head>
+  <body>
+    <h1>Custom widget controls</h1>
+    <form>
+      <label id="country-label">Country</label>
+      <div role="combobox" aria-labelledby="country-label" aria-expanded="false" tabindex="0">
+        Choose a country
+      </div>
+      <label for="start-date">Available start date</label>
+      <input id="start-date" name="start_date" type="date" />
+      <label for="headline">Professional headline</label>
+      <input id="headline" name="headline" type="text" />
+      <div contenteditable="true" aria-label="Rich text cover letter"></div>
+      <button type="submit">Continue</button>
+    </form>
+  </body>
+</html>

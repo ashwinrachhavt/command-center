@@ -57,6 +57,52 @@ export type ResumeSelection = Schema["ResumeSelectionRead"];
 export type FactRevision = Schema["FactRevisionRead"];
 export type ProfileFact = Schema["FactRead"];
 
+export type BrowserField = {
+  id: string;
+  label: string;
+  type:
+    | "text"
+    | "email"
+    | "tel"
+    | "url"
+    | "textarea"
+    | "select"
+    | "file"
+    | "radio"
+    | "checkbox"
+    | "unsupported";
+  required: boolean;
+  options: string[];
+  option_labels: Record<string, string>;
+  value_state: "empty" | "present";
+  autocomplete: string;
+  accept: string;
+  unsupported_reason: string | null;
+};
+export type BrowserSnapshot = {
+  id: string;
+  protocol_version: 2;
+  title: string;
+  origin: string;
+  page_url: string;
+  created_at: string;
+  fields: BrowserField[];
+};
+export type ResumeFile = Schema["ResumeFile"];
+export type ResumeOption = Schema["ResumeOption"];
+export type ResumeOptions = Schema["ResumeOptions"];
+export type PreparedEvidence = Schema["ApplicationEvidenceRead"];
+export type PreparedField = Schema["PreparedFieldRead"];
+export type ApplicationPreparation = Schema["ApplicationPreparationRead"];
+export type BrowserFillCommand = {
+  id: string;
+  state: string;
+  created_at: string;
+  fields: Record<string, string>;
+  uploads: Record<string, string>;
+  field_results?: Record<string, Schema["FieldResult"]>;
+};
+
 export class ApiError extends Error {
   constructor(
     public status: number,

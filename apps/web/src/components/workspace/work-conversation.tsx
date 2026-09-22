@@ -18,7 +18,11 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   api,
   ApiError,
@@ -29,7 +33,6 @@ import {
   type Page,
   type Run,
 } from "@/lib/api";
-import { AgentResponse } from "./agent-response";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
 
@@ -304,7 +307,19 @@ export function WorkConversation({
                         }
                       >
                         {message.author === "assistant" ? (
-                          <AgentResponse>{message.content}</AgentResponse>
+                          <MessageResponse
+                            mode="static"
+                            skipHtml
+                            disallowedElements={[
+                              "img",
+                              "iframe",
+                              "script",
+                              "style",
+                            ]}
+                            className="text-base leading-7 [&_a:visited]:text-primary/70"
+                          >
+                            {message.content}
+                          </MessageResponse>
                         ) : (
                           message.content
                         )}

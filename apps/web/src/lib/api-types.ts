@@ -655,6 +655,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run Events */
+        get: operations["run_events_api_v1_agent_runs__run_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-sessions": {
         parameters: {
             query?: never;
@@ -1053,6 +1070,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/browser/resumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resumes */
+        get: operations["resumes_api_v1_browser_resumes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/resumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device Resumes */
+        get: operations["device_resumes_api_v1_browser_device_resumes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/browser/commands": {
         parameters: {
             query?: never;
@@ -1081,7 +1132,8 @@ export interface paths {
         /** Pending Commands */
         get: operations["pending_commands_api_v1_browser_device_commands_get"];
         put?: never;
-        post?: never;
+        /** Device Propose Fill */
+        post: operations["device_propose_fill_api_v1_browser_device_commands_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1122,6 +1174,244 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/browser/device/commands/{command_id}/files/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Command File */
+        get: operations["command_file_api_v1_browser_device_commands__command_id__files__field_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/snapshots/{snapshot_id}/preparations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare */
+        post: operations["prepare_api_v1_browser_snapshots__snapshot_id__preparations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/snapshots/{snapshot_id}/preparations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device Prepare */
+        post: operations["device_prepare_api_v1_browser_device_snapshots__snapshot_id__preparations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preparation Detail */
+        get: operations["preparation_detail_api_v1_browser_preparations__record_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/preparations/{record_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device Preparation Detail */
+        get: operations["device_preparation_detail_api_v1_browser_device_preparations__record_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revise */
+        post: operations["revise_api_v1_browser_preparations__record_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/preparations/{record_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device Revise */
+        post: operations["device_revise_api_v1_browser_device_preparations__record_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate */
+        post: operations["generate_api_v1_browser_preparations__record_id__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/preparations/{record_id}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device Generate */
+        post: operations["device_generate_api_v1_browser_device_preparations__record_id__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Context */
+        get: operations["context_api_v1_browser_preparations__record_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}/generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Generation Detail */
+        get: operations["generation_detail_api_v1_browser_preparations__record_id__generation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/device/preparations/{record_id}/generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device Generation Detail */
+        get: operations["device_generation_detail_api_v1_browser_device_preparations__record_id__generation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/browser/preparations/{record_id}/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suggest */
+        post: operations["suggest_api_v1_browser_preparations__record_id__suggestions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories/retrieve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retrieve Memories */
+        get: operations["retrieve_memories_api_v1_memories_retrieve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/memories": {
         parameters: {
             query?: never;
@@ -1140,7 +1430,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/memories/{record_id}": {
+    "/api/v1/memories/{memory_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1154,10 +1444,44 @@ export interface paths {
         options?: never;
         head?: never;
         /** Edit Memory */
-        patch: operations["edit_memory_api_v1_memories__record_id__patch"];
+        patch: operations["edit_memory_api_v1_memories__memory_id__patch"];
         trace?: never;
     };
-    "/api/v1/memories/{record_id}/archive": {
+    "/api/v1/memories/{memory_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Versions */
+        get: operations["memory_versions_api_v1_memories__memory_id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories/{memory_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Memory */
+        post: operations["review_memory_api_v1_memories__memory_id__reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memories/{memory_id}/archive": {
         parameters: {
             query?: never;
             header?: never;
@@ -1167,7 +1491,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Forget */
-        post: operations["forget_api_v1_memories__record_id__archive_post"];
+        post: operations["forget_api_v1_memories__memory_id__archive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1203,6 +1527,69 @@ export interface components {
             details: {
                 [key: string]: unknown;
             };
+        };
+        /** ApplicationEvidenceRead */
+        ApplicationEvidenceRead: {
+            /**
+             * Fact Id
+             * Format: uuid
+             */
+            fact_id: string;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+            /** Value */
+            value: string;
+            /** Context */
+            context: string | null;
+            /** Source Version Id */
+            source_version_id: string | null;
+        };
+        /** ApplicationPreparationRead */
+        ApplicationPreparationRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Snapshot Id
+             * Format: uuid
+             */
+            snapshot_id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** Opportunity Id */
+            opportunity_id: string | null;
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Version */
+            version: number;
+            resume: components["schemas"]["ResumeFile"] | null;
+            /** Replace Fields */
+            replace_fields: string[];
+            /** Upload Fields */
+            upload_fields: string[];
+            /** Fields */
+            fields: components["schemas"]["PreparedFieldRead"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ApprovedFactRead */
         ApprovedFactRead: {
@@ -1673,6 +2060,19 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /** FieldResult */
+        FieldResult: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "filled" | "uploaded" | "preserved" | "unsupported" | "rejected" | "failed" | "outcome_unknown";
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
         /** FillCreate */
         FillCreate: {
             /**
@@ -1681,9 +2081,17 @@ export interface components {
              */
             snapshot_id: string;
             /** Fields */
-            fields: {
+            fields?: {
                 [key: string]: string;
             };
+            /** Uploads */
+            uploads?: {
+                [key: string]: string;
+            };
+            /** Replace Fields */
+            replace_fields?: string[];
+            /** Preparation Version Id */
+            preparation_version_id?: string | null;
         };
         /** FillResult */
         FillResult: {
@@ -1691,7 +2099,11 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "applied" | "rejected" | "failed" | "outcome_unknown";
+            state: "applied" | "partial" | "rejected" | "failed" | "outcome_unknown";
+            /** Field Results */
+            field_results?: {
+                [key: string]: components["schemas"]["FieldResult"];
+            };
         };
         /** FormField */
         FormField: {
@@ -1703,7 +2115,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "text" | "email" | "tel" | "url" | "textarea" | "select";
+            type: "text" | "email" | "tel" | "url" | "textarea" | "select" | "file" | "radio" | "checkbox" | "unsupported";
             /**
              * Required
              * @default false
@@ -1711,6 +2123,27 @@ export interface components {
             required: boolean;
             /** Options */
             options?: string[];
+            /**
+             * Value State
+             * @enum {string}
+             */
+            value_state: "empty" | "present";
+            /**
+             * Autocomplete
+             * @default
+             */
+            autocomplete: string;
+            /**
+             * Accept
+             * @default
+             */
+            accept: string;
+            /** Option Labels */
+            option_labels?: {
+                [key: string]: string;
+            };
+            /** Unsupported Reason */
+            unsupported_reason?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1915,6 +2348,25 @@ export interface components {
              * @enum {string}
              */
             kind: "note" | "preference";
+            /**
+             * Scope Type
+             * @default global
+             * @enum {string}
+             */
+            scope_type: "global" | "task" | "opportunity";
+            /** Scope Id */
+            scope_id?: string | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Source Artifact Id */
+            source_artifact_id?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
         };
         /** MemoryRead */
         MemoryRead: {
@@ -1925,28 +2377,93 @@ export interface components {
             id: string;
             /** Row Version */
             row_version: number;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
             /** Title */
             title: string;
             /** Content */
             content: string;
             /**
              * Kind
-             * @default note
              * @enum {string}
              */
             kind: "note" | "preference";
-            /** Source */
-            source: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "human" | "agent" | "legacy_human" | "legacy_agent";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            current: components["schemas"]["MemoryRevisionRead"];
+            active: components["schemas"]["MemoryRevisionRead"] | null;
+        };
+        /** MemoryReviewCreate */
+        MemoryReviewCreate: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "rejected" | "revoked";
+            /** Reason */
+            reason?: string | null;
+        };
+        /** MemoryRevisionRead */
+        MemoryRevisionRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
+            /** Title */
+            title: string;
+            /** Content */
+            content: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "note" | "preference";
+            /**
+             * Scope Type
+             * @enum {string}
+             */
+            scope_type: "global" | "task" | "opportunity";
+            /** Scope Id */
+            scope_id: string | null;
+            /** Valid Until */
+            valid_until: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "human" | "agent" | "legacy_human" | "legacy_agent";
+            /** Source Run Id */
+            source_run_id: string | null;
+            /** Source Artifact Id */
+            source_artifact_id: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Review State
+             * @enum {string}
+             */
+            review_state: "proposed" | "approved" | "rejected" | "revoked";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** MemoryUpdate */
         MemoryUpdate: {
@@ -1962,6 +2479,25 @@ export interface components {
              * @enum {string}
              */
             kind: "note" | "preference";
+            /**
+             * Scope Type
+             * @default global
+             * @enum {string}
+             */
+            scope_type: "global" | "task" | "opportunity";
+            /** Scope Id */
+            scope_id?: string | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Source Artifact Id */
+            source_artifact_id?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
         };
         /** MessageCreate */
         MessageCreate: {
@@ -2220,6 +2756,17 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** Page[MemoryRevisionRead] */
+        Page_MemoryRevisionRead_: {
+            /** Items */
+            items: components["schemas"]["MemoryRevisionRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** Page[MessageRead] */
         Page_MessageRead_: {
             /** Items */
@@ -2235,6 +2782,17 @@ export interface components {
         Page_OpportunityRead_: {
             /** Items */
             items: components["schemas"]["OpportunityRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** Page[RetrievedMemoryRead] */
+        Page_RetrievedMemoryRead_: {
+            /** Items */
+            items: components["schemas"]["RetrievedMemoryRead"][];
             /** Total */
             total: number;
             /** Limit */
@@ -2317,9 +2875,17 @@ export interface components {
              */
             snapshot_id: string;
             /** Fields */
-            fields: {
+            fields?: {
                 [key: string]: string;
             };
+            /** Uploads */
+            uploads?: {
+                [key: string]: string;
+            };
+            /** Replace Fields */
+            replace_fields?: string[];
+            /** Preparation Version Id */
+            preparation_version_id?: string | null;
             /**
              * Page Url
              * Format: uri
@@ -2359,6 +2925,101 @@ export interface components {
             completed_at: string | null;
             /** Form Fields */
             form_fields: components["schemas"]["FormField"][];
+            /** Upload Files */
+            upload_files?: {
+                [key: string]: components["schemas"]["ResumeFile"];
+            };
+        };
+        /** PreparationAnswer */
+        PreparationAnswer: {
+            /** Field Id */
+            field_id: string;
+            /** Value */
+            value: string;
+            /** Fact Revision Ids */
+            fact_revision_ids: string[];
+            /** Source Version Ids */
+            source_version_ids?: string[];
+        };
+        /** PreparationCreate */
+        PreparationCreate: {
+            /** Opportunity Id */
+            opportunity_id?: string | null;
+            /** Resume Version Id */
+            resume_version_id?: string | null;
+        };
+        /** PreparationGenerationRead */
+        PreparationGenerationRead: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** PreparationGenerationStatus */
+        PreparationGenerationStatus: {
+            /** Conversation Id */
+            conversation_id: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "idle" | "queued" | "running" | "completed" | "failed" | "cancelled";
+            /** Error Code */
+            error_code: string | null;
+        };
+        /** PreparationRevision */
+        PreparationRevision: {
+            /**
+             * Expected Version Id
+             * Format: uuid
+             */
+            expected_version_id: string;
+            /** Fields */
+            fields?: {
+                [key: string]: string;
+            };
+            /** Resume Version Id */
+            resume_version_id: string | null;
+            /** Replace Fields */
+            replace_fields?: string[];
+            /** Upload Fields */
+            upload_fields?: string[];
+            /** Remember Fields */
+            remember_fields?: string[];
+        };
+        /** PreparationSuggestions */
+        PreparationSuggestions: {
+            /**
+             * Expected Version Id
+             * Format: uuid
+             */
+            expected_version_id: string;
+            /** Answers */
+            answers: components["schemas"]["PreparationAnswer"][];
+        };
+        /** PreparedFieldRead */
+        PreparedFieldRead: {
+            /** Field Id */
+            field_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "suggested" | "needs_input" | "preserved" | "unsupported";
+            /** Value */
+            value: string | null;
+            /** Reason */
+            reason: string;
+            /** Evidence */
+            evidence: components["schemas"]["ApplicationEvidenceRead"][];
         };
         /** ProfileRead */
         ProfileRead: {
@@ -2410,6 +3071,54 @@ export interface components {
              */
             limit: number;
         };
+        /** ResumeFile */
+        ResumeFile: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Filename */
+            filename: string;
+            /** Media Type */
+            media_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+        };
+        /** ResumeOption */
+        ResumeOption: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Filename */
+            filename: string;
+            /** Media Type */
+            media_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /** Title */
+            title: string;
+            /** Version */
+            version: number;
+        };
+        /** ResumeOptions */
+        ResumeOptions: {
+            /** Default Version Id */
+            default_version_id: string | null;
+            /** Items */
+            items: components["schemas"]["ResumeOption"][];
+        };
         /** ResumeSelection */
         ResumeSelection: {
             /** Version Id */
@@ -2433,6 +3142,60 @@ export interface components {
             media_type: string | null;
             /** Byte Size */
             byte_size: number | null;
+        };
+        /** RetrievedMemoryRead */
+        RetrievedMemoryRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
+            /** Title */
+            title: string;
+            /** Content */
+            content: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "note" | "preference";
+            /**
+             * Scope Type
+             * @enum {string}
+             */
+            scope_type: "global" | "task" | "opportunity";
+            /** Scope Id */
+            scope_id: string | null;
+            /** Valid Until */
+            valid_until: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "human" | "agent" | "legacy_human" | "legacy_agent";
+            /** Source Run Id */
+            source_run_id: string | null;
+            /** Source Artifact Id */
+            source_artifact_id: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Review State
+             * @enum {string}
+             */
+            review_state: "proposed" | "approved" | "rejected" | "revoked";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Memory Id
+             * Format: uuid
+             */
+            memory_id: string;
         };
         /** ReviewCreate */
         ReviewCreate: {
@@ -2605,6 +3368,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Protocol Version
+             * @constant
+             */
+            protocol_version: 2;
             /**
              * Page Url
              * Format: uri
@@ -4469,6 +5237,39 @@ export interface operations {
             };
         };
     };
+    run_events_api_v1_agent_runs__run_id__events_get: {
+        parameters: {
+            query?: {
+                after_sequence?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     sessions_api_v1_agent_sessions_get: {
         parameters: {
             query?: {
@@ -5462,6 +6263,46 @@ export interface operations {
             };
         };
     };
+    resumes_api_v1_browser_resumes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeOptions"];
+                };
+            };
+        };
+    };
+    device_resumes_api_v1_browser_device_resumes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeOptions"];
+                };
+            };
+        };
+    };
     commands_api_v1_browser_commands_get: {
         parameters: {
             query?: never;
@@ -5541,6 +6382,43 @@ export interface operations {
             };
         };
     };
+    device_propose_fill_api_v1_browser_device_commands_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FillCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     claim_api_v1_browser_device_commands__command_id__claim_post: {
         parameters: {
             query?: never;
@@ -5594,6 +6472,483 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FillResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    command_file_api_v1_browser_device_commands__command_id__files__field_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                command_id: string;
+                field_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_api_v1_browser_snapshots__snapshot_id__preparations_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                snapshot_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_prepare_api_v1_browser_device_snapshots__snapshot_id__preparations_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                snapshot_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preparation_detail_api_v1_browser_preparations__record_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_preparation_detail_api_v1_browser_device_preparations__record_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_api_v1_browser_preparations__record_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparationRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_revise_api_v1_browser_device_preparations__record_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparationRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_api_v1_browser_preparations__record_id__generate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparationGenerationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_generate_api_v1_browser_device_preparations__record_id__generate_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparationGenerationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    context_api_v1_browser_preparations__record_id__context_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generation_detail_api_v1_browser_preparations__record_id__generation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparationGenerationStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    device_generation_detail_api_v1_browser_device_preparations__record_id__generation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreparationGenerationStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_api_v1_browser_preparations__record_id__suggestions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreparationSuggestions"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationPreparationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retrieve_memories_api_v1_memories_retrieve_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                task_id?: string | null;
+                opportunity_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RetrievedMemoryRead_"];
                 };
             };
             /** @description Validation Error */
@@ -5675,14 +7030,14 @@ export interface operations {
             };
         };
     };
-    edit_memory_api_v1_memories__record_id__patch: {
+    edit_memory_api_v1_memories__memory_id__patch: {
         parameters: {
             query?: never;
             header: {
                 "Idempotency-Key": string;
             };
             path: {
-                record_id: string;
+                memory_id: string;
             };
             cookie?: never;
         };
@@ -5712,14 +7067,85 @@ export interface operations {
             };
         };
     };
-    forget_api_v1_memories__record_id__archive_post: {
+    memory_versions_api_v1_memories__memory_id__versions_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_MemoryRevisionRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_memory_api_v1_memories__memory_id__reviews_post: {
         parameters: {
             query?: never;
             header: {
                 "Idempotency-Key": string;
             };
             path: {
-                record_id: string;
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_api_v1_memories__memory_id__archive_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                memory_id: string;
             };
             cookie?: never;
         };

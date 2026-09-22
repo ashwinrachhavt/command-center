@@ -1,7 +1,10 @@
 """Deep Agents over scoped MCP tools and a durable, isolated virtual workspace."""
 
+import asyncio
+import time
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
+from uuid import NAMESPACE_URL, uuid5
 
 from deepagents import (
     GeneralPurposeSubagentProfile,
@@ -14,13 +17,15 @@ from deepagents.backends.utils import create_file_data
 from deepagents.middleware.filesystem import FilesystemPermission
 from deepagents.middleware.subagents import CompiledSubAgent
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from command_center.agents.config import AgentProfile
 from command_center.agents.runtime_control import (
+    ActivitySink,
     InstructionSource,
     ModelAccounting,
     ProgressSink,
@@ -79,7 +84,7 @@ def build_agent(
     # Model callbacks also cover framework-owned context compaction calls.
     callbacks = [
         *(model.callbacks if isinstance(model.callbacks, list) else []),
-        ModelAccounting(control),
+        ModelAccounting(control, role),
     ]
     model = model.model_copy(update={"callbacks": callbacks})
     return create_deep_agent(
@@ -119,8 +124,30 @@ async def run_graph(
     instructions: InstructionSource | None = None,
     initial_sequence: int = 0,
     root_role: str = "lead",
+    activity: ActivitySink | None = None,
 ) -> str:
-    control = RunControl(profile, checkpoint, initial_sequence)
+    pending: dict[tuple[str, str], tuple[str, float]] = {}
+    delta_lock = asyncio.Lock()
+
+    async def flush_pending() -> None:
+        if activity is None:
+            return
+        async with delta_lock:
+            for (role, message_id), (delta, _) in list(pending.items()):
+                await activity("text-delta", role, {"message_id": message_id, "delta": delta})
+                pending.pop((role, message_id))
+
+    async def ordered_activity(event_type: str, role: str, data: dict[str, Any]) -> None:
+        assert activity is not None
+        await flush_pending()
+        await activity(event_type, role, data)
+
+    control = RunControl(
+        profile,
+        checkpoint,
+        initial_sequence,
+        ordered_activity if activity is not None else None,
+    )
     children: list[CompiledSubAgent] = []
     files = {}
     for role, configured in {root_role: profile, **profile.specialists}.items():
@@ -159,14 +186,66 @@ async def run_graph(
         instructions=instructions,
     )
     messages = [HumanMessage(content=prompt)] if isinstance(prompt, str) else prompt
-    final = await graph.ainvoke(
-        {"messages": messages, "files": files, "instruction_sequence": initial_sequence},
-        {
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": profile.max_steps * 5 + 10,
-            "max_concurrency": profile.max_parallel_tools,
-        },
-    )
+    graph_input: dict[str, Any] = {
+        "messages": messages,
+        "files": files,
+        "instruction_sequence": initial_sequence,
+    }
+    config: RunnableConfig = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": profile.max_steps * 5 + 10,
+        "max_concurrency": profile.max_parallel_tools,
+    }
+    final: dict[str, Any]
+    if activity is None:
+        final = await graph.ainvoke(graph_input, config)
+    else:
+        final = {}
+
+        async for streamed in graph.astream(
+            graph_input,
+            config,
+            stream_mode=["messages", "values"],
+            subgraphs=True,
+        ):
+            namespace, mode, value = cast(tuple[tuple[str, ...], str, Any], streamed)
+            if mode == "values":
+                if not namespace:
+                    final = value
+                continue
+            chunk, metadata = value
+            if not isinstance(chunk, AIMessageChunk):
+                continue
+            # Only public agent replies are streamed. Framework summaries and other
+            # internal model calls may share the graph stream but are not UI messages.
+            if metadata.get("langgraph_node") != "model":
+                continue
+            delta = str(chunk.text)
+            if not delta:
+                continue
+            role = str(metadata.get("lc_agent_name") or root_role)[:100]
+            identity = ":".join(
+                [
+                    *(str(part) for part in namespace),
+                    str(metadata.get("langgraph_node", "model")),
+                    str(metadata.get("langgraph_step", "")),
+                    str(chunk.id or ""),
+                ]
+            )
+            message_id = str(uuid5(NAMESPACE_URL, f"{thread_id}:{identity}"))
+            key = (role, message_id)
+            now = time.monotonic()
+            async with delta_lock:
+                buffered, started = pending.get(key, ("", now))
+                pending[key] = (buffered + delta, started)
+                if len(pending[key][0]) >= 512 or now - started >= 0.1:
+                    buffered, _ = pending.pop(key)
+                    await activity(
+                        "text-delta",
+                        role,
+                        {"message_id": message_id, "delta": buffered},
+                    )
+        await flush_pending()
     async with control.lock:
         control.sequence = max(
             control.sequence, final.get("instruction_sequence", initial_sequence)

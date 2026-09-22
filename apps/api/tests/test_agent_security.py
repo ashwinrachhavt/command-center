@@ -112,7 +112,8 @@ def test_agent_api_capability_replay_and_cancel(settings, engine, running):
         "Idempotency-Key": str(uuid4()),
     }
     with TestClient(create_app(settings)) as client:
-        assert client.get("/api/v1/memories", headers=headers).status_code == 200
+        assert client.get("/api/v1/memories/retrieve", headers=headers).status_code == 200
+        assert client.get("/api/v1/memories", headers=headers).status_code == 403
         assert client.get("/api/v1/companies", headers=headers).status_code == 403
         first = client.post(
             "/api/v1/tasks", json={"title": "Synthetic agent task"}, headers=headers
@@ -126,7 +127,7 @@ def test_agent_api_capability_replay_and_cancel(settings, engine, running):
         )
         with Session(engine) as db, db.begin():
             db.get(AgentRun, run_id).finish("cancelled")
-        assert client.get("/api/v1/memories", headers=headers).status_code == 401
+        assert client.get("/api/v1/memories/retrieve", headers=headers).status_code == 401
 
 
 def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
@@ -139,7 +140,7 @@ def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
         "Accept": "application/json, text/event-stream",
     }
     with TestClient(create_app(settings)) as client:
-        assert client.get("/api/v1/memories", headers=mcp_headers).status_code == 401
+        assert client.get("/api/v1/memories/retrieve", headers=mcp_headers).status_code == 401
         result = client.post(
             "/mcp/", headers=mcp_headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
         )

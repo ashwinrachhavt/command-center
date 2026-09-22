@@ -66,7 +66,8 @@ label {
   margin: 18px 0 8px;
 }
 input,
-select {
+select,
+textarea {
   width: 100%;
   background: #101213;
   border: 1px solid #343b3b;
@@ -74,6 +75,10 @@ select {
   padding: 11px;
   border-radius: 7px;
   font: inherit;
+}
+textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 button {
   width: 100%;
@@ -154,6 +159,61 @@ footer {
   font-size: 13px;
   line-height: 1.7;
   margin: 0 0 12px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+}
+.section-heading h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.field-review {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #2a2e2f;
+}
+.field-review label {
+  margin-top: 0;
+}
+.field-review small,
+.hint {
+  display: block;
+  color: #9ba5a2;
+  font-size: 10px;
+  line-height: 1.6;
+  margin-top: 7px;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0;
+}
+.choice input {
+  width: auto;
+}
+.choice label {
+  margin: 0;
+}
+.workspace-link {
+  display: block;
+  margin: 12px 0;
+  color: #7cddbd;
+  font-size: 11px;
+}
+.file-summary {
+  color: #d8dfdc;
+  font-size: 11px;
+}
+.result-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #a2ada7;
+  font-size: 10px;
+  line-height: 1.6;
 }
 .answer {
   margin: 12px 0;

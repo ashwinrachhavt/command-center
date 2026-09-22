@@ -1,6 +1,6 @@
 # Command Center
 
-**Revision:** 2026-09-21-r13. **Status:** connected workspace and operator import implemented; full-page sidebar navigation, contextual body inspection and appearance implemented locally; broader workspace hardening partial/pending. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Reviewed external actions and complete application workflows remain in progress.
+**Revision:** 2026-09-21-r13. **Status:** connected workspace and operator import implemented; full-page sidebar navigation, contextual body inspection and appearance implemented locally; broader workspace hardening partial/pending. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Grounded application preparation, exact resume uploads, reviewed scoped memory and durable token/tool streaming are implemented locally with synthetic coverage. Reviewed external actions, isolated scripts/PDF exports, spending controls and full ATS tenant coverage remain in progress.
 
 A local workspace for autonomous job discovery, relationships, research, tailored applications and follow-ups. Product and technical decisions have one canonical home each.
 

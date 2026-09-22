@@ -24,9 +24,13 @@ CAPABILITIES = {
     "document_read": [("GET", r"/api/v1/documents/versions/[0-9a-f-]+/text")],
     "propose_profile_fact": [("POST", r"/api/v1/profile/facts")],
     "approved_profile": [("GET", r"/api/v1/profile/facts/approved")],
+    "application_context": [("GET", r"/api/v1/browser/preparations/[0-9a-f-]+/context")],
+    "suggest_application_answers": [
+        ("POST", r"/api/v1/browser/preparations/[0-9a-f-]+/suggestions")
+    ],
     "create_task": [("POST", r"/api/v1/tasks")],
     "draft_artifact": [("POST", r"/api/v1/artifacts")],
-    "memory_read": [("GET", r"/api/v1/memories")],
+    "memory_read": [("GET", r"/api/v1/memories/retrieve")],
     "memory_append": [("POST", r"/api/v1/memories")],
 }
 

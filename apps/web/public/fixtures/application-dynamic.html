@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynamic synthetic application</title>
+  </head>
+  <body>
+    <h1>Dynamic controls</h1>
+    <form id="application">
+      <label for="current-title">Current title</label>
+      <input id="current-title" name="current_title" type="text" />
+      <label for="fragile-answer">Answer replaced during input</label>
+      <input id="fragile-answer" name="fragile_answer" type="text" />
+      <button type="submit">Next</button>
+    </form>
+    <p id="outcome">Not advanced</p>
+    <script>
+      document.getElementById("fragile-answer").addEventListener("input", (event) => {
+        const replacement = document.createElement("input");
+        replacement.id = event.currentTarget.id;
+        replacement.name = event.currentTarget.name;
+        event.currentTarget.replaceWith(replacement);
+      });
+      document.getElementById("application").addEventListener("submit", (event) => {
+        event.preventDefault();
+        document.getElementById("outcome").textContent = "Advanced";
+      });
+    </script>
+  </body>
+</html>

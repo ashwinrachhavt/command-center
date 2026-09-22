@@ -12,7 +12,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from command_center.agents.mcp_server import AgentMCP
 from command_center.api import (
+    agent_events,
     agents,
+    application_preparations,
     artifacts,
     browser,
     conversations,
@@ -109,12 +111,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspace.router)
     app.include_router(artifacts.router)
     app.include_router(agents.router)
+    app.include_router(agent_events.router)
     app.include_router(conversations.router)
     app.include_router(leads.router)
     app.include_router(documents.router)
     app.include_router(document_text.router)
     app.include_router(profile_facts.router)
     app.include_router(browser.router)
+    app.include_router(application_preparations.router)
     app.include_router(memory.router)
     app.mount("/mcp", mcp)
     return app

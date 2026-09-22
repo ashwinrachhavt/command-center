@@ -22,6 +22,7 @@ from command_center.agents.config import AgentProfile
 
 type ProgressSink = Callable[[dict[str, Any]], Awaitable[None]]
 type InstructionSource = Callable[[int], Awaitable[tuple[int, list[BaseMessage]]]]
+type ActivitySink = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 
 tool_identity: ContextVar[str] = ContextVar("agent_tool_identity", default="")
 
@@ -37,8 +38,15 @@ class ExecutionStopped(ValueError):
 
 
 class RunControl:
-    def __init__(self, profile: AgentProfile, sink: ProgressSink, sequence: int = 0):
+    def __init__(
+        self,
+        profile: AgentProfile,
+        sink: ProgressSink,
+        sequence: int = 0,
+        activity: ActivitySink | None = None,
+    ):
         self.profile, self.sink = profile, sink
+        self.activity = activity
         self.lock = asyncio.Lock()
         self.parallel = asyncio.Semaphore(profile.max_parallel_tools)
         self.steps = 0
@@ -47,6 +55,10 @@ class RunControl:
         self.initial_sequence = sequence
         self.usage = {"input_tokens": 0, "output_tokens": 0}
         self.tools: dict[str, dict[str, Any]] = {}
+
+    async def emit_activity(self, event_type: str, role: str, data: dict[str, Any]) -> None:
+        if self.activity is not None:
+            await self.activity(event_type, role, data)
 
     async def emit(self) -> None:
         """Caller holds lock, so snapshots cannot overtake each other on the way to SQL."""
@@ -68,8 +80,8 @@ class ModelAccounting(AsyncCallbackHandler):
 
     raise_error = True
 
-    def __init__(self, control: RunControl):
-        self.control = control
+    def __init__(self, control: RunControl, role: str):
+        self.control, self.role = control, role
 
     async def on_chat_model_start(
         self, serialized: dict[str, Any], messages: list[list[BaseMessage]], **kwargs: Any
@@ -93,6 +105,15 @@ class ModelAccounting(AsyncCallbackHandler):
                     for name in self.control.usage:
                         self.control.usage[name] += int(usage.get(name, 0))
             await self.control.emit()
+            if any(self.control.usage.values()):
+                await self.control.emit_activity(
+                    "usage",
+                    self.role,
+                    {
+                        **self.control.usage,
+                        "total_tokens": sum(self.control.usage.values()),
+                    },
+                )
 
 
 class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
@@ -154,6 +175,15 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     summary=str(call["args"].get("description", ""))[:2000],
                 )
             await control.emit()
+            await control.emit_activity(
+                "tool-input-available",
+                self.role,
+                {
+                    "tool_call_id": call_id,
+                    "tool_name": call["name"],
+                    "input": call["args"],
+                },
+            )
         context = tool_identity.set(call_id)
 
         async def dispatch() -> ToolMessage | Command[Any]:
@@ -197,11 +227,25 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     state="output-error" if failed else "output-available", output=output[:20000]
                 )
                 await control.emit()
+                await control.emit_activity(
+                    "tool-output-error" if failed else "tool-output-available",
+                    self.role,
+                    (
+                        {"tool_call_id": call_id, "error_text": output[:20_000]}
+                        if failed
+                        else {"tool_call_id": call_id, "output": output[:20_000]}
+                    ),
+                )
             return result
         except Exception:
             async with control.lock:
                 control.tools[call_id].update(state="output-error", output="Operation interrupted.")
                 await control.emit()
+                await control.emit_activity(
+                    "tool-output-error",
+                    self.role,
+                    {"tool_call_id": call_id, "error_text": "Operation interrupted."},
+                )
             raise
         finally:
             tool_identity.reset(context)

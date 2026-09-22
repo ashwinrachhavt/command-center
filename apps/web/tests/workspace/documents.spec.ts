@@ -132,6 +132,8 @@ test("fact evidence opens the pinned extraction version", async ({ page }) => {
     /inspect=artifacts%3Aartifact-resume-extracted%3Acontent%3Aresume-extraction-version-1/,
   );
   await expect(
-    page.getByText("Product engineer with accessible systems experience."),
+    page
+      .getByRole("tabpanel", { name: "Content & versions" })
+      .getByText("Product engineer with accessible systems experience."),
   ).toBeVisible();
 });

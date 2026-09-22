@@ -21,6 +21,7 @@ from command_center.agents.runtime_control import ExecutionStopped
 from command_center.core.capabilities import issue_run_token
 from command_center.core.config import Settings
 from command_center.db import artifacts, browser, evidence  # noqa: F401
+from command_center.db.agent_events import AgentEvent
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
 from command_center.db.conversations import AgentMessage, AgentSession
@@ -126,6 +127,15 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
             )
             current.lease_expires_at = utc_now() + timedelta(minutes=5)
 
+    def append_activity(event_type: str, role: str, data: dict[str, Any]) -> None:
+        with Session(engine) as db, db.begin():
+            AgentEvent.append(
+                db,
+                run_id=run_id,
+                lease_id=lease_id,
+                events=[(event_type, role, data)],
+            )
+
     def renew() -> None:
         with Session(engine) as db, db.begin():
             leased(db, run_id, lease_id).lease_expires_at = utc_now() + timedelta(minutes=5)
@@ -167,6 +177,16 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
         async def instructions(after: int) -> tuple[int, list[BaseMessage]]:
             return await asyncio.to_thread(pending, after)
 
+        async def activity(event_type: str, role: str, data: dict[str, Any]) -> None:
+            try:
+                await asyncio.to_thread(append_activity, event_type, role, data)
+            except Exception as exc:
+                from command_center.db.errors import RecordConflict
+
+                if isinstance(exc, RecordConflict):
+                    raise LeaseLost() from exc
+                raise
+
         async def connect(role: str | None = None) -> MCPTools:
             return await MCPTools.connect(
                 settings.internal_api_url,
@@ -195,6 +215,7 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 instructions=instructions,
                 initial_sequence=sequence,
                 root_role=profile_slug,
+                activity=activity,
             )
 
     async def run_owned(profile: AgentProfile) -> str:

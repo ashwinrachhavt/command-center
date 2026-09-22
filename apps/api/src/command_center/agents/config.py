@@ -38,6 +38,8 @@ class AgentProfile(BaseModel):
             "document_read",
             "propose_profile_fact",
             "approved_profile",
+            "application_context",
+            "suggest_application_answers",
             "create_task",
             "draft_artifact",
             "memory_read",
