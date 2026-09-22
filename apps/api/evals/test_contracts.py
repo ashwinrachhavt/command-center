@@ -216,6 +216,8 @@ def test_deepeval_reports_provider_errors_separately(plan, tmp_path):
 def test_failed_setup_preserves_report_without_paid_calls(plan, tmp_path, mocker, failure):
     from types import SimpleNamespace
 
+    from command_center.core.config import Settings
+
     from . import conftest
 
     captures = reference_captures(load_suite()).model_dump(mode="json")
@@ -241,6 +243,14 @@ def test_failed_setup_preserves_report_without_paid_calls(plan, tmp_path, mocker
         gate.side_effect = FileNotFoundError("Synthetic missing runner")
     factory = mocker.patch("command_center.agents.models.create_chat_model")
     factory.side_effect = ValueError("Synthetic missing credentials")
+    mocker.patch(
+        "command_center.core.config.Settings",
+        return_value=Settings(
+            _env_file=None,
+            api_token="synthetic-evaluation-token-with-at-least-32-characters",
+            database_url="postgresql+psycopg://test:test-only@database.example.test/command_center_test",
+        ),
+    )
     with pytest.raises(pytest.fail.Exception, match="before any judge call"):
         next(conftest.quality_run.__wrapped__(config))
     if failure == "judge_setup":
