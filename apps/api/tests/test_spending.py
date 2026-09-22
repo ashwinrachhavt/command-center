@@ -326,3 +326,63 @@ def test_worker_fails_closed_before_provider_dispatch_without_human_policy(
         assert failed is not None
         assert failed.state == "failed"
         assert failed.error_code == "spending_policy_unconfigured"
+
+
+def test_spending_defaults_endpoint_and_fallback_unblocks_testing(settings, engine) -> None:
+    owner_id = uuid4()
+    with Session(engine) as db, db.begin():
+        db.add(Actor(id=owner_id, kind="human", display_name="Defaults user"))
+    app = create_app(settings)
+    app.dependency_overrides[authenticate] = lambda: Identity(owner_id, "synthetic")
+    with TestClient(app) as client:
+        before = client.get("/api/v1/spending").json()
+        assert before["configured"] is False
+        assert before["readiness"]["code"] == "spending_policy_unconfigured"
+
+        applied = client.post(
+            "/api/v1/spending/defaults",
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert applied.status_code == 200
+        data = applied.json()
+        assert data["configured"] is True
+        assert data["active"] is True
+        assert data["monthly_limit_micros"] == 100_000_000
+
+        with Session(engine) as db:
+            card = db.get(SpendingRateCard, UUID(data["rate_card_id"]))
+            assert card is not None
+            fallback_rate = card.model_rate("openai", "experimental-unlisted-model")
+            assert fallback_rate["input_per_million_micros"] == 500_000
+            assert fallback_rate["output_per_million_micros"] == 1_500_000
+
+
+def test_first_agent_request_automatically_applies_spending_defaults(settings, engine, mocker):
+    owner_id = uuid4()
+    with Session(engine) as db, db.begin():
+        db.add(Actor(id=owner_id, kind="human", display_name="Automatic defaults user"))
+    profile = AgentProfile(
+        name="Synthetic research",
+        description="Synthetic",
+        provider="openai",
+        model="gpt-5-mini",
+        instructions="Reply briefly.",
+    )
+    mocker.patch("command_center.api.agents.available_profile", return_value=(profile, "synthetic"))
+    app = create_app(settings)
+    app.dependency_overrides[authenticate] = lambda: Identity(owner_id, "synthetic")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent-runs",
+            json={"profile": "research", "prompt": "Synthetic request"},
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 201, response.text
+        summary = client.get("/api/v1/spending").json()
+        assert summary["active"] is True
+        assert summary["monthly_limit_micros"] == 100_000_000
+        assert summary["default_work_limit_micros"] == 10_000_000
+        with Session(engine) as db:
+            run = db.get(AgentRun, UUID(response.json()["id"]))
+            assert run is not None
+            assert "spending" in run.config_snapshot

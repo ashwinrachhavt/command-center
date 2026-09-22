@@ -9,11 +9,14 @@ import {
   Bot,
   BriefcaseBusiness,
   Building2,
+  Check,
   CheckCheck,
+  ChevronsUpDown,
   Command,
   Files,
   FileCheck,
   LayoutDashboard,
+  Plug,
   Puzzle,
   Search,
   Settings2,
@@ -21,6 +24,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarProvider,
@@ -82,19 +93,66 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         Command Center
       </Link>
-      <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5">
-        <span className="flex size-6 items-center justify-center rounded-md bg-secondary text-xs font-medium">
-          {(profile.data?.display_name ?? "My workspace")[0]}
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-foreground">
-            {profile.data?.display_name ?? "My workspace"}
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            Personal workspace
-          </p>
-        </div>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="mb-5 flex w-full items-center gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-left transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Account and workspace switcher"
+          >
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-medium text-foreground">
+              {(profile.data?.display_name ?? "My workspace")[0]}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-foreground">
+                {profile.data?.display_name ?? "My workspace"}
+              </p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Personal workspace
+              </p>
+            </div>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56" align="start">
+          <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+            Workspaces & Accounts
+          </DropdownMenuLabel>
+          <DropdownMenuItem className="gap-2">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded bg-primary/20 text-[10px] font-semibold text-primary">
+              {(profile.data?.display_name ?? "W")[0]}
+            </span>
+            <span className="flex-1 truncate text-xs font-medium">
+              {profile.data?.display_name ?? "Personal workspace"}
+            </span>
+            <Check className="size-3.5 text-primary" />
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+            Manage
+          </DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <Link
+              href="/settings"
+              onClick={onNavigate}
+              className="cursor-pointer text-xs"
+            >
+              <Settings2 className="mr-2 size-3.5" />
+              Workspace settings
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link
+              href="/settings"
+              onClick={onNavigate}
+              className="cursor-pointer text-xs"
+            >
+              <Plug className="mr-2 size-3.5" />
+              Connected accounts
+            </Link>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <nav
         className="flex flex-1 flex-col gap-0.5"
         aria-label="Main navigation"

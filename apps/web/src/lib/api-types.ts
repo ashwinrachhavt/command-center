@@ -518,6 +518,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Models */
+        get: operations["models_api_v1_agents_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/profiles": {
         parameters: {
             query?: never;
@@ -1946,6 +1963,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/spending/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Defaults */
+        post: operations["apply_defaults_api_v1_spending_defaults_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/spending/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -2799,6 +2833,17 @@ export interface components {
             relationship?: ("new" | "connected" | "warm" | "advocate") | null;
             /** Notes */
             notes?: string | null;
+        };
+        /** DiscoveredModel */
+        DiscoveredModel: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Selectable */
+            selectable: boolean;
+            /** Description */
+            description: string;
         };
         /** DocumentImportRead */
         DocumentImportRead: {
@@ -4766,6 +4811,10 @@ export interface components {
             profile: string;
             /** Prompt */
             prompt: string;
+            /** Provider */
+            provider?: ("openai" | "gemini" | "mistral" | "cohere") | null;
+            /** Model */
+            model?: string | null;
         };
         /** RunRead */
         RunRead: {
@@ -6633,6 +6682,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VersionLineageRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    models_api_v1_agents_models_get: {
+        parameters: {
+            query: {
+                provider: "openai" | "gemini" | "mistral" | "cohere";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveredModel"][];
                 };
             };
             /** @description Validation Error */
@@ -9800,6 +9880,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_defaults_api_v1_spending_defaults_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendingSummary"];
                 };
             };
             /** @description Validation Error */

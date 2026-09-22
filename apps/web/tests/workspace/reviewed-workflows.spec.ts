@@ -86,10 +86,12 @@ test("unknown external outcomes offer receipt reconciliation without another sen
   ]);
 });
 
-test("limits stay unset until a human chooses them and unknown spend reduces remaining", async ({
+test("spending defaults need no setup and custom limits retain accounting", async ({
   page,
 }) => {
   await page.goto("/settings");
+  await expect(page.getByText(/No setup needed/)).toBeVisible();
+  await page.getByText("Customize spending limits", { exact: true }).click();
   const monthly = page.getByRole("textbox", { name: "Monthly limit (USD)" });
   await expect(monthly).toHaveValue("");
   await expect(
@@ -117,6 +119,7 @@ test("connected operations are discoverable without inventing prices", async ({
   page,
 }) => {
   await page.goto("/settings");
+  await page.getByText("Customize spending limits", { exact: true }).click();
   await page
     .getByRole("button", { name: "New rate card", exact: true })
     .click();

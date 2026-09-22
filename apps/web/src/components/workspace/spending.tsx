@@ -500,7 +500,11 @@ export function SpendingSettings() {
         <h2 className="text-sm font-medium">Spending controls</h2>
         {summary.data && (
           <Badge variant="outline">
-            {summary.data.active ? "Active" : "Paid calls paused"}
+            {!summary.data.configured
+              ? "Automatic defaults"
+              : summary.data.active
+                ? "Active"
+                : "Paid calls paused"}
           </Badge>
         )}
       </div>
@@ -510,11 +514,17 @@ export function SpendingSettings() {
         <LoadingRows />
       ) : (
         <>
-          {summary.data.readiness && (
+          {!summary.data.configured ? (
+            <p className="mb-4 text-sm text-muted-foreground">
+              No setup needed. Your first run automatically uses a $100 monthly
+              limit and a $10 limit per task or standalone run. You can
+              customize these limits below.
+            </p>
+          ) : summary.data.readiness ? (
             <p className="mb-4 text-sm text-muted-foreground">
               {summary.data.readiness.message}
             </p>
-          )}
+          ) : null}
           {summary.data.period && (
             <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {(
@@ -542,11 +552,18 @@ export function SpendingSettings() {
               ))}
             </div>
           )}
-          <PolicyForm
-            key={summary.data.row_version ?? "unconfigured"}
-            summary={summary.data}
-            cards={cards.data}
-          />
+          <details>
+            <summary className="cursor-pointer text-sm font-medium">
+              Customize spending limits
+            </summary>
+            <div className="mt-4">
+              <PolicyForm
+                key={summary.data.row_version ?? "unconfigured"}
+                summary={summary.data}
+                cards={cards.data}
+              />
+            </div>
+          </details>
           <p className="mt-5 text-xs leading-5 text-muted-foreground">
             {summary.data.invoice_note} Reservations also cover concurrent chats
             and specialist calls. Reaching a limit pauses work without automatic

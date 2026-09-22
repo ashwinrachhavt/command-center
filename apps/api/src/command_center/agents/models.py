@@ -3,6 +3,17 @@
 from typing import Any
 
 from langchain_cohere import ChatCohere
+from langchain_core.exceptions import (
+    ContextOverflowError,
+    ModelAPIError,
+    ModelAuthenticationError,
+    ModelConnectionError,
+    ModelInvalidRequestError,
+    ModelNotFoundError,
+    ModelPermissionDeniedError,
+    ModelRateLimitError,
+    ModelTimeoutError,
+)
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
@@ -66,6 +77,9 @@ def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatMode
             timeout=60,
             max_retries=0,
             max_completion_tokens=profile.max_output_tokens,
+            # GPT-6 reasoning with function tools requires Responses, not Chat Completions.
+            use_responses_api=True if profile.model.startswith("gpt-6") else None,
+            store=False,
         )
     if profile.provider == "gemini":
         return ChatGoogleGenerativeAI(
@@ -90,3 +104,21 @@ def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatMode
         timeout_seconds=60,
         max_tokens=profile.max_output_tokens,
     )
+
+
+def model_failure_code(error: BaseException) -> str:
+    """Classify provider failures without persisting their potentially private messages."""
+    for kind, code in (
+        (ContextOverflowError, "context_limit"),
+        (ModelAuthenticationError, "model_authentication_failed"),
+        (ModelPermissionDeniedError, "model_access_denied"),
+        (ModelNotFoundError, "model_not_found"),
+        (ModelRateLimitError, "model_rate_limited"),
+        (ModelTimeoutError, "model_timeout"),
+        (ModelConnectionError, "model_connection_failed"),
+        (ModelInvalidRequestError, "model_request_rejected"),
+        (ModelAPIError, "model_provider_unavailable"),
+    ):
+        if isinstance(error, kind):
+            return code
+    return "agent_execution_failed"

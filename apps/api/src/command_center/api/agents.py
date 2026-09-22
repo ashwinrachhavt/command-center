@@ -2,11 +2,12 @@ import asyncio
 from typing import Any, Literal
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import func, select
 
-from command_center.agents.config import AgentProfile, load_profiles
+from command_center.agents.config import AgentProfile, ModelProvider, load_profiles
 from command_center.agents.models import missing_profile_credentials
 from command_center.api import schemas as s
 from command_center.api.workspace import (
@@ -24,6 +25,11 @@ from command_center.core.identity import CurrentIdentity
 from command_center.db.agents import AgentRun
 from command_center.db.artifacts import Artifact, ArtifactVersion
 from command_center.db.models import AuditEvent
+from command_center.integrations.model_catalog import (
+    DiscoveredModel,
+    ModelCatalogUnavailable,
+    discover_models,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
 
@@ -31,6 +37,8 @@ router = APIRouter(prefix="/api/v1", tags=["agents"])
 class RunCreate(s.Contract):
     profile: str = Field(max_length=100)
     prompt: str = Field(min_length=1, max_length=20000)
+    provider: Literal["openai", "gemini", "mistral", "cohere"] | None = None
+    model: str | None = Field(default=None, max_length=100)
 
 
 class RunRead(s.RecordRead):
@@ -72,17 +80,40 @@ def missing_profile_configuration(request: Request, profile: AgentProfile) -> li
     return missing
 
 
-def available_profile(request: Request, slug: str) -> tuple[AgentProfile, str]:
+def available_profile(
+    request: Request,
+    slug: str,
+    provider: str | None = None,
+    model: str | None = None,
+) -> tuple[AgentProfile, str]:
     """Load one runnable profile and enforce shared provider prerequisites."""
     settings = request.app.state.settings
     configured, revision = load_profiles(settings.agent_config, settings.agent_skills_dir)
     if slug not in configured:
         raise HTTPException(422, "Unknown agent profile")
     profile = configured[slug]
+    if provider is not None or model is not None:
+        updates: dict[str, Any] = {}
+        if provider is not None:
+            updates["provider"] = provider
+        if model is not None:
+            updates["model"] = model
+        profile = profile.model_copy(update=updates)
     missing = missing_profile_configuration(request, profile)
     if missing:
         raise HTTPException(503, "Add " + ", ".join(missing) + " to run this profile")
     return profile, revision
+
+
+@router.get("/agents/models", response_model=list[DiscoveredModel])
+async def models(
+    provider: ModelProvider, identity: CurrentIdentity, request: Request
+) -> list[DiscoveredModel]:
+    try:
+        async with httpx.AsyncClient() as http:
+            return await discover_models(request.app.state.settings, provider, http)
+    except ModelCatalogUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
 
 
 @router.get("/agents/profiles")
@@ -175,7 +206,12 @@ def queue_run(
     body: RunCreate, identity: CurrentIdentity, db: Database, key: WriteKey, request: Request
 ) -> dict[str, Any]:
     def change(record_id: UUID) -> dict[str, Any]:
-        profile, revision = available_profile(request, body.profile)
+        from command_center.db.spending import ensure_default_spending_policy
+
+        ensure_default_spending_policy(db, identity.id)
+        profile, revision = available_profile(
+            request, body.profile, provider=body.provider, model=body.model
+        )
         run = AgentRun.enqueue(
             db,
             record_id=record_id,

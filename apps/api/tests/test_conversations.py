@@ -259,6 +259,18 @@ def test_standalone_and_conversation_queues_share_profile_availability(client):
     )
     assert queued_run.status_code == 201, queued_run.text
 
+    custom_model_run = post(
+        client,
+        "agent-runs",
+        {
+            "prompt": "Synthetic model test.",
+            "profile": "lead",
+            "provider": "openai",
+            "model": "gpt-4o",
+        },
+    )
+    assert custom_model_run.status_code == 201, custom_model_run.text
+
     task = post(client, "tasks", {"title": "Synthetic shared profile task"}).json()
     conversation = create_session(client, task_id=task["id"])
     path = f"agent-sessions/{conversation['id']}/messages"

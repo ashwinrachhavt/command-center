@@ -289,6 +289,22 @@ const runFailureMessages: Record<string, string> = {
   tool_limit: "This run reached its tool-call limit and stopped.",
   worker_interrupted:
     "The worker stopped before this run finished. No automatic replay was attempted.",
+  model_authentication_failed:
+    "The provider rejected its API key. Check the provider credentials in Settings.",
+  model_access_denied:
+    "Your provider account does not have access to this model. Choose another model or check account permissions.",
+  model_not_found:
+    "The provider could not find this model; it may have been retired. Refresh the model picker and choose an available model.",
+  model_rate_limited:
+    "The provider’s rate or quota limit was reached. Check your provider account or try again later.",
+  model_timeout:
+    "The model provider timed out. No automatic replay was attempted.",
+  model_connection_failed:
+    "The worker could not connect to the model provider. Check connectivity before trying again.",
+  model_request_rejected:
+    "The model provider rejected this agent’s request or tool configuration. Choose another model while the integration is checked.",
+  model_provider_unavailable:
+    "The model provider returned a server error. Try again later; no automatic replay was attempted.",
   agent_execution_failed:
     "The provider or worker stopped unexpectedly. No automatic replay was attempted.",
 };

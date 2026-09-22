@@ -29,9 +29,11 @@ import {
   label,
   runFailureMessage,
   type AgentProfile,
+  type ModelProvider,
   type Page,
   type Run,
 } from "@/lib/api";
+import { ModelSwitcher } from "./model-switcher";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { cn } from "@/lib/utils";
 import {
@@ -67,6 +69,8 @@ export function Agents() {
   const [profileId, setProfileId] = useState("research");
   const [prompt, setPrompt] = useState("");
   const [selected, setSelected] = useState<string>();
+  const [customProvider, setCustomProvider] = useState<ModelProvider>();
+  const [customModel, setCustomModel] = useState<string>();
   const profiles = useQuery({
     queryKey: ["profiles"],
     queryFn: () =>
@@ -78,6 +82,8 @@ export function Agents() {
     refetchInterval: 4000,
   });
   const profile = profiles.data?.find((p) => p.id === profileId);
+  const activeProvider = customProvider ?? profile?.provider ?? "openai";
+  const activeModel = customModel ?? profile?.model ?? "gpt-5-mini";
   const run = runs.data?.items.find((r) => r.id === selected);
   const steps = useQuery({
     queryKey: ["run-steps", selected],
@@ -98,7 +104,12 @@ export function Agents() {
   const [cancelIntent] = useState(() => new RetainedRequestIntent());
   const client = useQueryClient();
   const send = useMutation({
-    mutationFn: (submission: { profile: string; prompt: string }) => {
+    mutationFn: (submission: {
+      profile: string;
+      prompt: string;
+      provider?: ModelProvider;
+      model?: string;
+    }) => {
       const target = "agent-runs";
       const body = submission;
       const intent = runIntent.forRequest("POST", target, body);
@@ -339,11 +350,23 @@ export function Agents() {
             onSubmit={(e) => {
               e.preventDefault();
               if (profile?.ready && prompt.trim())
-                send.mutate({ profile: profileId, prompt });
+                send.mutate({
+                  profile: profileId,
+                  prompt,
+                  provider: activeProvider,
+                  model: activeModel,
+                });
             }}
           >
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <Select value={profileId} onValueChange={setProfileId}>
+            <div className="mb-3 flex flex-wrap items-center gap-2.5">
+              <Select
+                value={profileId}
+                onValueChange={(id) => {
+                  setProfileId(id);
+                  setCustomProvider(undefined);
+                  setCustomModel(undefined);
+                }}
+              >
                 <SelectTrigger className="min-w-44" aria-label="Choose agent">
                   <SelectValue />
                 </SelectTrigger>
@@ -358,9 +381,18 @@ export function Agents() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              {profile && (
+                <ModelSwitcher
+                  provider={activeProvider}
+                  model={activeModel}
+                  onSelect={(p, m) => {
+                    setCustomProvider(p);
+                    setCustomModel(m);
+                  }}
+                />
+              )}
               <span className="text-[10px] text-muted-foreground">
-                {profile ? `${label(profile.provider)} · ${profile.model}` : ""}
-                {profile ? ` · ${profile.tools.length} scoped tools` : ""}
+                {profile ? `· ${profile.tools.length} scoped tools` : ""}
               </span>
               {profile?.skills.map((skill) => (
                 <Badge
