@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_LOCKED: "true"
+  UV_NO_PROGRESS: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  backend:
+    name: Backend lint, types and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC_TEST_DATABASE_URL: postgresql+psycopg://test:test-only@127.0.0.1:5432/command_center_test
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: command_center_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d command_center_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install locked backend dependencies
+        run: uv sync --project apps/api --locked
+      - name: Ruff lint
+        run: uv run --project apps/api ruff check apps/api scripts
+      - name: Ruff formatting
+        run: uv run --project apps/api ruff format --check apps/api scripts
+      - name: Python types
+        run: uv run --project apps/api mypy --config-file apps/api/pyproject.toml apps/api/src
+      - name: PostgreSQL tests and migrations
+        run: uv run --project apps/api pytest apps/api/tests -q
+
+  web:
+    name: Web, browser and contract checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # Reserved-domain fixtures for the build; these are not real Clerk credentials.
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS50ZXN0JA
+      CLERK_SECRET_KEY: sk_test_ci_fixture_not_a_real_key
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install locked dependencies
+        run: |
+          uv sync --project apps/api --locked
+          npm ci --prefix apps/web
+      - name: Check environment projection and generated contracts
+        run: |
+          uv run --project apps/api python scripts/bootstrap.py
+          make env-sync env-check contracts-check
+      - name: Frontend lint
+        run: npm run lint --prefix apps/web
+      - name: TypeScript types
+        run: npm run typecheck --prefix apps/web
+      - name: Frontend unit tests
+        run: npm run test:unit --prefix apps/web
+      - name: Install Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Companion browser tests
+        run: npm run test:browser --prefix apps/web -- --workers=2
+      - name: Workspace browser tests
+        run: npm run test:workspace --prefix apps/web -- --workers=2
+      - name: Production build
+        run: npm run build --prefix apps/web
+
+  evaluations:
+    name: Offline evaluation contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/.local/evals-venv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: |
+            apps/api/uv.lock
+            apps/api/evals/uv.lock
+      - name: Install isolated evaluation dependencies
+        run: uv sync --project apps/api/evals --locked
+      - name: Offline DeepEval contract tests
+        run: make eval-check
