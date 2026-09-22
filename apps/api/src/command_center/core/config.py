@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
@@ -15,6 +16,9 @@ class Settings(BaseSettings):
     firecrawl_url: str = "http://127.0.0.1:3002"
     firecrawl_api_key: SecretStr = SecretStr("")
     searxng_url: str = "http://127.0.0.1:8081"
+    docling_url: str = "http://127.0.0.1:5001"
+    docling_api_key: SecretStr = SecretStr("")
+    blob_store_path: Path = Path(".local/blobs")
     connector_timeout_seconds: float = Field(default=5, gt=0, le=30)
     auth_mode: Literal["clerk", "local"] = "clerk"
     environment: Literal["development", "test", "production"] = "development"
@@ -25,6 +29,22 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = Field(
         default=SecretStr(""), validation_alias=AliasChoices("OPENAI_API_KEY", "CC_OPENAI_API_KEY")
     )
+    gemini_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("GEMINI_API_KEY", "CC_GEMINI_API_KEY"),
+    )
+    google_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("GOOGLE_API_KEY", "CC_GOOGLE_API_KEY"),
+    )
+    mistral_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("MISTRAL_API_KEY", "CC_MISTRAL_API_KEY"),
+    )
+    cohere_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("COHERE_API_KEY", "CC_COHERE_API_KEY"),
+    )
     composio_api_key: SecretStr = Field(
         default=SecretStr(""),
         validation_alias=AliasChoices("COMPOSIO_API_KEY", "CC_COMPOSIO_API_KEY"),
@@ -34,10 +54,14 @@ class Settings(BaseSettings):
     internal_api_url: str = "http://127.0.0.1:8000"
     agent_skills_dir: str = "agents/skills"
     agent_config: str = "agents/profiles.toml"
+    agent_checkpoint_database_url: str | None = Field(default=None, repr=False)
+    agent_dependency_urls: list[str] = []
     web_origin: str = "http://localhost:3001"
 
     @model_validator(mode="after")
     def validate_auth_mode(self) -> "Settings":
+        if not self.gemini_api_key.get_secret_value() and self.google_api_key.get_secret_value():
+            self.gemini_api_key = self.google_api_key
         if self.environment == "production" and (
             self.auth_mode != "clerk" or not self.clerk_issuer
         ):
@@ -53,7 +77,7 @@ class Settings(BaseSettings):
             raise ValueError("Use a postgresql+psycopg:// database URL")
         return value
 
-    @field_validator("firecrawl_url", "searxng_url")
+    @field_validator("firecrawl_url", "searxng_url", "docling_url")
     @classmethod
     def validate_provider_url(cls, value: str) -> str:
         # These are operator-controlled service addresses, never scraped target URLs.

@@ -6,11 +6,12 @@ const script = readFileSync(
   path.resolve(__dirname, "../../extension/content.js"),
   "utf8",
 );
-type Snapshot = {
-  id: string;
-  page_url: string;
-  fields: { id: string; label: string }[];
-};
+import type { components } from "../src/lib/api-types";
+type Snapshot = components["schemas"]["SnapshotCreate"];
+const contracts = readFileSync(
+  path.resolve(__dirname, "../../extension/contracts.js"),
+  "utf8",
+);
 
 async function message<T>(page: Page, payload: unknown): Promise<T> {
   return page.evaluate(
@@ -45,6 +46,7 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
+  await page.addScriptTag({ content: contracts });
   await page.addScriptTag({ content: script });
 });
 
@@ -52,7 +54,10 @@ test("shares field descriptions, fills once, and never submits", async ({
   page,
 }) => {
   await page.locator("#name").fill("Existing private value");
-  const snapshot = await message<Snapshot>(page, { action: "inspect" });
+  const snapshot = await message<Snapshot>(page, {
+    version: 1,
+    action: "inspect",
+  });
   expect(snapshot.fields).toHaveLength(4);
   expect(JSON.stringify(snapshot)).not.toContain("Existing private value");
   expect(JSON.stringify(snapshot)).not.toContain("synthetic-secret");
@@ -65,23 +70,31 @@ test("shares field descriptions, fills once, and never submits", async ({
       f2: "Staff Engineer",
     },
   };
-  expect(await message(page, { action: "apply", command })).toMatchObject({
+  expect(
+    await message(page, { version: 1, action: "apply", command }),
+  ).toMatchObject({
     state: "applied",
   });
   await expect(page.locator("#name")).toHaveValue("Synthetic Person");
   await expect(page.locator("#role")).toHaveValue("Staff Engineer");
   await expect(page.locator("#outcome")).toHaveText("Not submitted");
-  expect(await message(page, { action: "apply", command })).toMatchObject({
+  expect(
+    await message(page, { version: 1, action: "apply", command }),
+  ).toMatchObject({
     state: "rejected",
   });
 });
 
 test("rejects a changed field before applying any values", async ({ page }) => {
-  const snapshot = await message<Snapshot>(page, { action: "inspect" });
+  const snapshot = await message<Snapshot>(page, {
+    version: 1,
+    action: "inspect",
+  });
   await page.locator("label[for=email]").evaluate((element) => {
     element.textContent = "Bank account";
   });
   const result = await message(page, {
+    version: 1,
     action: "apply",
     command: {
       snapshot_id: snapshot.id,
@@ -94,12 +107,16 @@ test("rejects a changed field before applying any values", async ({ page }) => {
 });
 
 test("rejects navigation within the same page", async ({ page }) => {
-  const snapshot = await message<Snapshot>(page, { action: "inspect" });
+  const snapshot = await message<Snapshot>(page, {
+    version: 1,
+    action: "inspect",
+  });
   await page.evaluate(() =>
     history.pushState({}, "", "?different-application=1"),
   );
   expect(
     await message(page, {
+      version: 1,
       action: "apply",
       command: {
         snapshot_id: snapshot.id,
@@ -109,4 +126,40 @@ test("rejects navigation within the same page", async ({ page }) => {
     }),
   ).toMatchObject({ state: "rejected" });
   await expect(page.locator("#name")).toHaveValue("");
+});
+
+test("rejects malformed and incompatible messages before touching the form", async ({
+  page,
+}) => {
+  const snapshot = await message<Snapshot>(page, {
+    version: 1,
+    action: "inspect",
+  });
+  for (const payload of [
+    null,
+    {},
+    { version: 2, action: "inspect" },
+    { version: 1, action: "apply" },
+    {
+      version: 1,
+      action: "apply",
+      command: {
+        snapshot_id: snapshot.id,
+        page_url: snapshot.page_url,
+        fields: { f0: 123 },
+      },
+    },
+    {
+      version: 1,
+      action: "apply",
+      command: {
+        snapshot_id: snapshot.id,
+        page_url: snapshot.page_url,
+        fields: { f0: "x".repeat(5001) },
+      },
+    },
+  ]) {
+    expect(await message(page, payload)).toMatchObject({ state: "rejected" });
+    await expect(page.locator("#name")).toHaveValue("");
+  }
 });

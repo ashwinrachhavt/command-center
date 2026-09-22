@@ -5,11 +5,14 @@ from command_center.db import (  # noqa: F401
     agents,
     artifacts,
     browser,
+    conversations,
     crm,
+    document_imports,
     evidence,
     idempotency,
     memory,
     models,
+    profile_facts,
 )
 from command_center.db.base import Base, UTCDateTime
 from command_center.db.session import create_database_engine

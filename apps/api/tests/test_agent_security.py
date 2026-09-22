@@ -1,4 +1,4 @@
-"""Authentication, scoped MCP discovery, leases and a mocked ReAct loop."""
+"""Authentication, scoped MCP discovery, leases and synthetic Deep Agents execution."""
 
 from datetime import timedelta
 from types import SimpleNamespace
@@ -8,11 +8,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from sqlalchemy.orm import Session
 
 from command_center.agents.config import AgentProfile, load_profiles
-from command_center.agents.runtime import ToolRegistry, run_graph
+from command_center.agents.tools import ToolRegistry
 from command_center.core.capabilities import issue_run_token
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
@@ -202,58 +202,30 @@ def test_duplicate_delivery_and_expired_lease_do_not_restart(engine, running):
         assert AgentRun.claim(db, run_id) is None
 
 
-def test_react_loop_uses_skills_and_preserves_tool_call_id(settings, mocker):
+def test_profiles_pin_skills_separately_from_directives():
     profiles, revision = load_profiles("agents/profiles.toml")
     profile = profiles["research"]
-    assert revision and "Skill: research" in profile.instructions
-    registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-credential")
-    execute = mocker.patch.object(registry, "execute", return_value='{"items": []}')
-    model = mocker.Mock()
-    model.bind_tools.return_value = model
-    model.invoke.side_effect = [
-        AIMessage(
-            content="",
-            tool_calls=[
-                {"name": "memory_read", "args": {"query": "preference"}, "id": "call_stable"}
-            ],
-        ),
-        AIMessage(content="No remembered preference found."),
-    ]
-    states = []
-    result = run_graph(profile, "Find my preference", registry, states.append, model=model)
-    assert result == "No remembered preference found."
-    execute.assert_called_once_with("memory_read", {"query": "preference"}, "call_stable")
-    assert any(isinstance(message, ToolMessage) for message in model.invoke.call_args.args[0])
-    assert states[-1]["steps"] == 2
-    assert "synthetic-credential" not in str(states)
+    assert revision and profile.skill_files["research"]
+    assert profile.skill_files["research"] not in profile.instructions
+    assert profiles["lead"].specialists["research"] == profile
 
 
-def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(settings, engine, mocker):
-    """The only mock is the paid model; MCP, HTTP auth and SQL writes are real."""
-    import socket
-    import threading
-    import time
-
-    import uvicorn
-    from pydantic import SecretStr
+def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
+    agent_server,
+    engine,
+    mocker,
+    scripted_model,
+):
+    """Only paid generation is mocked; MCP, HTTP authorization and SQL writes are real."""
+    from sqlalchemy import select
 
     from command_center.agents.worker import perform_next
     from command_center.db.models import Task
 
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    port = listener.getsockname()[1]
-    config = settings.model_copy(
-        update={
-            "internal_api_url": f"http://127.0.0.1:{port}",
-            "allowed_hosts": ["127.0.0.1"],
-            "openai_api_key": SecretStr("synthetic-model-key"),
-        }
-    )
     profile = AgentProfile(
         name="Test",
         description="Test",
-        model="synthetic",
+        model="gpt-5-mini",
         instructions="Synthetic test only",
         tools=["create_task"],
         max_steps=3,
@@ -274,45 +246,30 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(settings, engi
         )
         db.flush()
         run_id, actor_id = run.id, actor.id
-    model = mocker.Mock()
-    model.bind_tools.return_value = model
-    model.invoke.side_effect = [
-        AIMessage(
-            content="",
-            tool_calls=[
-                {
-                    "name": "create_task",
-                    "args": {"title": "MCP integration task"},
-                    "id": "call_mcp_test",
-                }
-            ],
-        ),
-        AIMessage(content="Created the task."),
-    ]
-    mocker.patch("command_center.agents.worker.openai_model", return_value=model)
-    server = uvicorn.Server(uvicorn.Config(create_app(config), log_level="error", access_log=False))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-    thread.start()
-    try:
-        for _ in range(500):
-            if server.started:
-                break
-            time.sleep(0.01)
-        assert server.started
-        assert perform_next(engine, config, run_id)
-        with Session(engine) as db:
-            completed = db.get(AgentRun, run_id)
-            assert completed.state == "completed", completed.error_code
-            assert completed.output == "Created the task."
-            assert completed.tool_steps()[0]["state"] == "output-available"
-            from sqlalchemy import select
-
-            assert (
-                db.scalar(select(Task).where(Task.owner_id == actor_id)).title
-                == "MCP integration task"
-            )
-        assert not perform_next(engine, config, run_id)
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-        listener.close()
+    model = scripted_model(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "create_task",
+                        "args": {"title": "MCP integration task"},
+                        "id": "call_mcp_test",
+                    }
+                ],
+            ),
+            AIMessage(content="Created the task."),
+        ]
+    )
+    mocker.patch("command_center.agents.worker.create_chat_model", return_value=model)
+    assert perform_next(engine, agent_server, run_id)
+    with Session(engine) as db:
+        completed = db.get(AgentRun, run_id)
+        assert completed.state == "completed", completed.error_code
+        assert completed.output == "Created the task."
+        assert completed.tool_steps()[0]["state"] == "output-available"
+        assert completed.tool_steps()[0]["id"] == "call_mcp_test"
+        assert (
+            db.scalar(select(Task).where(Task.owner_id == actor_id)).title == "MCP integration task"
+        )
+    assert not perform_next(engine, agent_server, run_id)

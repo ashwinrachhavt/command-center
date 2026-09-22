@@ -20,6 +20,12 @@ dependencies = [
   "jsonschema>=4,<5",
   "mcp>=1.26,<2",
   "langchain-mcp-adapters>=0.2,<1",
+  "deepagents==0.7.16",
+  "langgraph-checkpoint-postgres==3.1.2",
+  "python-multipart>=0.0.22,<1",
+  "langchain-google-genai>=4,<5",
+  "langchain-mistralai>=1,<2",
+  "langchain-cohere>=0.5,<1",
 ]
 
 [dependency-groups]

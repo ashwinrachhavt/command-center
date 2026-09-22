@@ -3,8 +3,10 @@
 import json
 from pathlib import Path
 
+from command_center.api import browser_contracts
 from command_center.core.config import Settings
 from command_center.main import create_app
+from pydantic import TypeAdapter
 
 settings = Settings(
     _env_file=None,
@@ -16,3 +18,25 @@ path = Path(".local/openapi.json")
 path.parent.mkdir(exist_ok=True)
 path.write_text(json.dumps(create_app(settings).openapi(), indent=2) + "\n")
 print("Exported API contracts to .local/openapi.json")
+
+models = {
+    name: getattr(browser_contracts, name)
+    for name in (
+        "InspectMessage",
+        "ApplyMessage",
+        "ApplyResult",
+        "SnapshotCreate",
+        "PairCredentials",
+        "PendingCommand",
+        "ClaimResult",
+        "FillResult",
+    )
+}
+models["PendingCommands"] = list[browser_contracts.PendingCommand]
+Path(".local/browser-contracts.json").write_text(
+    json.dumps(
+        {name: TypeAdapter(model).json_schema() for name, model in models.items()},
+        indent=2,
+    )
+    + "\n"
+)

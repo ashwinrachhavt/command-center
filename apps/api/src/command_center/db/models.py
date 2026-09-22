@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -38,6 +39,7 @@ class Task(Base):
 
     __tablename__ = "tasks"
     __table_args__ = (
+        UniqueConstraint("id", "owner_id"),
         ForeignKeyConstraint(
             ["opportunity_id", "owner_id"], ["opportunities.id", "opportunities.owner_id"]
         ),

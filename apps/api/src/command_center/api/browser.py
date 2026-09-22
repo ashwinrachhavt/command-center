@@ -1,12 +1,21 @@
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import Field, HttpUrl, field_validator
 from sqlalchemy import select
 
 from command_center.api import schemas as s
+from command_center.api.browser_contracts import (
+    ClaimResult,
+    FillCreate,
+    FillResult,
+    PairCreate,
+    PairCredentials,
+    PairExchange,
+    PendingCommand,
+    SnapshotCreate,
+)
 from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.auth import bearer
 from command_center.core.identity import CurrentIdentity
@@ -34,14 +43,6 @@ def device_identity(
 
 
 Device = Annotated[BrowserDevice, Depends(device_identity)]
-
-
-class PairCreate(s.Contract):
-    name: str = Field(default="My browser", min_length=1, max_length=100)
-
-
-class PairExchange(s.Contract):
-    code: str = Field(min_length=32, max_length=100)
 
 
 def device_data(device: BrowserDevice) -> dict[str, Any]:
@@ -88,7 +89,7 @@ def pair(
     return write(db, identity.id, key, "POST:browser-pairing", body, change)
 
 
-@router.post("/pairings/exchange")
+@router.post("/pairings/exchange", response_model=PairCredentials)
 def exchange(body: PairExchange, db: Database, request: Request) -> dict[str, str]:
     try:
         device, token = BrowserDevice.redeem(
@@ -117,28 +118,6 @@ def revoke(
     return write(db, identity.id, key, f"REVOKE:browser:{device_id}", s.Contract(), change)
 
 
-class FormField(s.Contract):
-    id: str = Field(pattern=r"^f[0-9]{1,3}$")
-    label: str = Field(max_length=500)
-    type: Literal["text", "email", "tel", "url", "textarea", "select"]
-    required: bool = False
-    options: list[str] = Field(default_factory=list, max_length=100)
-
-    @field_validator("options")
-    @classmethod
-    def bounded_options(cls, value: list[str]) -> list[str]:
-        if any(len(option) > 300 for option in value):
-            raise ValueError("Option is too long")
-        return value
-
-
-class SnapshotCreate(s.Contract):
-    id: UUID
-    page_url: HttpUrl
-    title: str = Field(max_length=300)
-    fields: list[FormField] = Field(max_length=100)
-
-
 @router.post("/snapshots", status_code=201)
 def capture(body: SnapshotCreate, device: Device, db: Database, request: Request) -> dict[str, Any]:
     snapshot = BrowserSnapshot.capture(
@@ -165,11 +144,6 @@ def snapshots(identity: CurrentIdentity, db: Database) -> list[dict[str, Any]]:
             .limit(20)
         )
     ]
-
-
-class FillCreate(s.Contract):
-    snapshot_id: UUID
-    fields: dict[str, str] = Field(min_length=1, max_length=100)
 
 
 @router.post("/commands", status_code=201)
@@ -208,7 +182,7 @@ def commands(identity: CurrentIdentity, db: Database) -> list[dict[str, Any]]:
     ]
 
 
-@router.get("/device/commands")
+@router.get("/device/commands", response_model=list[PendingCommand])
 def pending_commands(device: Device, db: Database, request: Request) -> list[dict[str, Any]]:
     rows = db.scalars(
         select(BrowserCommand)
@@ -234,7 +208,7 @@ def pending_commands(device: Device, db: Database, request: Request) -> list[dic
     return results
 
 
-@router.post("/device/commands/{command_id}/claim")
+@router.post("/device/commands/{command_id}/claim", response_model=ClaimResult)
 def claim(command_id: UUID, device: Device, db: Database, request: Request) -> dict[str, str]:
     command = db.scalar(
         select(BrowserCommand)
@@ -247,11 +221,7 @@ def claim(command_id: UUID, device: Device, db: Database, request: Request) -> d
     return {"state": "claimed"}
 
 
-class FillResult(s.Contract):
-    state: Literal["applied", "rejected", "failed", "outcome_unknown"]
-
-
-@router.post("/device/commands/{command_id}/result")
+@router.post("/device/commands/{command_id}/result", response_model=FillResult)
 def result(
     command_id: UUID, body: FillResult, device: Device, db: Database, request: Request
 ) -> dict[str, str]:

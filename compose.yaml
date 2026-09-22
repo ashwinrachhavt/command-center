@@ -10,22 +10,52 @@ x-api: &api
     CC_FIRECRAWL_URL: http://firecrawl:3002
     CC_FIRECRAWL_API_KEY: ${CC_FIRECRAWL_API_KEY:-}
     CC_SEARXNG_URL: http://searxng:8080
+    CC_DOCLING_URL: http://docling:5001
+    CC_DOCLING_API_KEY: ${CC_DOCLING_API_KEY:-}
+    CC_BLOB_STORE_PATH: /var/lib/command-center/blobs
     CC_AUTH_MODE: clerk
     CC_CLERK_ISSUER: ${CC_CLERK_ISSUER:-}
     CC_CLERK_AUTHORIZED_PARTIES: ${CC_CLERK_AUTHORIZED_PARTIES:-["http://localhost:3001"]}
     CC_WEB_ORIGIN: http://localhost:3001
     CC_INTERNAL_API_URL: http://api:8000
     CC_REDIS_URL: redis://redis:6379/0
+    CC_AGENT_DEPENDENCY_URLS: ${CC_AGENT_DEPENDENCY_URLS:-[]}
     CC_AGENT_CONFIG: /app/agents/profiles.toml
     CC_AGENT_SKILLS_DIR: /app/agents/skills
+    CC_AGENT_CHECKPOINT_DATABASE_URL: ${CC_AGENT_CHECKPOINT_DATABASE_URL:-}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+    COHERE_API_KEY: ${COHERE_API_KEY:-}
     COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
     CC_COMPOSIO_AUTH_CONFIGS: ${CC_COMPOSIO_AUTH_CONFIGS:-{}}
   volumes:
     - ./agents:/app/agents:ro
+    - document-blobs:/var/lib/command-center/blobs
   init: true
 
 services:
+  mock-web:
+    image: node:24-alpine
+    profiles: ["test"]
+    working_dir: /app
+    command: ["node", "scripts/fixture_server.mjs"]
+    environment:
+      FIXTURE_HOST: 0.0.0.0
+    volumes:
+      - ./scripts/fixture_server.mjs:/app/scripts/fixture_server.mjs:ro
+      - ./apps/web/public/fixtures:/app/apps/web/public/fixtures:ro
+    ports:
+      - "127.0.0.1:4319:4319"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4319/health', {signal: AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    init: true
+
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -34,15 +64,19 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "test \"$$(redis-cli ping)\" = PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   worker:
     <<: *api
-    command: ["celery", "-A", "command_center.agents.queue:celery", "worker", "--loglevel=WARNING", "--concurrency=2"]
+    networks:
+      - default
+      - research
+    command: ["sh", "-c", "python -m command_center.agents.readiness && exec celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=2"]
     depends_on:
       api:
         condition: service_healthy
@@ -52,7 +86,7 @@ services:
 
   beat:
     <<: *api
-    command: ["celery", "-A", "command_center.agents.queue:celery", "beat", "--loglevel=WARNING", "--schedule=/tmp/celerybeat-schedule"]
+    command: ["sh", "-c", "python -m command_center.agents.readiness && exec celery -A command_center.agents.queue:celery beat --loglevel=WARNING --schedule=/tmp/celerybeat-schedule"]
     depends_on:
       api:
         condition: service_healthy
@@ -70,10 +104,11 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "PGPASSWORD=$$POSTGRES_PASSWORD psql -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 12
+      start_period: 20s
     restart: unless-stopped
 
   migrate:
@@ -98,6 +133,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+      start_period: 20s
     restart: unless-stopped
 
   web:
@@ -105,10 +141,13 @@ services:
       context: apps/web
       args:
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
-    env_file:
-      - path: apps/web/.env
-        required: false
     environment:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL:-/sign-in}
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL:-/sign-up}
+      NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL:-/}
+      NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL:-/}
       CC_API_URL: http://api:8000
       CC_WEB_ORIGIN: http://localhost:3001
     ports:
@@ -121,6 +160,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+      start_period: 20s
     init: true
     restart: unless-stopped
 
@@ -136,12 +176,13 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "test", "-d", "command_center_test"]
+      test: ["CMD-SHELL", "PGPASSWORD=$$POSTGRES_PASSWORD psql -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null"]
       interval: 2s
       timeout: 5s
       retries: 15
 
 volumes:
+  document-blobs:
   postgres-data:
   redis-data:
 

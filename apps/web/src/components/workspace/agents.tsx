@@ -28,7 +28,6 @@ import {
   dateLabel,
   label,
   type AgentProfile,
-  type Integrations,
   type Page,
   type Run,
 } from "@/lib/api";
@@ -67,10 +66,6 @@ export function Agents() {
     queryKey: ["runs"],
     queryFn: () => api<Page<Run>>("agent-runs"),
     refetchInterval: 4000,
-  });
-  const integrations = useQuery({
-    queryKey: ["integrations"],
-    queryFn: () => api<Integrations>("integrations"),
   });
   const profile = profiles.data?.find((p) => p.id === profileId);
   const run = runs.data?.items.find((r) => r.id === selected);
@@ -305,7 +300,7 @@ export function Agents() {
             className="border-t border-border bg-card/40 p-5 md:px-8"
             onSubmit={(e) => {
               e.preventDefault();
-              send.mutate();
+              if (profile?.ready && prompt.trim()) send.mutate();
             }}
           >
             <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -318,13 +313,15 @@ export function Agents() {
                     {profiles.data?.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
+                        {p.ready ? "" : " · setup required"}
                       </SelectItem>
                     ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
               <span className="text-[10px] text-muted-foreground">
-                {profile?.model} · {profile?.tools.length ?? 0} scoped tools
+                {profile ? `${label(profile.provider)} · ${profile.model}` : ""}
+                {profile ? ` · ${profile.tools.length} scoped tools` : ""}
               </span>
               {profile?.skills.map((skill) => (
                 <Badge
@@ -355,7 +352,9 @@ export function Agents() {
                 disabled={
                   !prompt.trim() ||
                   send.isPending ||
-                  integrations.data?.openai_configured === false
+                  profiles.isPending ||
+                  !!profiles.error ||
+                  !profile?.ready
                 }
               >
                 {send.isPending ? <Spinner /> : <ArrowUp />}
@@ -369,9 +368,9 @@ export function Agents() {
                 </Link>
               </span>
               <span>
-                {integrations.data?.openai_configured === false ? (
+                {profile && !profile.ready ? (
                   <Link href="/settings" className="text-[var(--status-amber)]">
-                    Connect OpenAI in settings to start
+                    Configure {profile.missing_credentials.join(", ")} to start
                   </Link>
                 ) : (
                   "Runs use your configured provider account."

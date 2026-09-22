@@ -50,6 +50,18 @@
   }
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id) return;
+    const contracts = globalThis.CommandCenterContracts;
+    if (
+      !contracts ||
+      !(contracts.InspectMessage(message) || contracts.ApplyMessage(message))
+    ) {
+      respond({
+        state: "rejected",
+        message:
+          "Invalid or unsupported companion message. Reload the extension.",
+      });
+      return;
+    }
     if (message.action === "inspect") {
       const entries = Array.from(
         document.querySelectorAll("input,textarea,select"),

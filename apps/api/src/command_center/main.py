@@ -11,7 +11,18 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from command_center.agents.mcp_server import AgentMCP
-from command_center.api import agents, artifacts, browser, memory, workspace
+from command_center.api import (
+    agents,
+    artifacts,
+    browser,
+    conversations,
+    document_text,
+    documents,
+    leads,
+    memory,
+    profile_facts,
+    workspace,
+)
 from command_center.api.routes import api_router, health_router
 from command_center.core.config import Settings
 from command_center.db import browser as browser_models  # noqa: F401
@@ -98,6 +109,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspace.router)
     app.include_router(artifacts.router)
     app.include_router(agents.router)
+    app.include_router(conversations.router)
+    app.include_router(leads.router)
+    app.include_router(documents.router)
+    app.include_router(document_text.router)
+    app.include_router(profile_facts.router)
     app.include_router(browser.router)
     app.include_router(memory.router)
     app.mount("/mcp", mcp)

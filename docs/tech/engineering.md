@@ -1,10 +1,16 @@
 # engineering.md — Delivery and verification
 
-**Parent:** [Tech Spec](../tech-spec.md). **Revision:** 2026-09-21-r9. **State:** connected workspace, importer, same-page CRM layout and appearance controls implemented locally; prior hardening is partly implemented and remains tracked below. Deep Agents on LangGraph is selected; the new architecture is in documentation/interview, with no implementation plan approved yet. This file owns delivery work, not a third specification.
+**Parent:** [Tech Spec](tech-spec.md). **Revision:** 2026-09-21-r13. **State:** connected workspace, importer, full-page sections and contextual CRM inspection and appearance controls implemented locally; prior hardening is partly implemented and remains tracked below. Deep Agents on LangGraph, durable checkpoints, persistent conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. OpenAI, Gemini, Mistral and Cohere are selectable per profile. The user authorized autonomous implementation of the remaining workflows. This file owns delivery work, not an additional specification.
 
 ## Build objective
 
-The current agent interview defines a first release of Copilot-style application assistance with user Next/Submit, outreach approved and sent through Command Center, and research scripts producing documents. Deep Agents on LangGraph is selected for an always-on backend; scripts run automatically in isolated task workspaces. Composio is central for Gmail, Google Calendar, Linear and Notion; external changes require review and Slack follows later. [Product Spec](../product-spec.md#first-agent-release--confirmed-interview-direction) owns the accepted boundary. The [technical draft](../tech-spec.md#first-agent-release-architecture-draft) defines data ownership, module/async/Celery boundaries, skills/memory/handoff and MCP/token behavior. Finish the interview and engineering review before deriving build tasks for this release.
+The current agent interview defines a first release of Copilot-style application assistance with user Next/Submit, outreach approved and sent through Command Center, and research scripts producing documents. Deep Agents on LangGraph is selected for an always-on backend; scripts run automatically in isolated task workspaces. Composio is central for Gmail, Google Calendar, Linear and Notion; external changes require review and Slack follows later. [Product Spec](../product/product-spec.md#first-agent-release--confirmed-interview-direction) owns the accepted boundary. The [technical draft](tech-spec.md#first-agent-release-architecture-draft) defines data ownership, module/async/Celery boundaries, skills/memory/handoff and MCP/token behavior. Continue one usable workflow at a time; the next slice is grounded application-answer preparation and exact resume uploads through the browser companion. Current checks pass: 164 backend tests, 4 frontend unit tests, 4 companion browser tests, 23 workspace browser tests, contracts/style/types and the production build. All four native model adapters completed offline tool-call round trips; Cohere output/retry limits were checked at its SDK boundary. Real local Docling converted synthetic PDF, DOCX and text. The rebuilt local stack runs schema 0007_profile_facts; shared private blob storage and worker-to-Docling connectivity are verified. Paid model quality and live employer flows remain unverified.
+
+### Test and eval tooling
+
+Confirmed tooling lives in [Tech Spec](tech-spec.md#testing-mocking-and-agent-evaluations): pytest test authoring/runner, pytest-mock for mocks/spies, DeepEval for agent-quality evals. Backend pytest/pytest-mock exists. DeepEval and any pytest-based consolidation of the existing TypeScript UI suites are planned, not delivered by this documentation update. Keep existing regression coverage working during transition.
+
+Before building the new agent slice, define deterministic pytest cases for each domain/security/recovery boundary, identify model/provider mocks, and map DeepEval cases to the three confirmed workflows. Review eval dataset/version ownership, metric definitions, judge/model configuration, thresholds, cost and offline/paid CI separation; numeric choices remain open. Acceptance combines hard pytest correctness gates and independent quality results. Never install a second speculative runner or claim eval quality from mocked output.
 
 ### Agent release verification draft
 
@@ -30,7 +36,7 @@ The following is proposed verification work for the new architecture, not passin
 | Dashboard/system of record | Refresh/restart/reconnect reconstructs visible messages, delegation, artifacts, questions, reviews and receipts; counts match rows; actor isolation; paginated activity; stale external snapshots labelled; no dashboard-only completed state |
 | Single-server operations | Existing Docker topology survives process/server restart with durable records and artifact bytes; prove restore from backup, bounded worker/resource contention and operator recovery; document host, TLS, secrets and update/rollback procedure before deployment |
 
-Proposed sequence for review: prove Deep Agents/checkpoint/MCP compatibility; establish durable sessions/questions/context and facts; deliver one complete reviewed outreach path using on-request relevant Gmail searches in one account; add the requested Calendar/Linear/Notion actions through the same reviewed-action contract; deliver extension-generated filling/uploads; deliver isolated scripts and research documents. Each slice includes its persisted activity and dashboard/inspector projection, rather than postponing visibility to a final observability phase. This orders first-useful slices without removing named capabilities. Budget, browser field coverage and hosting decisions may change the sequence. Exact migrations/files/API contracts and implementation tasks follow the interactive review.
+Proposed sequence for review: prove Deep Agents/checkpoint/MCP compatibility; establish durable sessions/questions/context and facts; deliver one complete reviewed outreach path using on-request relevant Gmail searches in one account; add the requested Calendar/Linear/Notion actions through the same reviewed-action contract; deliver extension-generated filling/uploads; deliver isolated scripts and research documents. Each slice includes its persisted activity and dashboard/inspector projection, rather than postponing visibility to a final observability phase. This orders first-useful slices without removing named capabilities. Budget, browser field coverage and hosting decisions may change the sequence. The runtime/conversation slice is verified: 89 backend tests in make check and 13 workspace browser tests after UI fixes. Remaining slices retain the review and verification boundaries above.
 
 Browser platform acceptance matrix (required by AR-16; no new platform verification performed in this interview):
 
@@ -57,11 +63,11 @@ Evaluate the selected Deep Agents architecture against the three required workfl
 | Company/interview research | Saved editable artifact with usable source citations; separate fact/inference/unknown; optional script output matches its inputs; no loss on publication failure | Coverage and freshness rubric, citation correctness, script success and resource use, time to saved draft, artifact size and cost |
 | Recovery and concurrency | No cross-task/actor context leak; duplicate delivery/resume does not duplicate effects; stale workers are fenced; review/memory/budget boundaries hold | Recovery time, duplicate effects, lost questions/events/artifacts, worst reserved/actual spend under concurrency |
 
-Stage A, after implementation of the relevant slice: run deterministic domain, worker, MCP and browser fixtures locally with paid model/provider boundaries mocked. Exercise the failure cases in the verification map. Record measured local latency separately from model/network latency; mocks cannot establish output quality or live provider compatibility. The benchmark must fail on unauthorized effects, unsupported personal claims in fixture-grounded answers, loss of user edits or cross-owner access, rather than averaging these failures into a quality score.
+Stage A, after implementation of the relevant slice: run pytest-authored deterministic domain, worker and MCP tests plus browser regression fixtures locally with paid model/provider boundaries mocked. Exercise the failure cases in the verification map. Record measured local latency separately from model/network latency; mocks cannot establish output quality or live provider compatibility. The benchmark must fail on unauthorized effects, unsupported personal claims in fixture-grounded answers, loss of user edits or cross-owner access, rather than averaging these failures into a quality score.
 
 Stage B, before any paid trial: build a costed run sheet with selected model/configuration candidates, scenario/sample counts, maximum input/output tokens, tool-call and retry ceilings, sandbox startup/runtime limits, current provider prices, expected cost range and a hard total experiment limit. Use provider token counting/usage where available and conservative bounds for unknowns. Review this concrete plan and set its dollar allowance before running it. Do not estimate a monthly bill from an invented number of daily applications or research jobs.
 
-Stage C, only after that trial allowance is supplied: execute a small fixed synthetic set, retain structured outputs and usage, and manually assess the grounding/style/citation rubrics. Separate deterministic failures from model-quality failures and classify slow steps (queue, context lookup, model, tool, sandbox, user wait). Report individual results and observed range; a small sample does not justify a production p95 claim. Repeating a run uses its own planned allowance and preserves earlier outcomes rather than silently retrying until a favorable sample appears.
+Stage C, only after that trial allowance is supplied: run the DeepEval suite on a small fixed synthetic set, retain structured outputs and usage, and manually assess the grounding/style/citation rubrics. Separate deterministic failures from model-quality failures and classify slow steps (queue, context lookup, model, tool, sandbox, user wait). Report individual results and observed range; a small sample does not justify a production p95 claim. Repeating a run uses its own planned allowance and preserves earlier outcomes rather than silently retrying until a favorable sample appears.
 
 Stage D: propose per-task caps and a monthly cap using measured cost ranges, retry/headroom assumptions and the user's expected workload. Explain which tasks would pause under the proposal. Numeric caps are then explicit configuration with the chosen billing period/timezone, not hidden defaults in prompts. Repeat the relevant benchmark when a model, prompt/skill, tool catalog, retrieval strategy or sandbox changes materially; avoid rerunning unrelated scenarios without a reason.
 
@@ -91,11 +97,11 @@ Some foundation work can accompany the spike; do not promise site coverage befor
 
 Every implementation ticket names the user outcome, P requirement IDs, prerequisites, exact files/modules, migrations/indexes/constraints, API/tool schema, state transitions, permissions, failure/retry rules, synthetic fixtures and acceptance scenarios. Identify operational rollback/restore separately from a migration downgrade. Record selected package/runtime versions and reasons in the accepted technical decision log.
 
-Follow [Tech Spec](../tech-spec.md) for the selected stack, model/controller boundary, immutable artifact lifecycle and separation of business tasks from execution leases. Redis/Celery already exists. Do not introduce a replacement runtime, persistence layer or auth provider through a cleanup task.
+Follow [Tech Spec](tech-spec.md) for the selected stack, model/controller boundary, immutable artifact lifecycle and separation of business tasks from execution leases. Redis/Celery already exists. Do not introduce a replacement runtime, persistence layer or auth provider through a cleanup task.
 
 Implemented layout: `apps/api/src/command_center/{api,core,db,integrations,agents}`, `apps/api/migrations`, synthetic `apps/api/tests`, connected `apps/web`, `apps/extension`, versioned `agents/`, and root Compose/Makefile/scripts. The operator import lives in `scripts/import_workspace.py`. Add directories only for concrete behavior.
 
-The worker, companion, agent runtime and CRM interface are implemented. General artifact byte storage and autonomous campaign/application execution are later slices. Preserve the pictures in `mockups/`; the current UI's accepted interaction fixes and approved simplification are recorded in [design.md](design.md).
+The worker, companion, agent runtime and CRM interface are implemented. General artifact byte storage and autonomous campaign/application execution are later slices. Preserve the pictures in `mockups/`; the current UI's accepted interaction fixes and approved simplification are recorded in [Design Spec](../design/design-spec.md).
 
 ## Verification matrix
 
@@ -117,13 +123,13 @@ The worker, companion, agent runtime and CRM interface are implemented. General 
 
 Run meaningful unit, contract, integration and browser checks appropriate to the implemented slice. Use synthetic contacts, resumes, mail, exports and portal fixtures. Future live pilots are separate from committed test fixtures.
 
-Root [README](../../README.md#checks-and-migrations) owns runnable commands. Current `make check` includes Ruff/format/mypy, PostgreSQL pytest, frontend lint/typecheck and the production Next build. It now also runs non-watching Vitest component tests. Playwright remains explicit: `test:browser` covers the companion and `test:workspace` covers real UI components in an isolated synthetic Vite fixture. The fixture mocks Next routing, Clerk and the API; real authenticated workspace coverage remains T8.
+Root [README](../../README.md#checks-and-migrations) owns runnable commands. Current `make check` includes Ruff/format/mypy, PostgreSQL pytest, frontend lint/typecheck and the production Next build. It now also runs non-watching Vitest component tests. `make check` also runs `test:browser` for the companion; `test:workspace` remains an explicit check of real UI components in an isolated synthetic Vite fixture. The fixture mocks Next routing, Clerk and the API; real authenticated workspace coverage remains T8.
 
 ## Operations and delivery evidence
 
 Document startup, health/readiness, migration/upgrade, backup/restore, connector revoke/re-pair and browser halt/reconcile procedures. Monitor queue age, lease health, failed/paused work, disk/backup state, provider usage and application outcomes using redacted IDs rather than raw personal content.
 
-Before handing off an implementation, record changed files, schema/API additions, commands/results, fixture demonstration, deliberate deferrals and remaining risks. Use the root [AGENTS.md](../../AGENTS.md) for coding-tool and workspace instructions. The current handoff is [HANDOFF.md](../HANDOFF.md).
+Before handing off an implementation, record changed files, schema/API additions, commands/results, fixture demonstration, deliberate deferrals and remaining risks. Use the root [AGENTS.md](../../AGENTS.md) for coding-tool and workspace instructions. Keep session handoff notes local and untracked.
 
 ## Delivery evidence
 
@@ -136,7 +142,7 @@ Dated evidence, with historical checks distinguished from this implementation pa
 | UI simplification and appearance (current pass) | `make check`: 50 backend + 4 frontend unit tests, lint/types/production build; 6 synthetic workspace browser tests; desktop/mobile visual inspection | Browser tests mock Next/Clerk/API; not a live-provider or exhaustive accessibility pass. All eight mode/accent combinations pass primary/body/muted text contrast checks. |
 | Operator importer and batch company labels | `make check` passed with 50 backend tests; synthetic import/replay/owner-isolation and >100-company label cases; applied/replay reports and browser/API verification retained privately | Local cached sources, not live Notion synchronization; private source/report details are excluded here |
 
-Raw prior evidence is under ignored `.local/qa/` and `.local/imports/`. Logs and images can contain private data; do not commit them. No Supabase or production deployment is claimed. Current-session checks belong in [HANDOFF](../HANDOFF.md).
+Raw prior evidence is under ignored `.local/qa/` and `.local/imports/`. Logs and images can contain private data; do not commit them. No Supabase or production deployment is claimed. Record current-session checks in local, untracked handoff notes.
 
 ## What already exists
 
@@ -298,3 +304,18 @@ The inspected JobPilot root license is MIT; any future substantial source copy m
 **VERDICT:** The approved UI slice and documentation are locally reviewable and tested. Remaining engineering hardening means the full workspace is NOT CLEARED for release.
 
 **NO UNRESOLVED DECISIONS** for this slice. Pending implementation and Product Spec Q5–Q10 remain explicit; the JobPilot recommendation is an assessment, not an approved migration.
+
+## Quick Tech Debt Wins
+
+Prerequisite cleanup for the next agent architecture, implemented in the existing runtime:
+
+- **Environment ownership:** root `.env.example` is the single template; `make env-sync` migrates compatible legacy web settings and generates a minimal web projection. Conflicts fail without overwriting values or logging secrets. Compose uses explicit per-service settings; `make env-check` detects drift.
+- **Browser contracts:** Python owns HTTP and versioned extension message schemas. `make contracts` generates API types and ahead-of-time extension validators. Popup/API responses and content-script messages are checked before use; `make contracts-check` rejects drift.
+- **Readiness:** PostgreSQL executes an authenticated query; Redis must return PONG. Host and container workers/beat wait for database, Redis, API and configured mock health URLs. The test-only `mock-web` Compose service has a healthcheck; Playwright independently starts and waits for the same synthetic server. Research services remain in the existing external stack.
+- **Agent boundaries:** coding-assistant instructions stay in `AGENTS.md`, executive directives in `agents/directives/`, and execution settings in `agents/profiles.toml`. Runs pin both directives and skills, and validate their combined instruction size before enqueue.
+
+Validation: `make check` includes generated-contract drift, backend style/types/tests, frontend lint/types/unit tests, synthetic extension browser tests and the production build. These checks do not establish paid-provider execution or new autonomy readiness.
+
+### Navigation clarification validation
+
+The sidebar now uses ordinary section routes; contextual body record actions retain their inspector behavior. Eight synthetic workspace browser checks pass, including full-page section navigation at 1600px and 390px, nested body-record context, mobile focus return and appearance. These update the existing TypeScript Playwright suite; they do not claim a pytest browser migration or live Clerk verification. Design Spec DS-01–DS-04 owns acceptance.

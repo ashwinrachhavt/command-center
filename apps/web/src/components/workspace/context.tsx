@@ -38,7 +38,11 @@ export function isResource(value: string): value is Resource {
 }
 
 const Context = createContext<{
-  open: (resource: Resource, id?: string) => void;
+  open: (
+    resource: Resource,
+    id?: string,
+    options?: { tab: "content"; versionId: string },
+  ) => void;
   close: () => void;
 } | null>(null);
 export function useWorkspaceContext() {
@@ -63,8 +67,21 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
   const frames = search
     .getAll("inspect")
     .filter((value) => {
-      const [resource, id, extra] = value.split(":");
-      return isResource(resource) && !extra && (!id || /^[\w-]+$/.test(id));
+      const [resource, id, tab, versionId, extra] = value.split(":");
+      if (
+        !isResource(resource) ||
+        extra ||
+        (id !== undefined && !/^[\w-]+$/.test(id))
+      )
+        return false;
+      if (tab === undefined && versionId === undefined) return true;
+      return (
+        resource === "artifacts" &&
+        !!id &&
+        tab === "content" &&
+        !!versionId &&
+        /^[\w-]+$/.test(versionId)
+      );
     })
     .slice(0, 8);
   const frameKey = frames.join(",");
@@ -81,8 +98,14 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
       `${pathname}${params.size ? `?${params}` : ""}`,
     );
   };
-  const open = (resource: Resource, id?: string) => {
-    const frame = id ? `${resource}:${id}` : resource;
+  const open = (
+    resource: Resource,
+    id?: string,
+    options?: { tab: "content"; versionId: string },
+  ) => {
+    const frame = id
+      ? `${resource}:${id}${options ? `:${options.tab}:${options.versionId}` : ""}`
+      : resource;
     if (frames.at(-1) === frame) return;
     triggers.current[frames.length] = document.activeElement as HTMLElement;
     update([...frames.slice(0, 7), frame]);
@@ -158,8 +181,10 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
               {frames.map((frame, index) => {
-                const [resource, id] = frame.split(":") as [
+                const [resource, id, tab, versionId] = frame.split(":") as [
                   Resource,
+                  string | undefined,
+                  string | undefined,
                   string | undefined,
                 ];
                 return (
@@ -174,6 +199,8 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                         id={id}
                         onClose={back}
                         compact
+                        initialTab={tab === "content" ? "content" : undefined}
+                        pinnedVersionId={versionId}
                       />
                     ) : (
                       <RecordDirectory resource={resource} />

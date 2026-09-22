@@ -32,16 +32,21 @@ async function forward(
   const token = await session.getToken();
   if (!token)
     return NextResponse.json({ detail: "Session expired" }, { status: 401 });
-  const body = mutating ? await request.text() : undefined;
-  if (body && new TextEncoder().encode(body).length > 1_000_000)
+  const contentType = request.headers.get("content-type") ?? "";
+  const multipart = contentType
+    .toLowerCase()
+    .startsWith("multipart/form-data;");
+  const body = mutating ? await request.arrayBuffer() : undefined;
+  const maxRequestBytes = multipart ? 21 * 1024 * 1024 : 1_000_000;
+  if (body && body.byteLength > maxRequestBytes)
     return NextResponse.json(
       { detail: "Request is too large" },
       { status: 413 },
     );
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
   };
+  if (contentType) headers["Content-Type"] = contentType;
   const key = request.headers.get("idempotency-key");
   if (key) headers["Idempotency-Key"] = key;
   try {
@@ -56,13 +61,19 @@ async function forward(
         signal: AbortSignal.timeout(40000),
       },
     );
-    return new NextResponse(await upstream.text(), {
+    const responseHeaders: Record<string, string> = {
+      "Content-Type":
+        upstream.headers.get("Content-Type") ?? "application/octet-stream",
+      "Cache-Control": "no-store",
+      "X-Request-ID": upstream.headers.get("X-Request-ID") ?? "",
+    };
+    const disposition = upstream.headers.get("Content-Disposition");
+    if (disposition) responseHeaders["Content-Disposition"] = disposition;
+    const nosniff = upstream.headers.get("X-Content-Type-Options");
+    if (nosniff) responseHeaders["X-Content-Type-Options"] = nosniff;
+    return new NextResponse(await upstream.arrayBuffer(), {
       status: upstream.status,
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-        "X-Request-ID": upstream.headers.get("X-Request-ID") ?? "",
-      },
+      headers: responseHeaders,
     });
   } catch {
     return NextResponse.json(

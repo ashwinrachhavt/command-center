@@ -1,7 +1,15 @@
 "use client";
 import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowLeft, Download, Pencil, Plus, Save } from "lucide-react";
+import {
+  Archive,
+  ArrowLeft,
+  Download,
+  FilePlus2,
+  Pencil,
+  Plus,
+  Save,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,10 +34,12 @@ import {
 } from "@/components/ui/dialog";
 import {
   api,
+  apiDownload,
   dateLabel,
   label,
   recordName,
   type Activity,
+  type DocumentImport,
   type Page,
   type Resource,
   type Schema,
@@ -39,6 +49,9 @@ import { ErrorState, LoadingRows, Mark, Status, Spinner } from "./primitives";
 import { RecordEditor, resourceNames, stages } from "./record-editor";
 import { AgentResponse } from "./agent-response";
 import { useWorkspaceContext } from "./context";
+import { WorkConversation } from "./work-conversation";
+import { OpportunityResearch } from "./opportunity-research";
+import { DocumentUploadDialog } from "./document-intake";
 
 export function ActivityList({ events }: { events: Activity[] }) {
   return (
@@ -78,23 +91,41 @@ export function ActivityList({ events }: { events: Activity[] }) {
   );
 }
 
-function ArtifactContent({ record }: { record: WorkspaceRecord }) {
+function ArtifactContent({
+  record,
+  pinnedVersionId,
+}: {
+  record: WorkspaceRecord;
+  pinnedVersionId?: string;
+}) {
   const queryClient = useQueryClient();
   const versions = useQuery({
     queryKey: ["versions", record.id],
     queryFn: () =>
       api<Schema["VersionRead"][]>(`artifacts/${record.id}/versions`),
   });
-  const [selected, setSelected] = useState<string>();
-  const version =
-    versions.data?.find((v) => v.id === selected) ?? versions.data?.[0];
+  const [selected, setSelected] = useState<string | undefined>(pinnedVersionId);
+  const version = selected
+    ? versions.data?.find((candidate) => candidate.id === selected)
+    : versions.data?.[0];
+  const pinnedVersionMissing =
+    !!selected && !versions.isPending && !versions.error && !version;
   const reviews = useQuery({
     queryKey: ["reviews", version?.id],
     enabled: !!version,
     queryFn: () =>
       api<Schema["ReviewRead"][]>(`versions/${version?.id}/reviews`),
   });
+  const imports = useQuery({
+    queryKey: ["document-imports", record.id],
+    enabled: (record as unknown as Record<string, unknown>).kind === "document",
+    queryFn: () =>
+      api<Page<DocumentImport>>(
+        `documents/imports?artifact_id=${record.id}&limit=100&offset=0`,
+      ),
+  });
   const [editing, setEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [text, setText] = useState("");
   const [reason, setReason] = useState("");
   const [decision, setDecision] = useState("approved");
@@ -125,18 +156,31 @@ function ArtifactContent({ record }: { record: WorkspaceRecord }) {
     },
     onError: (e) => toast.error(e.message),
   });
-  function download() {
-    const url = URL.createObjectURL(
-      new Blob([String(version?.payload?.text ?? "")], {
-        type: "text/plain;charset=utf-8",
-      }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${recordName(record).replace(/[^a-z0-9 -]/gi, "_")}-v${version?.version}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  const download = useMutation({
+    mutationFn: async () => {
+      if (!version) throw new Error("Choose a version to download.");
+      return apiDownload(
+        `artifacts/${record.id}/versions/${version.id}/download`,
+      );
+    },
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download =
+        filename ??
+        `${recordName(record).replace(/[^a-z0-9 -]/gi, "_")}-v${version?.version}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const recordData = record as unknown as Record<string, unknown>;
+  const canUploadOriginal =
+    recordData.kind === "document" && !!recordData.document_type_id;
+  const downloadableImport = imports.data?.items.find(
+    (item) => item.source_version_id === version?.id,
+  );
   return (
     <div className="flex flex-col gap-5">
       {versions.isPending ? (
@@ -146,7 +190,7 @@ function ArtifactContent({ record }: { record: WorkspaceRecord }) {
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <Select value={version?.id} onValueChange={setSelected}>
+            <Select value={selected ?? version?.id} onValueChange={setSelected}>
               <SelectTrigger className="w-40" aria-label="Artifact version">
                 <SelectValue />
               </SelectTrigger>
@@ -160,28 +204,60 @@ function ArtifactContent({ record }: { record: WorkspaceRecord }) {
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <Button
-              className="ml-auto"
-              variant="ghost"
-              size="icon-sm"
-              onClick={download}
-              aria-label="Download this version"
-            >
-              <Download />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setText(String(version?.payload?.text ?? ""));
-                setEditing(true);
-              }}
-            >
-              <Plus />
-              New version
-            </Button>
+            {!pinnedVersionMissing ? (
+              <>
+                {downloadableImport ? (
+                  <Button
+                    className="ml-auto"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => download.mutate()}
+                    disabled={download.isPending}
+                    aria-label={`Download original ${downloadableImport.filename}`}
+                  >
+                    <Download />
+                  </Button>
+                ) : (
+                  <span className="ml-auto" />
+                )}
+                {canUploadOriginal ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUploading(true)}
+                  >
+                    <FilePlus2 />
+                    Upload original
+                  </Button>
+                ) : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setText(String(version?.payload?.text ?? ""));
+                    setEditing(true);
+                  }}
+                >
+                  <Plus />
+                  New version
+                </Button>
+              </>
+            ) : null}
           </div>
-          {editing ? (
+          {pinnedVersionMissing ? (
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/30 p-4 text-sm"
+            >
+              <p className="font-medium">
+                Pinned artifact version is unavailable.
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                The requested immutable version was not returned. Choose an
+                available version to continue.
+              </p>
+            </div>
+          ) : editing ? (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -217,65 +293,81 @@ function ArtifactContent({ record }: { record: WorkspaceRecord }) {
               </AgentResponse>
             </div>
           )}
-          <p
-            className="truncate font-mono text-[10px] text-muted-foreground"
-            title={version?.content_sha256}
-          >
-            SHA-256 · {version?.content_sha256}
-          </p>
-          <div className="border-t border-border pt-5">
-            <h3 className="text-sm font-medium">Review this version</h3>
-            <p className="mt-1 mb-4 text-xs text-muted-foreground">
-              Review decisions stay with the exact content you checked.
-            </p>
-            {reviews.data?.[0] && (
-              <div className="mb-4 rounded-md bg-muted p-3 text-xs">
-                <strong>{label(reviews.data[0].decision)}</strong>
-                <p className="mt-1 text-muted-foreground">
-                  {reviews.data[0].reason}
-                </p>
-              </div>
-            )}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                review.mutate();
-              }}
-              className="flex flex-col gap-3"
-            >
-              <Select value={decision} onValueChange={setDecision}>
-                <SelectTrigger aria-label="Review decision">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {["approved", "rejected", "revoked"].map((d) => (
-                      <SelectItem key={d} value={d}>
-                        {label(d)}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                required
-                maxLength={2000}
-                aria-label="Review reason"
-                placeholder="What did you check?"
-              />
-              <Button
-                variant="outline"
-                disabled={review.isPending || !version || !reason.trim()}
-                className="self-end"
+          {!pinnedVersionMissing ? (
+            <>
+              <p
+                className="truncate font-mono text-[10px] text-muted-foreground"
+                title={version?.content_sha256}
               >
-                Record review
-              </Button>
-            </form>
-          </div>
+                SHA-256 · {version?.content_sha256}
+              </p>
+              <div className="border-t border-border pt-5">
+                <h3 className="text-sm font-medium">Review this version</h3>
+                <p className="mt-1 mb-4 text-xs text-muted-foreground">
+                  Review decisions stay with the exact content you checked.
+                </p>
+                {reviews.data?.[0] && (
+                  <div className="mb-4 rounded-md bg-muted p-3 text-xs">
+                    <strong>{label(reviews.data[0].decision)}</strong>
+                    <p className="mt-1 text-muted-foreground">
+                      {reviews.data[0].reason}
+                    </p>
+                  </div>
+                )}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    review.mutate();
+                  }}
+                  className="flex flex-col gap-3"
+                >
+                  <Select value={decision} onValueChange={setDecision}>
+                    <SelectTrigger aria-label="Review decision">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {["approved", "rejected", "revoked"].map((d) => (
+                          <SelectItem key={d} value={d}>
+                            {label(d)}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    required
+                    maxLength={2000}
+                    aria-label="Review reason"
+                    placeholder="What did you check?"
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={review.isPending || !version || !reason.trim()}
+                    className="self-end"
+                  >
+                    Record review
+                  </Button>
+                </form>
+              </div>
+            </>
+          ) : null}
         </>
       )}
+      {canUploadOriginal ? (
+        <DocumentUploadDialog
+          open={uploading}
+          onOpenChange={setUploading}
+          artifact={{
+            id: record.id,
+            title: recordName(record),
+            documentTypeId: String(recordData.document_type_id),
+            rowVersion: record.row_version,
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -315,17 +407,22 @@ export function RecordDetail({
   id,
   onClose,
   compact = false,
+  initialTab,
+  pinnedVersionId,
 }: {
   resource: Resource;
   id: string;
   onClose: () => void;
   compact?: boolean;
+  initialTab?: "content" | "conversation";
+  pinnedVersionId?: string;
 }) {
   const context = useWorkspaceContext();
   const stateFieldId = useId();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [activeTab, setActiveTab] = useState(initialTab ?? "overview");
   const query = useQuery({
     queryKey: [resource, id],
     queryFn: () => api<WorkspaceRecord>(`${resource}/${id}`),
@@ -384,6 +481,15 @@ export function RecordDetail({
     opportunity_id: "opportunities",
     job_id: "jobs",
   };
+  const conversationDisabledReason = record
+    ? resource === "tasks" &&
+      "state" in record &&
+      ["done", "cancelled"].includes(String(record.state))
+      ? "Reopen this task before adding to its conversation."
+      : "archived_at" in record && record.archived_at
+        ? "This archived opportunity is read-only. Restore it before adding to its conversation."
+        : undefined
+    : undefined;
   return (
     <section aria-label="Record details" className="min-w-0 bg-background">
       <header className="border-b border-border px-6 py-5">
@@ -500,15 +606,21 @@ export function RecordDetail({
       ) : !record ? (
         <LoadingRows />
       ) : (
-        <Tabs defaultValue="overview" className="gap-0">
-          <div className="border-b border-border px-6">
-            <TabsList className="h-12 bg-transparent p-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-0">
+          <div className="overflow-x-auto border-b border-border px-6">
+            <TabsList className="h-12 min-w-max bg-transparent p-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               {resource === "artifacts" && (
                 <TabsTrigger value="content">Content & versions</TabsTrigger>
               )}
               {resource === "opportunities" && (
-                <TabsTrigger value="contacts">Contacts</TabsTrigger>
+                <>
+                  <TabsTrigger value="research">Research</TabsTrigger>
+                  <TabsTrigger value="contacts">Contacts</TabsTrigger>
+                </>
+              )}
+              {(resource === "tasks" || resource === "opportunities") && (
+                <TabsTrigger value="conversation">Conversation</TabsTrigger>
               )}
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
@@ -566,7 +678,19 @@ export function RecordDetail({
           </TabsContent>
           {resource === "artifacts" && (
             <TabsContent value="content" className="p-6">
-              <ArtifactContent record={record} />
+              <ArtifactContent
+                record={record}
+                pinnedVersionId={pinnedVersionId}
+              />
+            </TabsContent>
+          )}
+          {resource === "opportunities" && (
+            <TabsContent value="research" className="p-6">
+              <OpportunityResearch
+                key={id}
+                opportunityId={id}
+                onOpenConversation={() => setActiveTab("conversation")}
+              />
             </TabsContent>
           )}
           {resource === "opportunities" && (
@@ -592,6 +716,16 @@ export function RecordDetail({
               >
                 Browse contacts
               </Button>
+            </TabsContent>
+          )}
+          {(resource === "tasks" || resource === "opportunities") && (
+            <TabsContent value="conversation">
+              <WorkConversation
+                key={`${resource}:${id}`}
+                resource={resource}
+                recordId={id}
+                disabledReason={conversationDisabledReason}
+              />
             </TabsContent>
           )}
           <TabsContent value="activity" className="px-6 py-3">

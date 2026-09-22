@@ -1,5 +1,64 @@
 import { expect, test } from "@playwright/test";
 
+for (const viewport of [
+  { width: 1600, height: 1000 },
+  { width: 390, height: 844 },
+]) {
+  test(`sidebar opens full pages while body links retain context at ${viewport.width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/");
+    for (const [name, route] of [
+      ["Contacts", "contacts"],
+      ["Companies", "companies"],
+      ["Opportunities", "opportunities"],
+    ]) {
+      if (viewport.width < 768)
+        await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+      await page
+        .getByRole("navigation", { name: "Main navigation" })
+        .getByRole("link", { name, exact: true })
+        .click();
+      await expect(page).toHaveURL(new RegExp(`/${route}$`));
+      await expect(
+        page.getByRole("heading", { name, exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByLabel("Related workspace", { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("textbox", { name: `Search ${route}` }),
+      ).toBeVisible();
+    }
+    await page
+      .getByRole("button", { name: /Staff Product Engineer Build/ })
+      .click();
+    await page.getByRole("tab", { name: "Contacts", exact: true }).click();
+    await page.getByRole("button", { name: "Open linked contact" }).click();
+    await expect(page).toHaveURL(
+      /\/opportunities\?record=opportunity-1&inspect=contacts/,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Alex Morgan" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Close related workspace" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Staff Product Engineer" }),
+    ).toBeVisible();
+    if (viewport.width < 768)
+      await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: "Overview", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/$/);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("AI Elements renders a saved run with formatted text", async ({
   page,
 }) => {
@@ -34,7 +93,9 @@ test("related records preserve selection, search, tabs, and browser history", as
     .getByRole("button", { name: /Staff Product Engineer Build/ })
     .click();
   await page.getByRole("tab", { name: "Contacts", exact: true }).click();
-  await page.getByRole("link", { name: "Contacts", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Browse contacts", exact: true })
+    .click();
   await expect(page).toHaveURL(
     /\/opportunities\?record=opportunity-1&inspect=contacts/,
   );

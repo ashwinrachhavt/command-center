@@ -64,7 +64,6 @@ export const navigation = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
-  const context = useWorkspaceContext();
   const profile = useQuery({
     queryKey: ["me"],
     queryFn: () => api<Profile>("me"),
@@ -111,22 +110,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               </p>
             )}
             <Link
-              onClick={(event) => {
-                const resource = item.path.slice(1);
-                if (
-                  context &&
-                  isResource(resource) &&
-                  !event.metaKey &&
-                  !event.ctrlKey &&
-                  !event.shiftKey &&
-                  !event.altKey
-                ) {
-                  event.preventDefault();
-                  if (path === item.path) context.close();
-                  else context.open(resource);
-                }
-                onNavigate?.();
-              }}
+              onClick={onNavigate}
               href={item.path}
               aria-current={path === item.path ? "page" : undefined}
               className={cn(

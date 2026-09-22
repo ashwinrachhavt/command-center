@@ -144,6 +144,101 @@ class Artifact(Base):
         )
         return version
 
+    def append_blob(
+        self,
+        blob: "Blob",
+        *,
+        media_type: str,
+        version_id: UUID,
+        request_id: UUID,
+    ) -> "ArtifactVersion":
+        """Append an exact stored byte snapshot to an active artifact."""
+        from sqlalchemy import func, select
+
+        from command_center.db.crm import record_event
+
+        session = object_session(self)
+        if session is None or self.archived_at:
+            raise ValueError("Only an active persisted artifact can receive a version")
+        if not media_type.strip() or blob.id is None or object_session(blob) is not session:
+            raise ValueError("Blob metadata and media type must be persisted together")
+        latest = (
+            session.scalar(
+                select(func.max(ArtifactVersion.version)).where(
+                    ArtifactVersion.artifact_id == self.id
+                )
+            )
+            or 0
+        )
+        version = ArtifactVersion.from_blob(
+            artifact_id=self.id,
+            version=latest + 1,
+            blob=blob,
+            media_type=media_type,
+            created_by_id=self.owner_id,
+        )
+        version.id = version_id
+        session.add(version)
+        self.updated_at = utc_now()
+        record_event(
+            session,
+            self.owner_id,
+            request_id,
+            "artifact.version_created",
+            "artifacts",
+            self.id,
+            version=latest + 1,
+            content="blob",
+        )
+        return version
+
+    def append_payload(
+        self,
+        payload: dict[str, object],
+        *,
+        schema_key: str,
+        version_id: UUID,
+        request_id: UUID,
+    ) -> "ArtifactVersion":
+        """Append validated structured content through the shared version lifecycle."""
+        from sqlalchemy import func, select
+
+        from command_center.db.crm import record_event
+
+        session = object_session(self)
+        if session is None or self.archived_at:
+            raise ValueError("Only an active persisted artifact can receive a version")
+        latest = (
+            session.scalar(
+                select(func.max(ArtifactVersion.version)).where(
+                    ArtifactVersion.artifact_id == self.id
+                )
+            )
+            or 0
+        )
+        version = ArtifactVersion.from_payload(
+            artifact_id=self.id,
+            version=latest + 1,
+            payload=payload,
+            schema_key=schema_key,
+            created_by_id=self.owner_id,
+        )
+        version.id = version_id
+        session.add(version)
+        self.updated_at = utc_now()
+        record_event(
+            session,
+            self.owner_id,
+            request_id,
+            "artifact.version_created",
+            "artifacts",
+            self.id,
+            version=latest + 1,
+            content="structured",
+            schema_key=schema_key,
+        )
+        return version
+
 
 class Blob(Base):
     """Immutable byte metadata. Bytes live outside PostgreSQL; no arbitrary filesystem paths."""

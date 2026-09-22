@@ -1,1 +1,1 @@
-"""A small, configurable OpenAI/LangGraph harness."""
+"""Configurable Deep Agents with scoped tools and selectable model providers."""

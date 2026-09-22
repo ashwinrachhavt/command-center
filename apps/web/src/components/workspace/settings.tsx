@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { api, label, type Integrations, type Profile } from "@/lib/api";
 import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
+import { ProfileFacts } from "./profile-facts";
 
 function ProfileForm({ profile }: { profile: Profile }) {
   const [form, setForm] = useState({
@@ -114,6 +115,7 @@ export function Settings() {
             />
           )}
         </section>
+        <ProfileFacts />
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border p-6">
             <h2 className="flex items-center gap-2 text-sm font-medium">
@@ -144,7 +146,22 @@ export function Settings() {
                 {
                   name: "OpenAI",
                   description: "Models for research, writing and reasoning",
-                  connected: integrations.data.openai_configured,
+                  connected: integrations.data.model_providers.openai,
+                },
+                {
+                  name: "Gemini",
+                  description: "Models for research, writing and reasoning",
+                  connected: integrations.data.model_providers.gemini,
+                },
+                {
+                  name: "Mistral",
+                  description: "Models for research, writing and reasoning",
+                  connected: integrations.data.model_providers.mistral,
+                },
+                {
+                  name: "Cohere",
+                  description: "Models for research, writing and reasoning",
+                  connected: integrations.data.model_providers.cohere,
                 },
                 {
                   name: "Composio",
@@ -208,10 +225,10 @@ export function Settings() {
             Configuration stays on your server
           </h2>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
-            Put OpenAI and Composio keys in the root <code>.env</code>. Clerk’s
-            publishable and secret keys go in <code>apps/web/.env</code>; the
-            API verifies the matching issuer. Run <code>make auth-check</code>{" "}
-            after changing your Clerk application.
+            Put model provider and Composio keys in the root <code>.env</code>.
+            Clerk’s publishable and secret keys go in <code>apps/web/.env</code>
+            ; the API verifies the matching issuer. Run{" "}
+            <code>make auth-check</code> after changing your Clerk application.
           </p>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
             Customize agent models, tools and skills in{" "}

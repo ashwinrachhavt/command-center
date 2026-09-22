@@ -1,3 +1,11 @@
+const contracts = globalThis.CommandCenterContracts;
+function validate(name, value) {
+  if (!contracts[name](value))
+    throw new Error(
+      "Invalid companion response. Reload the extension and try again.",
+    );
+  return value;
+}
 const element = (id) => document.getElementById(id);
 const allowedApis = new Set(["http://localhost:8000", "http://127.0.0.1:8000"]);
 await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
@@ -59,6 +67,7 @@ element("pair-form").addEventListener("submit", (event) => {
       { code: element("code").value.trim() },
       true,
     );
+    validate("PairCredentials", result);
     connection = { ...result, base: element("api-url").value };
     await chrome.storage.local.set({ connection });
     element("code").value = "";
@@ -79,11 +88,15 @@ element("share").addEventListener("click", (event) =>
     const tab = await activeTab();
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ["content.js"],
+      files: ["contracts.js", "content.js"],
     });
-    const snapshot = await chrome.tabs.sendMessage(tab.id, {
-      action: "inspect",
-    });
+    const snapshot = validate(
+      "SnapshotCreate",
+      await chrome.tabs.sendMessage(tab.id, {
+        version: 1,
+        action: "inspect",
+      }),
+    );
     if (!snapshot.fields.length)
       throw new Error(
         "No supported visible fields found. Passwords, payment details, uploads and hidden fields are excluded.",
@@ -99,9 +112,10 @@ element("refresh").addEventListener("click", (event) =>
     const tab = await activeTab();
     const target = new URL(tab.url);
     const currentPage = target.origin + target.pathname;
-    const commands = (await api("device/commands")).filter(
-      (c) => c.page_url === currentPage,
-    );
+    const commands = validate(
+      "PendingCommands",
+      await api("device/commands"),
+    ).filter((c) => c.page_url === currentPage);
     element("proposals").replaceChildren();
     for (const command of commands) {
       const card = document.createElement("article");
@@ -124,13 +138,24 @@ element("refresh").addEventListener("click", (event) =>
       apply.textContent = "Apply these answers";
       apply.addEventListener("click", () =>
         action(apply, async () => {
-          await api(`device/commands/${command.id}/claim`, {});
+          validate(
+            "ClaimResult",
+            await api(`device/commands/${command.id}/claim`, {}),
+          );
           let result;
           try {
-            result = await chrome.tabs.sendMessage(tab.id, {
-              action: "apply",
-              command,
-            });
+            result = validate(
+              "ApplyResult",
+              await chrome.tabs.sendMessage(tab.id, {
+                version: 1,
+                action: "apply",
+                command: {
+                  snapshot_id: command.snapshot_id,
+                  page_url: command.page_url,
+                  fields: command.fields,
+                },
+              }),
+            );
           } catch {
             result = {
               state: "outcome_unknown",

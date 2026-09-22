@@ -65,7 +65,7 @@ def owned[Record: Base](
         attribute(model, "id") == record_id, attribute(model, "owner_id") == actor_id
     )
     if lock:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update(key_share=True)
     row = session.scalar(statement)
     if row is None:
         raise HTTPException(404, "Record not found")

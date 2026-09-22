@@ -1,8 +1,9 @@
 """Actor-owned CRM records. Models own changes; controllers own transactions."""
 
+import hashlib
 from datetime import datetime
-from typing import Any, ClassVar
-from uuid import UUID, uuid4
+from typing import TYPE_CHECKING, Any, ClassVar
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import (
     CheckConstraint,
@@ -13,12 +14,18 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    func,
+    select,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, declared_attr, mapped_column, object_session
 
 from command_center.db.base import Base, UTCDateTime, utc_now
 from command_center.db.models import AuditEvent
+
+if TYPE_CHECKING:
+    from command_center.db.evidence import SourceRecord
 
 
 def record_event(
@@ -208,6 +215,116 @@ class Opportunity(OwnedRecord, Base):
     priority: Mapped[int] = mapped_column(Integer, default=1)
     notes: Mapped[str | None] = mapped_column(Text)
 
+    @classmethod
+    def capture_lead(
+        cls,
+        session: Session,
+        *,
+        record_id: UUID,
+        owner_id: UUID,
+        url: str,
+        title: str,
+        company_name: str,
+        snippet: str,
+        request_id: UUID,
+    ) -> tuple["Opportunity", Job, Company, "SourceRecord", bool]:
+        """Create or find the actor's lead aggregate for one canonical job URL."""
+        from command_center.db.evidence import SourceRecord
+
+        lock = int.from_bytes(
+            hashlib.sha256(f"lead:{owner_id}:{url}".encode()).digest()[:8], signed=True
+        )
+        session.execute(sql_text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+
+        job = session.scalar(select(Job).where(Job.owner_id == owner_id, Job.source_url == url))
+        created = False
+        if job is None:
+            matches = session.scalars(
+                select(Company).where(
+                    Company.owner_id == owner_id,
+                    Company.archived_at.is_(None),
+                    func.lower(func.btrim(Company.name)) == company_name.lower(),
+                )
+            ).all()
+            if len(matches) == 1:
+                company = matches[0]
+            else:
+                company = Company(
+                    id=uuid5(record_id, "company"), owner_id=owner_id, name=company_name
+                )
+                session.add(company)
+                record_event(
+                    session,
+                    owner_id,
+                    request_id,
+                    "companies.created",
+                    "companies",
+                    company.id,
+                )
+            job = Job(
+                id=uuid5(record_id, "job"),
+                owner_id=owner_id,
+                company_id=company.id,
+                title=title,
+                source_url=url,
+                status="unknown",
+            )
+            session.add(job)
+            record_event(session, owner_id, request_id, "jobs.created", "jobs", job.id)
+        else:
+            existing_company = session.get(Company, job.company_id)
+            if existing_company is None or existing_company.owner_id != owner_id:
+                raise ValueError("The captured job has invalid company ownership")
+            company = existing_company
+
+        opportunity = session.scalar(
+            select(cls).where(cls.owner_id == owner_id, cls.job_id == job.id)
+        )
+        if opportunity is None:
+            opportunity = cls(
+                id=record_id,
+                owner_id=owner_id,
+                company_id=company.id,
+                job_id=job.id,
+                title=title,
+                stage="researching",
+            )
+            session.add(opportunity)
+            record_event(
+                session,
+                owner_id,
+                request_id,
+                "opportunities.created",
+                "opportunities",
+                opportunity.id,
+            )
+            created = True
+        session.flush()
+
+        source = session.scalar(
+            select(SourceRecord)
+            .where(
+                SourceRecord.opportunity_id == opportunity.id,
+                SourceRecord.extraction_method == "user_snippet",
+            )
+            .order_by(SourceRecord.retrieved_at, SourceRecord.id)
+            .limit(1)
+        )
+        if source is None:
+            source = SourceRecord.capture_for_opportunity(
+                session,
+                record_id=uuid5(opportunity.id, "lead-capture-source"),
+                opportunity_id=opportunity.id,
+                owner_id=owner_id,
+                title=title,
+                url=url,
+                text=snippet,
+                provider="user",
+                extraction_method="user_snippet",
+                request_id=request_id,
+            )
+        return opportunity, job, company, source, created
+
     def revise(self, changes: dict[str, Any], *, request_id: UUID) -> None:
         previous = self.stage
         super().revise(changes, request_id=request_id)
@@ -235,6 +352,9 @@ class CandidateProfile(Base):
     location: Mapped[str] = mapped_column(String(200), default="")
     timezone: Mapped[str] = mapped_column(String(100), default="UTC")
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    default_resume_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("artifact_versions.id")
+    )
     row_version: Mapped[int] = mapped_column(Integer, default=1)
     __mapper_args__ = {"version_id_col": row_version}
 
@@ -250,3 +370,37 @@ class CandidateProfile(Base):
             record_event(
                 session, self.actor_id, request_id, "profile.updated", "profile", self.actor_id
             )
+
+    def select_default_resume(self, version_id: UUID | None, *, request_id: UUID) -> None:
+        """Pin one exact owned original resume version, or clear the selection."""
+        from command_center.db.artifacts import Artifact, ArtifactVersion, Document, DocumentType
+
+        session = object_session(self)
+        if session is None:
+            raise ValueError("Profile must belong to a transaction")
+        if version_id is not None:
+            version = session.scalar(
+                select(ArtifactVersion)
+                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                .join(Document, Document.artifact_id == Artifact.id)
+                .join(DocumentType, DocumentType.id == Document.document_type_id)
+                .where(
+                    ArtifactVersion.id == version_id,
+                    ArtifactVersion.blob_id.is_not(None),
+                    Artifact.owner_id == self.actor_id,
+                    Artifact.archived_at.is_(None),
+                    DocumentType.slug == "resume",
+                )
+            )
+            if version is None:
+                raise ValueError("Choose an owned blob-backed resume version")
+        self.default_resume_version_id = version_id
+        record_event(
+            session,
+            self.actor_id,
+            request_id,
+            "profile.default_resume_selected",
+            "profile",
+            self.actor_id,
+            version_id=str(version_id) if version_id else None,
+        )

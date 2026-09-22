@@ -1,11 +1,13 @@
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
+from sqlalchemy import func, select
 
-from command_center.agents.config import load_profiles
+from command_center.agents.config import AgentProfile, load_profiles
+from command_center.agents.models import missing_profile_credentials
 from command_center.api import schemas as s
 from command_center.api.workspace import (
     Database,
@@ -20,6 +22,8 @@ from command_center.api.workspace import (
 )
 from command_center.core.identity import CurrentIdentity
 from command_center.db.agents import AgentRun
+from command_center.db.artifacts import Artifact, ArtifactVersion
+from command_center.db.models import AuditEvent
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
 
@@ -37,6 +41,48 @@ class RunRead(s.RecordRead):
     output: str | None
     error_code: str | None
     completed_at: Any
+    session_id: UUID | None
+    input_sequence: int
+    consumed_sequence: int
+
+
+class RunStepRead(s.Contract):
+    id: str
+    name: str
+    role: str = "assistant"
+    specialist: str | None = None
+    summary: str | None = None
+    state: Literal["input-available", "output-available", "output-error"]
+    output: str | None
+
+
+class RunArtifactRead(s.Contract):
+    id: UUID
+    title: str
+    kind: str
+    version_id: UUID
+    version: int
+
+
+def missing_profile_configuration(request: Request, profile: AgentProfile) -> list[str]:
+    settings = request.app.state.settings
+    missing = list(missing_profile_credentials(settings, profile))
+    if profile.composio_tools and not settings.composio_api_key.get_secret_value():
+        missing.append("COMPOSIO_API_KEY")
+    return missing
+
+
+def available_profile(request: Request, slug: str) -> tuple[AgentProfile, str]:
+    """Load one runnable profile and enforce shared provider prerequisites."""
+    settings = request.app.state.settings
+    configured, revision = load_profiles(settings.agent_config, settings.agent_skills_dir)
+    if slug not in configured:
+        raise HTTPException(422, "Unknown agent profile")
+    profile = configured[slug]
+    missing = missing_profile_configuration(request, profile)
+    if missing:
+        raise HTTPException(503, "Add " + ", ".join(missing) + " to run this profile")
+    return profile, revision
 
 
 @router.get("/agents/profiles")
@@ -44,18 +90,24 @@ def profiles(identity: CurrentIdentity, request: Request) -> list[dict[str, Any]
     configured, revision = load_profiles(
         request.app.state.settings.agent_config, request.app.state.settings.agent_skills_dir
     )
-    return [
-        {
-            "id": key,
-            "name": p.name,
-            "description": p.description,
-            "model": p.model,
-            "tools": p.tools + [t.slug for t in p.composio_tools],
-            "revision": revision,
-            "skills": p.skills,
-        }
-        for key, p in configured.items()
-    ]
+    result = []
+    for key, p in configured.items():
+        missing = missing_profile_configuration(request, p)
+        result.append(
+            {
+                "id": key,
+                "name": p.name,
+                "description": p.description,
+                "provider": p.provider,
+                "model": p.model,
+                "ready": not missing,
+                "missing_credentials": missing,
+                "tools": p.tools + [t.slug for t in p.composio_tools],
+                "revision": revision,
+                "skills": p.skills,
+            }
+        )
+    return result
 
 
 @router.get("/agent-runs", response_model=s.Page[RunRead])
@@ -70,9 +122,52 @@ def run_detail(record_id: UUID, identity: CurrentIdentity, db: Database) -> Agen
     return owned(db, AgentRun, record_id, identity.id)
 
 
-@router.get("/agent-runs/{record_id}/steps")
+@router.get("/agent-runs/{record_id}/steps", response_model=list[RunStepRead])
 def run_steps(record_id: UUID, identity: CurrentIdentity, db: Database) -> list[dict[str, Any]]:
     return owned(db, AgentRun, record_id, identity.id).tool_steps()
+
+
+@router.get("/agent-runs/{record_id}/artifacts", response_model=s.Page[RunArtifactRead])
+def run_artifacts(
+    record_id: UUID, identity: CurrentIdentity, db: Database, limit: Limit = 30, offset: Offset = 0
+) -> dict[str, Any]:
+    """Link exact immutable output versions through the existing run audit provenance."""
+    owned(db, AgentRun, record_id, identity.id)
+    statement = (
+        select(
+            Artifact.id,
+            Artifact.title,
+            Artifact.kind,
+            ArtifactVersion.id.label("version_id"),
+            ArtifactVersion.version,
+        )
+        .join(ArtifactVersion, ArtifactVersion.artifact_id == Artifact.id)
+        .join(
+            AuditEvent,
+            (AuditEvent.subject_id == Artifact.id)
+            & (AuditEvent.details["version"].as_integer() == ArtifactVersion.version),
+        )
+        .where(
+            Artifact.owner_id == identity.id,
+            AuditEvent.actor_id == identity.id,
+            AuditEvent.subject_type == "artifacts",
+            AuditEvent.action == "artifact.version_created",
+            AuditEvent.details["agent_run_id"].as_string() == str(record_id),
+        )
+    )
+    return {
+        "items": [
+            dict(row)
+            for row in db.execute(
+                statement.order_by(ArtifactVersion.created_at.desc(), ArtifactVersion.id)
+                .limit(limit)
+                .offset(offset)
+            ).mappings()
+        ],
+        "total": db.scalar(select(func.count()).select_from(statement.subquery())) or 0,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/agent-runs", response_model=RunRead, status_code=201)
@@ -80,15 +175,7 @@ def queue_run(
     body: RunCreate, identity: CurrentIdentity, db: Database, key: WriteKey, request: Request
 ) -> dict[str, Any]:
     def change(record_id: UUID) -> dict[str, Any]:
-        settings = request.app.state.settings
-        if not settings.openai_api_key.get_secret_value():
-            raise HTTPException(503, "Add OPENAI_API_KEY to the API environment to run an agent")
-        configured, revision = load_profiles(settings.agent_config, settings.agent_skills_dir)
-        if body.profile not in configured:
-            raise HTTPException(422, "Unknown agent profile")
-        profile = configured[body.profile]
-        if profile.composio_tools and not settings.composio_api_key.get_secret_value():
-            raise HTTPException(503, "This profile requires Composio configuration")
+        profile, revision = available_profile(request, body.profile)
         run = AgentRun.enqueue(
             db,
             record_id=record_id,
@@ -128,6 +215,12 @@ async def integrations(identity: CurrentIdentity, request: Request) -> dict[str,
     return {
         "services": [p.model_dump() for p in providers],
         "openai_configured": bool(settings.openai_api_key.get_secret_value()),
+        "model_providers": {
+            "openai": bool(settings.openai_api_key.get_secret_value()),
+            "gemini": bool(settings.gemini_api_key.get_secret_value()),
+            "mistral": bool(settings.mistral_api_key.get_secret_value()),
+            "cohere": bool(settings.cohere_api_key.get_secret_value()),
+        },
         "composio_configured": bool(settings.composio_api_key.get_secret_value()),
         "auth": settings.auth_mode,
         "composio_toolkits": sorted(settings.composio_auth_configs),

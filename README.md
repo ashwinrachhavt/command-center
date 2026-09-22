@@ -1,6 +1,6 @@
 # Command Center
 
-A personal workspace for opportunities, relationships, tasks, artifacts and research agents. Related records open alongside your current work; Appearance offers light, dark and system modes with four accents. FastAPI owns the domain and PostgreSQL; Next.js provides the Clerk-authenticated shadcn interface. LangGraph agents discover scoped API tools through MCP and run in Celery workers. Firecrawl and SearXNG connect to the existing `local-research` Docker stack.
+A personal workspace for opportunities, relationships, tasks, artifacts and research agents. Sidebar sections open as full pages; related body records open alongside your current work; Appearance offers light, dark and system modes with four accents. FastAPI owns the domain and PostgreSQL; Next.js provides the Clerk-authenticated shadcn interface. Deep Agents on LangGraph discover scoped API tools through MCP and run in Celery workers. Firecrawl and SearXNG connect to the existing `local-research` Docker stack.
 
 ## Run locally
 
@@ -8,8 +8,8 @@ Prerequisites: Docker Compose, Python 3.12 with `uv`, Node 24, and the existing 
 
 ```sh
 make setup
-# Add your Clerk keys to apps/web/.env.
-# Add OPENAI_API_KEY and optional COMPOSIO_API_KEY to root .env.
+# Add Clerk keys and the API keys for your selected model providers to root .env.
+make env-sync
 make auth-sync
 make up
 ```
@@ -24,7 +24,7 @@ Open **http://localhost:3001**. Port 3000 is reserved for other work. Use `local
 | Redis | 127.0.0.1:56379 |
 | Disposable test PostgreSQL | 127.0.0.1:55433 |
 
-Compose starts PostgreSQL, migrations, FastAPI, Redis, Celery worker/beat and the standalone Next.js server. It reuses the research services on `local-services`; it does not recreate them. Local credentials and provider keys are ignored by Git. Only Clerk's publishable key belongs in the browser. The Clerk secret belongs in `apps/web/.env`; OpenAI/Composio belong in root `.env`, which is the Python environment for root Make targets.
+Compose starts PostgreSQL, migrations, FastAPI, Redis, Celery worker/beat and the standalone Next.js server. It reuses Firecrawl, SearXNG and Docling on `local-services`; it does not recreate them. Original documents persist in the private `document-blobs` volume shared by API and worker. Local credentials and provider keys are ignored by Git. Only Clerk's publishable key belongs in the browser. Root `.env` owns all local settings; Compose passes explicit per-service settings so the web container never receives model-provider, Composio or database credentials.
 
 ## Develop on the host
 
@@ -39,7 +39,7 @@ make beat      # separate terminal
 make web       # separate terminal, port 3001
 ```
 
-The root `.env` configures Python. `apps/web/.env` holds Clerk keys; optional `apps/web/.env.local` overrides the server-only API URL for host development. Do not run host and Compose servers on the same ports. Provider errors remain visible without preventing ordinary CRM work.
+Root `.env.example` is the only environment template. Edit root `.env`, then run `make env-sync` to generate the allowlisted `apps/web/.env.local`. Existing web settings migrate into root configuration; conflicting values stop migration without printing credentials. `make env-check` detects drift. Do not edit the generated file. Do not run host and Compose servers on the same ports. Provider errors remain visible without preventing ordinary CRM work.
 
 ## Implemented workspace
 
@@ -47,9 +47,19 @@ Companies, contacts, roles, opportunities, tasks, profile, activity, artifacts a
 
 Follow the Rails-inspired **fat model, thin controller** convention: model methods own state changes, invariants and audit; controllers own identity, HTTP contracts and transactions. Keep provider/network work outside domain transactions. Prefer direct ORM models and small provider adapters over generic repository/service layers. Follow YAGNI and DRY.
 
+From **Opportunities → Discover leads**, search public job pages, confirm the role/company, and capture a company, role and opportunity with source evidence. The opportunity's **Research** tab can fetch its saved source, open the exact captured version, and request an outreach draft in **Conversation**. Captures deduplicate by owner and canonical job URL; fetching adds evidence without overwriting CRM fields or changing job status. Drafts are private, unreviewed message artifacts.
+
+Enrichment currently supports bounded public HTML/text fetches with public DNS pinned per connection and validated redirects. It records `public_http` provenance. JavaScript rendering and PDF extraction are not part of this slice; the existing Firecrawl service remains available for operator research, but its scrape API does not establish the network controls required for arbitrary agent-supplied URLs.
+
+From **Artifacts → Upload document**, import a PDF, DOCX, UTF-8 text or Markdown file up to 20 MiB. The original bytes become an immutable version; a Celery job uses the existing local Docling service to create a separate, linked text/structured extraction. Conversion progress, retry, cancellation and original downloads are visible. Conversion leaves the review task open. **Suggest profile facts** opens that task's conversation and creates evidenced proposals for review. **Settings → Profile facts** supports editing, approving, rejecting and revoking exact revisions; pending changes do not replace the active approved value. Agents can use only active, unexpired approved facts as candidate facts. The default resume pins an exact original version and does not advance on a new upload.
+
 ## Agents, MCP, skills and memory
 
-Edit `agents/profiles.toml` to choose OpenAI models, limits, tools and skills. Markdown instructions live in `agents/skills/`. A run stores the configuration and skill revision it started with. Celery transports work; PostgreSQL owns state, leases, checkpoints and outcomes. Duplicate deliveries cannot rerun a claimed/completed job. An interrupted run is marked failed and is not automatically replayed.
+Tasks and opportunities have persistent conversations with a lead or selected specialist. Messages can steer active work at the next safe step; saved activity shows specialist/tool outcomes and links to the exact artifact versions produced. One active run per conversation, shared execution limits, cancellation, independent lease heartbeats and PostgreSQL graph checkpoints are implemented. Failed or interrupted runs are not automatically resumed. Isolated scripts, reviewed external actions and complete application workflows remain future slices.
+
+Edit `agents/profiles.toml` to choose a `provider` and `model` independently for the lead and each specialist, alongside limits, tools and skills. Supported providers are `openai`, `gemini`, `mistral` and `cohere`; supply `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `MISTRAL_API_KEY` and/or `COHERE_API_KEY` in root `.env`. Use a tool-calling chat model from the selected provider. Existing profiles default to OpenAI; adding another key alone does not switch them. For example, change an existing profile to `provider = "gemini"` and `model = "gemini-2.5-flash"`. Settings shows configured providers; each profile reports missing credentials, including its delegated specialists. Missing keys fail before enqueue and never silently select another provider. Keys stay outside snapshots and prompts. Restart Compose services after changing `.env`; profile edits apply to new runs and existing runs retain their snapshots.
+
+Executive directives live in `agents/directives/`, reusable skills in `agents/skills/`, and runtime settings in TOML. `AGENTS.md` is exclusively for coding assistants and is never loaded by the application. A run snapshots the fully validated instructions and a revision covering configuration, directives and skills. Both Compose and `make worker`/`make beat` wait for PostgreSQL, Redis and API readiness; optional `CC_AGENT_DEPENDENCY_URLS` gates configured local mock services with a bounded timeout. Celery transports work; PostgreSQL owns state, leases, checkpoints and outcomes. Duplicate deliveries cannot rerun a claimed/completed job. An interrupted run is marked failed and is not automatically replayed.
 
 The internal Streamable HTTP MCP endpoint is `/mcp/`. LangChain's MCP adapter discovers tools per live agent run. Short-lived credentials are scoped to the run/lease and stay outside model messages. MCP and API credentials have separate audiences. Tools call the same owned, idempotent FastAPI mutations used by Next.js; they do not receive SQL access. The public server is not a general anonymous MCP endpoint. Remote third-party MCP clients and OAuth resource-server support are future work.
 
@@ -89,7 +99,9 @@ make test          # pytest + pytest-mock against disposable PostgreSQL
 make lint          # Ruff, strict mypy, ESLint and TypeScript
 make check         # lint, backend + frontend unit tests, production Next.js build
 make schema-check  # Alembic/ORM drift
-make contracts     # regenerate the typed Next.js API schema
+make contracts     # regenerate Next.js types and extension runtime validators
+make contracts-check # reject generated contract drift
+make test-browser  # start/wait for a synthetic form server, then test the extension
 make smoke         # functional checks against existing research services
 cd apps/web
 npx playwright install chromium
@@ -98,7 +110,7 @@ npm run test:workspace # real UI components with synthetic API/Clerk/Next fixtur
 npm run preview:workspace # interactive synthetic UI on localhost:4318
 ```
 
-`make migration message="describe change"` generates a migration for review; `make migrate` applies it. One Alembic history owns the schema. Tests use synthetic actors/data and mocked paid providers. The MCP worker integration test exercises actual HTTP discovery, authentication and SQL writes. Browser tests execute the extension's content script against a controlled local form.
+`make migration message="describe change"` generates a migration for review; `make migrate` applies it. One Alembic history owns the schema. The selected test stack is pytest with pytest-mock; agent/LLM evals will use DeepEval (selected, not installed). Existing Vitest/TypeScript Playwright checks remain current frontend coverage. Tests use synthetic actors/data and mocked paid providers. The MCP worker integration test exercises actual HTTP discovery, authentication and SQL writes. Browser tests execute the extension's content script against a controlled local form.
 
 ## Supabase deployment path
 
@@ -106,4 +118,4 @@ Keep FastAPI as the sole database access boundary. The migrations enable RLS on 
 
 ## Specifications
 
-Exactly two active specifications: [Product Spec](docs/product-spec.md) and [Tech Spec](docs/tech-spec.md). The [documentation index](docs/README.md) maps their supporting documents. [Engineering](docs/tech/engineering.md) owns the accepted, pending workspace fixes and verification plan; [handoff](docs/HANDOFF.md) records the latest work. Portal import staging/live sync, autonomous campaign limits, verified candidate facts, outreach and application submission remain future work beyond the connected workspace and operator importer.
+Three canonical specifications: [Product Spec](docs/product/product-spec.md), [Tech Spec](docs/tech/tech-spec.md), and [Design Spec](docs/design/design-spec.md). The [documentation index](docs/README.md) maps their supporting documents. [Engineering](docs/tech/engineering.md) owns the accepted, pending workspace fixes and verification plan. Portal import staging/live sync, autonomous campaign limits, reviewed outbound actions and complete application workflows remain future work.
