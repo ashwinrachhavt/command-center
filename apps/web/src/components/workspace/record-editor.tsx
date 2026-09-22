@@ -34,6 +34,7 @@ import {
   type WorkspaceRecord,
   type Page,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { Spinner } from "./primitives";
 
 export const stages = [
@@ -334,7 +335,7 @@ export function RecordEditor({
   }, [form]);
   const [closeWarning, setCloseWarning] = useState(false);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const requestKey = useRef({ signature: "", key: "" });
+  const [requestIntent] = useState(() => new RetainedRequestIntent());
   const mutation = useMutation({
     mutationFn: async (submitted: FormValues) => {
       const body: Record<string, string | number | null> = {};
@@ -361,21 +362,19 @@ export function RecordEditor({
         submitted.due_date
       )
         body.due_at = null;
-      const signature = JSON.stringify(body);
-      if (requestKey.current.signature !== signature)
-        requestKey.current = { signature, key: crypto.randomUUID() };
-      return api<WorkspaceRecord>(
-        `${resource}${record ? `/${record.id}` : ""}`,
-        {
-          method: record ? "PATCH" : "POST",
-          body,
-          key: requestKey.current.key,
-        },
-      );
+      const target = `${resource}${record ? `/${record.id}` : ""}`;
+      const method = record ? "PATCH" : "POST";
+      const intent = requestIntent.forRequest(method, target, body);
+      const saved = await api<WorkspaceRecord>(target, {
+        method: record ? "PATCH" : "POST",
+        body,
+        key: intent.key,
+      });
+      return { saved, target, method, body };
     },
-    onSuccess: (saved, submitted) => {
+    onSuccess: ({ saved, target, method, body }, submitted) => {
       setBaseline(saved);
-      requestKey.current = { signature: "", key: "" };
+      requestIntent.confirmRequest(method, target, body);
       client.invalidateQueries();
       toast.success(
         `${label(resourceNames[resource].singular)} ${record ? "updated" : "created"}`,

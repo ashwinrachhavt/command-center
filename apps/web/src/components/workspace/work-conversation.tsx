@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, MessagesSquare } from "lucide-react";
@@ -34,6 +34,7 @@ import {
   type Page,
   type Run,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
 
@@ -57,8 +58,8 @@ export function WorkConversation({
   const [sendError, setSendError] = useState<Error>();
   const [cancelError, setCancelError] = useState<Error>();
   const [savedNotice, setSavedNotice] = useState("");
-  const sessionReceipt = useRef("");
-  const messageReceipt = useRef({ signature: "", value: "" });
+  const [sendIntent] = useState(() => new RetainedRequestIntent());
+  const [cancelIntent] = useState(() => new RetainedRequestIntent());
 
   const profiles = useQuery({
     queryKey: ["agent-profiles"],
@@ -124,13 +125,19 @@ export function WorkConversation({
       const profile = selectedProfile?.id ?? profileId;
       let target = session;
       if (!target) {
-        if (!sessionReceipt.current)
-          sessionReceipt.current = crypto.randomUUID();
-        target = await api<AgentSession>("agent-sessions", {
+        const sessionTarget = "agent-sessions";
+        const sessionBody = { [scopeField]: recordId };
+        const sessionRequest = sendIntent.forRequest(
+          "POST",
+          sessionTarget,
+          sessionBody,
+        );
+        target = await api<AgentSession>(sessionTarget, {
           method: "POST",
-          body: { [scopeField]: recordId },
-          key: sessionReceipt.current,
+          body: sessionBody,
+          key: sessionRequest.key,
         });
+        sendIntent.confirmRequest("POST", sessionTarget, sessionBody);
         queryClient.setQueryData<Page<AgentSession>>(sessionKey, {
           items: [target],
           total: 1,
@@ -138,25 +145,36 @@ export function WorkConversation({
           offset: 0,
         });
       }
-      const signature = `${target.id}\u0000${profile}\u0000${content}`;
-      if (messageReceipt.current.signature !== signature) {
-        messageReceipt.current = {
-          signature,
-          value: crypto.randomUUID(),
-        };
-      }
       const wasActive = !!activeRun;
-      const message = await api<AgentMessage>(
-        `agent-sessions/${target.id}/messages`,
-        {
-          method: "POST",
-          body: { content, profile },
-          key: messageReceipt.current.value,
-        },
+      const messageTarget = `agent-sessions/${target.id}/messages`;
+      const messageBody = { content, profile };
+      const messageRequest = sendIntent.forRequest(
+        "POST",
+        messageTarget,
+        messageBody,
       );
-      return { message, target, wasActive, submittedContent: content };
+      const message = await api<AgentMessage>(messageTarget, {
+        method: "POST",
+        body: messageBody,
+        key: messageRequest.key,
+      });
+      return {
+        message,
+        target,
+        wasActive,
+        submittedContent: content,
+        messageTarget,
+        messageBody,
+      };
     },
-    onSuccess: ({ target, wasActive, submittedContent }) => {
+    onSuccess: ({
+      target,
+      wasActive,
+      submittedContent,
+      messageTarget,
+      messageBody,
+    }) => {
+      sendIntent.confirmRequest("POST", messageTarget, messageBody);
       setDraft((current) => (current === submittedContent ? "" : current));
       setSendError(undefined);
       setSavedNotice(
@@ -164,8 +182,6 @@ export function WorkConversation({
           ? "Instruction saved. It will be applied at the next safe stopping point."
           : "Message saved. Work is now queued.",
       );
-      sessionReceipt.current = "";
-      messageReceipt.current = { signature: "", value: "" };
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: messageKey }),
         queryClient.invalidateQueries({
@@ -179,12 +195,17 @@ export function WorkConversation({
 
   const cancel = useMutation({
     mutationFn: async (run: Run) => {
-      const postCancel = (fresh: Run) =>
-        api<Run>(`agent-runs/${fresh.id}/cancel`, {
+      const postCancel = async (fresh: Run) => {
+        const target = `agent-runs/${fresh.id}/cancel`;
+        const body = { expected_version: fresh.row_version };
+        const intent = cancelIntent.forRequest("POST", target, body);
+        const result = await api<Run>(target, {
           method: "POST",
-          body: { expected_version: fresh.row_version },
-          key: crypto.randomUUID(),
+          body,
+          key: intent.key,
         });
+        return { result, target, body };
+      };
       let fresh = await api<Run>(`agent-runs/${run.id}`);
       try {
         return await postCancel(fresh);
@@ -194,7 +215,8 @@ export function WorkConversation({
         return postCancel(fresh);
       }
     },
-    onSuccess: () => {
+    onSuccess: ({ target, body }) => {
+      cancelIntent.confirmRequest("POST", target, body);
       setCancelError(undefined);
       setSavedNotice(
         "Cancellation recorded. Completed activity remains available.",

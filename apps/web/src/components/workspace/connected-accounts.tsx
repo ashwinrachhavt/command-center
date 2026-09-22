@@ -1,39 +1,86 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api, label, type Schema } from "@/lib/api";
+import {
+  canStartFreshConnectedRequest,
+  RetainedRequestIntents,
+} from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 
 export function ConnectedAccounts() {
   const client = useQueryClient();
+  const [intents] = useState(() => new RetainedRequestIntents());
   const accounts = useQuery({
     queryKey: ["connected-accounts"],
     queryFn: () =>
       api<Schema["AccountRead"][]>("integrations/composio/accounts"),
   });
   const refresh = useMutation({
-    mutationFn: () =>
-      api("integrations/composio/accounts/sync", { method: "POST", body: {} }),
+    mutationFn: () => {
+      const target = "integrations/composio/accounts/sync";
+      const body = {};
+      const request = intents.forRequest("refresh", "POST", target, body);
+      return api(target, { method: "POST", body, key: request.key });
+    },
     onSuccess: () => {
+      intents.confirmRequest(
+        "refresh",
+        "POST",
+        "integrations/composio/accounts/sync",
+        {},
+      );
       void client.invalidateQueries({ queryKey: ["connected-accounts"] });
       toast.success("Connected accounts refreshed");
     },
   });
   const choose = useMutation({
-    mutationFn: (account: Schema["AccountRead"]) =>
-      api(`integrations/composio/accounts/${account.id}/select`, {
+    mutationFn: (account: Schema["AccountRead"]) => {
+      const target = `integrations/composio/accounts/${account.id}/select`;
+      const body = {
+        purpose: "outreach",
+        expected_version: account.row_version,
+      };
+      const request = intents.forRequest(
+        `choose:${account.id}`,
+        "POST",
+        target,
+        body,
+      );
+      return api(target, {
         method: "POST",
-        body: { purpose: "outreach", expected_version: account.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: request.key,
+      });
+    },
+    onSuccess: (_result, account) => {
+      intents.confirmRequest(
+        `choose:${account.id}`,
+        "POST",
+        `integrations/composio/accounts/${account.id}/select`,
+        { purpose: "outreach", expected_version: account.row_version },
+      );
       void client.invalidateQueries({ queryKey: ["connected-accounts"] });
       toast.success("Outreach account selected");
     },
   });
+  const chooseAccount = choose.variables;
+  const startFreshRefresh = () => {
+    intents.reset("refresh");
+    refresh.reset();
+    refresh.mutate();
+  };
+  const startFreshSelection = () => {
+    if (!chooseAccount) return;
+    intents.reset(`choose:${chooseAccount.id}`);
+    choose.reset();
+    choose.mutate(chooseAccount);
+  };
   return (
     <section className="rounded-xl border border-border bg-card p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -53,10 +100,43 @@ export function ConnectedAccounts() {
           {refresh.isPending ? <Spinner /> : <RefreshCw />}Refresh accounts
         </Button>
       </div>
-      {(refresh.error || choose.error) && (
-        <p role="alert" className="mt-4 text-sm text-destructive">
-          {(refresh.error ?? choose.error)?.message}
-        </p>
+      {refresh.error && (
+        <div role="alert" className="mt-4 space-y-2 text-sm text-destructive">
+          <p>{refresh.error.message}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={refresh.isPending}
+            onClick={
+              canStartFreshConnectedRequest(refresh.error)
+                ? startFreshRefresh
+                : () => refresh.mutate()
+            }
+          >
+            {canStartFreshConnectedRequest(refresh.error)
+              ? "Start a fresh refresh"
+              : "Retry the same refresh"}
+          </Button>
+        </div>
+      )}
+      {choose.error && chooseAccount && (
+        <div role="alert" className="mt-4 space-y-2 text-sm text-destructive">
+          <p>{choose.error.message}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={choose.isPending}
+            onClick={
+              canStartFreshConnectedRequest(choose.error)
+                ? startFreshSelection
+                : () => choose.mutate(chooseAccount)
+            }
+          >
+            {canStartFreshConnectedRequest(choose.error)
+              ? "Start a fresh account selection"
+              : "Retry the same account selection"}
+          </Button>
+        </div>
       )}
       {accounts.error ? (
         <ErrorState error={accounts.error} />

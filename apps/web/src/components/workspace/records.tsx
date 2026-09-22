@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -52,9 +53,18 @@ import {
   Status,
 } from "./primitives";
 import { RecordEditor, resourceNames, stages } from "./record-editor";
-import { RecordDetail } from "./record-detail";
+import { deferView } from "./deferred-view";
+import type { RecordDetailProps } from "./record-detail";
 import { LeadDiscovery } from "./lead-discovery";
 import { DocumentIntake } from "./document-intake";
+
+const DeferredRecordDetail = deferView<RecordDetailProps>(
+  () =>
+    import("./record-detail").then((module) => ({
+      default: module.RecordDetail,
+    })),
+  "record detail",
+);
 
 function field(record: WorkspaceRecord, key: string): string {
   const value = (record as unknown as Record<string, unknown>)[key];
@@ -102,16 +112,26 @@ export function Records({ resource }: { resource: Resource }) {
     },
   });
   const client = useQueryClient();
+  const [completeIntent] = useState(() => new RetainedRequestIntent());
   const complete = useMutation({
-    mutationFn: (r: WorkspaceRecord) =>
-      api(`tasks/${r.id}`, {
+    mutationFn: (r: WorkspaceRecord) => {
+      const target = `tasks/${r.id}`;
+      const body = {
+        expected_version: r.row_version,
+        state: field(r, "state") === "done" ? "open" : "done",
+      };
+      const intent = completeIntent.forRequest("PATCH", target, body);
+      return api(target, {
         method: "PATCH",
-        body: {
-          expected_version: r.row_version,
-          state: field(r, "state") === "done" ? "open" : "done",
-        },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, r) => {
+      completeIntent.confirmRequest("PATCH", `tasks/${r.id}`, {
+        expected_version: r.row_version,
+        state: field(r, "state") === "done" ? "open" : "done",
+      });
       client.invalidateQueries();
       toast.success("Task updated");
     },
@@ -482,7 +502,7 @@ export function Records({ resource }: { resource: Resource }) {
       </div>
       {selected && (
         <div className="min-w-0 overflow-y-auto">
-          <RecordDetail
+          <DeferredRecordDetail
             key={`${resource}:${selected}`}
             resource={resource}
             id={selected}

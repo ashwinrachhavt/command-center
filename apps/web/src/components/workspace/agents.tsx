@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,6 +32,7 @@ import {
   type Page,
   type Run,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { cn } from "@/lib/utils";
 import {
   Conversation,
@@ -45,7 +46,7 @@ import {
   ToolContent,
   ToolOutput,
 } from "@/components/ai-elements/tool";
-import { AgentResponse } from "./agent-response";
+import { deferView } from "./deferred-view";
 import {
   ErrorState,
   LoadingRows,
@@ -53,6 +54,14 @@ import {
   Spinner,
   Status,
 } from "./primitives";
+
+const RichAgentResponse = deferView<{ children: string }>(
+  () =>
+    import("./agent-response").then((module) => ({
+      default: module.AgentResponse,
+    })),
+  "rich agent response",
+);
 
 export function Agents() {
   const [profileId, setProfileId] = useState("research");
@@ -85,35 +94,44 @@ export function Agents() {
     refetchInterval:
       run && ["queued", "running"].includes(run.state) ? 3000 : false,
   });
-  const key = useRef({ signature: "", value: "" });
+  const [runIntent] = useState(() => new RetainedRequestIntent());
+  const [cancelIntent] = useState(() => new RetainedRequestIntent());
   const client = useQueryClient();
   const send = useMutation({
-    mutationFn: () => {
-      const signature = profileId + prompt;
-      if (key.current.signature !== signature)
-        key.current = { signature, value: crypto.randomUUID() };
+    mutationFn: (submission: { profile: string; prompt: string }) => {
+      const target = "agent-runs";
+      const body = submission;
+      const intent = runIntent.forRequest("POST", target, body);
       return api<Run>("agent-runs", {
         method: "POST",
-        body: { profile: profileId, prompt },
-        key: key.current.value,
+        body,
+        key: intent.key,
       });
     },
-    onSuccess: (r) => {
+    onSuccess: (r, submission) => {
+      runIntent.confirmRequest("POST", "agent-runs", submission);
       client.invalidateQueries({ queryKey: ["runs"] });
       setSelected(r.id);
-      setPrompt("");
-      key.current.signature = "";
+      setPrompt((current) => (current === submission.prompt ? "" : current));
       toast.success("Your agent run is queued");
     },
     onError: (e) => toast.error(e.message),
   });
   const cancel = useMutation({
-    mutationFn: (r: Run) =>
-      api(`agent-runs/${r.id}/cancel`, {
+    mutationFn: (r: Run) => {
+      const target = `agent-runs/${r.id}/cancel`;
+      const body = { expected_version: r.row_version };
+      const intent = cancelIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: { expected_version: r.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, r) => {
+      cancelIntent.confirmRequest("POST", `agent-runs/${r.id}/cancel`, {
+        expected_version: r.row_version,
+      });
       client.invalidateQueries();
       toast.success(
         "Cancellation recorded. An in-flight call may finish, but its result cannot update this run.",
@@ -142,14 +160,18 @@ export function Agents() {
           </p>
           <div className="flex flex-col gap-1">
             {runs.error ? (
-              <ErrorState error={runs.error} />
-            ) : runs.isPending ? (
+              <ErrorState
+                error={runs.error}
+                retry={() => void runs.refetch()}
+              />
+            ) : null}
+            {runs.isPending && !runs.data ? (
               <LoadingRows />
-            ) : runs.data.items.length === 0 ? (
+            ) : runs.data?.items.length === 0 ? (
               <p className="px-2 py-4 text-xs leading-6 text-muted-foreground">
                 Your conversations and their outcomes will live here.
               </p>
-            ) : (
+            ) : runs.data ? (
               runs.data.items.map((r) => (
                 <button
                   key={r.id}
@@ -170,7 +192,7 @@ export function Agents() {
                   </span>
                 </button>
               ))
-            )}
+            ) : null}
           </div>
         </aside>
         <div className="flex min-w-0 flex-col">
@@ -203,6 +225,21 @@ export function Agents() {
                       {run.prompt}
                     </MessageContent>
                   </Message>
+                  {steps.error ? (
+                    <ErrorState
+                      error={steps.error}
+                      retry={() => void steps.refetch()}
+                    />
+                  ) : null}
+                  {steps.isPending && !steps.data ? (
+                    <p className="text-sm text-muted-foreground" role="status">
+                      Loading run steps…
+                    </p>
+                  ) : steps.data?.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No steps were recorded for this run.
+                    </p>
+                  ) : null}
                   {steps.data?.map((step) => (
                     <Tool key={step.id} className="mb-0">
                       <ToolHeader
@@ -238,7 +275,7 @@ export function Agents() {
                   {run.output ? (
                     <Message from="assistant">
                       <MessageContent>
-                        <AgentResponse>{run.output}</AgentResponse>
+                        <RichAgentResponse>{run.output}</RichAgentResponse>
                       </MessageContent>
                     </Message>
                   ) : ["queued", "running"].includes(run.state) ? (
@@ -301,7 +338,8 @@ export function Agents() {
             className="border-t border-border bg-card/40 p-5 md:px-8"
             onSubmit={(e) => {
               e.preventDefault();
-              if (profile?.ready && prompt.trim()) send.mutate();
+              if (profile?.ready && prompt.trim())
+                send.mutate({ profile: profileId, prompt });
             }}
           >
             <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -378,7 +416,17 @@ export function Agents() {
                 )}
               </span>
             </div>
-            {profiles.error && <ErrorState error={profiles.error} />}
+            {profiles.isPending && !profiles.data ? (
+              <p className="mt-3 text-xs text-muted-foreground" role="status">
+                Loading agent profiles…
+              </p>
+            ) : null}
+            {profiles.error ? (
+              <ErrorState
+                error={profiles.error}
+                retry={() => void profiles.refetch()}
+              />
+            ) : null}
           </form>
         </div>
       </div>

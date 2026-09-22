@@ -6,6 +6,7 @@ import { Download, FileOutput, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, apiDownload, label, type PdfExport } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { Status, Spinner } from "./primitives";
 
 export function PdfExportControl({
@@ -22,24 +23,32 @@ export function PdfExportControl({
   editable: boolean;
 }) {
   const [exportIds, setExportIds] = useState<Record<string, string>>({});
+  const [intent] = useState(() => new RetainedRequestIntent());
   const exportId = exportIds[versionId];
   const detail = useQuery({
     queryKey: ["pdf-export", exportId],
     enabled: !!exportId,
-    queryFn: ({ signal }) => api<PdfExport>(`pdf-exports/${exportId}`, { signal }),
+    queryFn: ({ signal }) =>
+      api<PdfExport>(`pdf-exports/${exportId}`, { signal }),
     refetchInterval: (query) =>
       ["queued", "running"].includes(query.state.data?.state ?? "")
         ? 1000
         : false,
   });
   const create = useMutation({
-    mutationFn: () =>
-      api<PdfExport>(`artifacts/${artifactId}/versions/${versionId}/exports`, {
+    mutationFn: () => {
+      const target = `artifacts/${artifactId}/versions/${versionId}/exports`;
+      const body = { format: "pdf", task_id: null };
+      const request = intent.forRequest("POST", target, body);
+      return api<PdfExport>(target, {
         method: "POST",
-        body: { format: "pdf", task_id: null },
-      }),
-    onSuccess: (created) => {
-      setExportIds((current) => ({ ...current, [versionId]: created.id }));
+        body,
+        key: request.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ result, target, body }) => {
+      intent.confirmRequest("POST", target, body);
+      setExportIds((current) => ({ ...current, [versionId]: result.id }));
       toast.success(`PDF export queued from version ${version}`);
     },
     onError: (error) => toast.error(error.message),
@@ -47,15 +56,22 @@ export function PdfExportControl({
   const change = useMutation({
     mutationFn: (action: "cancel" | "retry") => {
       if (!detail.data) throw new Error("The PDF export is unavailable.");
-      return api<PdfExport>(`pdf-exports/${detail.data.id}/${action}`, {
+      const target = `pdf-exports/${detail.data.id}/${action}`;
+      const body = { expected_version: detail.data.row_version };
+      const request = intent.forRequest("POST", target, body);
+      return api<PdfExport>(target, {
         method: "POST",
-        body: { expected_version: detail.data.row_version },
-      });
+        body,
+        key: request.key,
+      }).then((result) => ({ result, target, body }));
     },
-    onSuccess: (updated) => {
+    onSuccess: ({ result, target, body }) => {
+      intent.confirmRequest("POST", target, body);
       detail.refetch();
       toast.success(
-        updated.state === "queued" ? "PDF export queued again" : "PDF export cancelled",
+        result.state === "queued"
+          ? "PDF export queued again"
+          : "PDF export cancelled",
       );
     },
     onError: (error) => toast.error(error.message),
@@ -81,7 +97,9 @@ export function PdfExportControl({
   });
   const current =
     detail.data ??
-    (create.data?.source.version_id === versionId ? create.data : undefined);
+    (create.data?.result.source.version_id === versionId
+      ? create.data.result
+      : undefined);
 
   if (!current) {
     return (
@@ -100,7 +118,9 @@ export function PdfExportControl({
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 px-3 py-2">
-      <span className="text-xs text-muted-foreground">PDF from version {version}</span>
+      <span className="text-xs text-muted-foreground">
+        PDF from version {version}
+      </span>
       <Status value={current.state} />
       {current.state === "completed" && current.output ? (
         <Button
@@ -136,10 +156,14 @@ export function PdfExportControl({
         </Button>
       ) : null}
       {current.error_code ? (
-        <span className="text-xs text-destructive">{label(current.error_code)}</span>
+        <span className="text-xs text-destructive">
+          {label(current.error_code)}
+        </span>
       ) : null}
       {current.cleanup_pending ? (
-        <span className="text-xs text-muted-foreground">Waiting for renderer cleanup</span>
+        <span className="text-xs text-muted-foreground">
+          Waiting for renderer cleanup
+        </span>
       ) : null}
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -34,6 +34,10 @@ import {
   type Page,
   type Schema,
 } from "@/lib/api";
+import {
+  canStartFreshConnectedRequest,
+  RetainedRequestIntent,
+} from "@/lib/retained-intent";
 import {
   EmptyState,
   ErrorState,
@@ -228,7 +232,7 @@ function VersionPicker({
   );
 }
 
-function ActionEditor({
+export function ActionEditor({
   existing,
   close,
 }: {
@@ -271,7 +275,7 @@ function ActionEditor({
   );
   const [reason, setReason] = useState(existing?.current.reason ?? "");
   const [picking, setPicking] = useState<"source" | "attachment" | null>(null);
-  const key = useRef({ signature: "", value: "" });
+  const [intent] = useState(() => new RetainedRequestIntent());
   const accounts = useQuery({
     queryKey: ["connected-accounts"],
     queryFn: () => api<Account[]>("integrations/composio/accounts"),
@@ -309,20 +313,27 @@ function ActionEditor({
           ? { expected_version: existing.row_version }
           : { account_id: accountId }),
       };
-      const signature = JSON.stringify(body);
-      if (signature !== key.current.signature)
-        key.current = { signature, value: crypto.randomUUID() };
-      return api<Action>(
-        existing ? `reviewed-actions/${existing.id}` : "reviewed-actions",
-        { method: existing ? "PATCH" : "POST", body, key: key.current.value },
+      const target = existing
+        ? `reviewed-actions/${existing.id}`
+        : "reviewed-actions";
+      const method = existing ? "PATCH" : "POST";
+      const request = intent.forRequest(method, target, body);
+      return api<Action>(target, { method, body, key: request.key }).then(
+        (result) => ({ result, target, method, body }),
       );
     },
-    onSuccess: () => {
+    onSuccess: ({ target, method, body }) => {
+      intent.confirmRequest(method, target, body);
       void client.invalidateQueries({ queryKey: ["reviewed-actions"] });
       close();
       toast.success("Proposal saved for review");
     },
   });
+  const retrySave = () => {
+    if (canStartFreshConnectedRequest(save.error)) intent.reset();
+    save.reset();
+    save.mutate();
+  };
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
@@ -532,9 +543,20 @@ function ActionEditor({
             />
           </Field>
           {save.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {save.error.message}
-            </p>
+            <div role="alert" className="space-y-2 text-sm text-destructive">
+              <p>{save.error.message}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={save.isPending}
+                onClick={retrySave}
+              >
+                {canStartFreshConnectedRequest(save.error)
+                  ? "Start a fresh proposal save"
+                  : "Retry the same proposal save"}
+              </Button>
+            </div>
           )}
           <Button disabled={save.isPending}>
             {save.isPending ? <Spinner /> : <FileCheck />}Save proposal
@@ -626,18 +648,26 @@ function ActionReview({
     [],
   );
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [reviewIntent] = useState(() => new RetainedRequestIntent());
+  const [reconcileIntent] = useState(() => new RetainedRequestIntent());
   const review = useMutation({
-    mutationFn: (decision: "approved" | "rejected" | "revoked") =>
-      api<Action>(`reviewed-actions/${current.id}/reviews`, {
+    mutationFn: (decision: "approved" | "rejected" | "revoked") => {
+      const target = `reviewed-actions/${current.id}/reviews`;
+      const body = {
+        expected_version: current.row_version,
+        revision_id: current.current.id,
+        decision,
+        reason,
+      };
+      const intent = reviewIntent.forRequest("POST", target, body);
+      return api<Action>(target, {
         method: "POST",
-        body: {
-          expected_version: current.row_version,
-          revision_id: current.current.id,
-          decision,
-          reason,
-        },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ target, body }) => {
+      reviewIntent.confirmRequest("POST", target, body);
       setConfirmed(null);
       void client.invalidateQueries({ queryKey: ["reviewed-actions"] });
       toast.success("Review recorded");
@@ -648,16 +678,29 @@ function ActionReview({
     },
   });
   const reconcile = useMutation({
-    mutationFn: () =>
-      api(`reviewed-actions/${current.id}/reconcile`, {
+    mutationFn: () => {
+      const target = `reviewed-actions/${current.id}/reconcile`;
+      const body = { expected_version: current.row_version };
+      const intent = reconcileIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: { expected_version: current.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ target, body }) => {
+      reconcileIntent.confirmRequest("POST", target, body);
       void client.invalidateQueries({ queryKey: ["reviewed-actions"] });
       toast.success("Provider receipt checked");
     },
   });
+  const retryReconcile = () => {
+    if (canStartFreshConnectedRequest(reconcile.error)) {
+      reconcileIntent.reset();
+      reconcile.reset();
+    }
+    reconcile.mutate();
+  };
   if (editing)
     return <ActionEditor existing={current} close={() => setEditing(false)} />;
   const canReview = current.state === "proposed";
@@ -904,9 +947,21 @@ function ActionReview({
           </div>
         )}
         {(review.error || reconcile.error || action.error) && (
-          <p role="alert" className="text-sm text-destructive">
-            {(review.error ?? reconcile.error ?? action.error)?.message}
-          </p>
+          <div role="alert" className="space-y-2 text-sm text-destructive">
+            <p>{(review.error ?? reconcile.error ?? action.error)?.message}</p>
+            {reconcile.error && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={reconcile.isPending}
+                onClick={retryReconcile}
+              >
+                {canStartFreshConnectedRequest(reconcile.error)
+                  ? "Start a fresh receipt check"
+                  : "Retry the same receipt check"}
+              </Button>
+            )}
+          </div>
         )}
       </DialogContent>
     </Dialog>

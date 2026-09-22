@@ -39,6 +39,7 @@ import {
   type DocumentImport,
   type Page,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, Spinner, Status } from "./primitives";
 import { useWorkspaceContext } from "./context";
 
@@ -285,10 +286,7 @@ export function DocumentIntake() {
   const client = useQueryClient();
   const context = useWorkspaceContext();
   const [uploading, setUploading] = useState(false);
-  const actionKeys = useRef<Record<string, string>>({});
-  const suggestionKeys = useRef<
-    Record<string, { session: string; message: string }>
-  >({});
+  const [intent] = useState(() => new RetainedRequestIntent());
   const imports = useQuery({
     queryKey: ["document-imports"],
     queryFn: ({ signal }) =>
@@ -310,16 +308,21 @@ export function DocumentIntake() {
       item: DocumentImport;
       action: string;
     }) => {
-      const signature = `${item.id}:${action}`;
-      actionKeys.current[signature] ??= crypto.randomUUID();
-      return api<DocumentImport>(`documents/imports/${item.id}/${action}`, {
+      const target = `documents/imports/${item.id}/${action}`;
+      const body = { expected_version: item.row_version };
+      const request = intent.forRequest("POST", target, body);
+      return api<DocumentImport>(target, {
         method: "POST",
-        key: actionKeys.current[signature],
-        body: { expected_version: item.row_version },
+        key: request.key,
+        body,
       });
     },
     onSuccess: (result, variables) => {
-      delete actionKeys.current[`${variables.item.id}:${variables.action}`];
+      intent.confirmRequest(
+        "POST",
+        `documents/imports/${variables.item.id}/${variables.action}`,
+        { expected_version: variables.item.row_version },
+      );
       client.invalidateQueries({ queryKey: ["document-imports"] });
       toast.success(
         variables.action === "retry"
@@ -337,35 +340,36 @@ export function DocumentIntake() {
     mutationFn: async (item: DocumentImport) => {
       if (!item.extraction_version_id)
         throw new Error("The extracted version is not available yet.");
-      suggestionKeys.current[item.id] ??= {
-        session: crypto.randomUUID(),
-        message: crypto.randomUUID(),
-      };
-      const keys = suggestionKeys.current[item.id];
       const sessions = await api<Page<AgentSession>>(
         `agent-sessions?task_id=${item.task_id}&limit=1&offset=0`,
       );
+      const sessionTarget = "agent-sessions";
+      const sessionBody = { task_id: item.task_id };
       const session =
         sessions.items[0] ??
         (await api<AgentSession>("agent-sessions", {
           method: "POST",
-          key: keys.session,
-          body: { task_id: item.task_id },
+          key: intent.forRequest("POST", sessionTarget, sessionBody).key,
+          body: sessionBody,
         }));
-      await api(`agent-sessions/${session.id}/messages`, {
+      if (!sessions.items[0])
+        intent.confirmRequest("POST", sessionTarget, sessionBody);
+      const messageTarget = `agent-sessions/${session.id}/messages`;
+      const messageBody = {
+        profile: "application",
+        content:
+          `Read extracted document version ${item.extraction_version_id}. ` +
+          "Propose evidenced profile facts with verbatim source excerpts for my review. Do not approve any facts.",
+      };
+      await api(messageTarget, {
         method: "POST",
-        key: keys.message,
-        body: {
-          profile: "application",
-          content:
-            `Read extracted document version ${item.extraction_version_id}. ` +
-            "Propose evidenced profile facts with verbatim source excerpts for my review. Do not approve any facts.",
-        },
+        key: intent.forRequest("POST", messageTarget, messageBody).key,
+        body: messageBody,
       });
-      return item;
+      return { item, messageTarget, messageBody };
     },
-    onSuccess: (item) => {
-      delete suggestionKeys.current[item.id];
+    onSuccess: ({ item, messageTarget, messageBody }) => {
+      intent.confirmRequest("POST", messageTarget, messageBody);
       window.history.pushState(
         null,
         "",

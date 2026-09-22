@@ -21,9 +21,18 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { RecordDetail } from "./record-detail";
+import { deferView } from "./deferred-view";
+import type { RecordDetailProps } from "./record-detail";
 import { RecordEditor, resourceNames } from "./record-editor";
 import { ErrorState, LoadingRows, Mark } from "./primitives";
+
+const DeferredRecordDetail = deferView<RecordDetailProps>(
+  () =>
+    import("./record-detail").then((module) => ({
+      default: module.RecordDetail,
+    })),
+  "record detail",
+);
 
 export const recordResources = [
   "opportunities",
@@ -194,7 +203,7 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                     className="min-h-0 flex-1 overflow-y-auto"
                   >
                     {id ? (
-                      <RecordDetail
+                      <DeferredRecordDetail
                         resource={resource}
                         id={id}
                         onClose={back}

@@ -12,6 +12,7 @@ import {
   type Page,
   type Resources,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import {
   ErrorState,
   LoadingRows,
@@ -20,7 +21,7 @@ import {
   Spinner,
   Status,
 } from "./primitives";
-import { ActivityList } from "./record-detail";
+import { ActivityList } from "./activity-list";
 import { useWorkspaceContext } from "./context";
 import { RecordEditor, stages } from "./record-editor";
 
@@ -32,6 +33,7 @@ type Dashboard = {
 export function Overview() {
   const context = useWorkspaceContext();
   const [creating, setCreating] = useState(false);
+  const [intent] = useState(() => new RetainedRequestIntent());
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["dashboard"],
@@ -42,8 +44,12 @@ export function Overview() {
     queryFn: () => api<Page<Activity>>("activity?limit=5"),
   });
   const demo = useMutation({
-    mutationFn: () => api("demo", { method: "POST" }),
+    mutationFn: () => {
+      const request = intent.forRequest("POST", "demo");
+      return api("demo", { method: "POST", key: request.key });
+    },
     onSuccess: () => {
+      intent.confirmRequest("POST", "demo");
       queryClient.invalidateQueries();
       toast.success(
         "Synthetic examples added. No external actions were taken.",
@@ -52,12 +58,23 @@ export function Overview() {
     onError: (e) => toast.error(e.message),
   });
   const complete = useMutation({
-    mutationFn: (task: Resources["tasks"]) =>
-      api(`tasks/${task.id}`, {
+    mutationFn: (task: Resources["tasks"]) => {
+      const target = `tasks/${task.id}`;
+      const body = { state: "done", expected_version: task.row_version };
+      const request = intent.forRequest("PATCH", target, body);
+      return api(target, {
         method: "PATCH",
-        body: { state: "done", expected_version: task.row_version },
-      }),
-    onSuccess: () => queryClient.invalidateQueries(),
+        body,
+        key: request.key,
+      });
+    },
+    onSuccess: (_result, task) => {
+      intent.confirmRequest("PATCH", `tasks/${task.id}`, {
+        state: "done",
+        expected_version: task.row_version,
+      });
+      queryClient.invalidateQueries();
+    },
     onError: (e) => toast.error(e.message),
   });
   return (

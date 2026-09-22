@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -45,54 +45,54 @@ import {
   type Schema,
   type WorkspaceRecord,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Mark, Status, Spinner } from "./primitives";
 import { RecordEditor, resourceNames, stages } from "./record-editor";
-import { AgentResponse } from "./agent-response";
+import { deferView } from "./deferred-view";
 import { useWorkspaceContext } from "./context";
-import { WorkConversation } from "./work-conversation";
+import { ActivityList } from "./activity-list";
 import { OpportunityResearch } from "./opportunity-research";
 import { DocumentUploadDialog } from "./document-intake";
 import { PdfExportControl } from "./pdf-export";
 
-export function ActivityList({ events }: { events: Activity[] }) {
-  return (
-    <div className="flex flex-col">
-      {events.map((e) => (
-        <div
-          key={e.id}
-          className="flex gap-3 border-b border-border/60 py-4 last:border-0"
-        >
-          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/60" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs">{label(e.action.replaceAll(".", " "))}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {e.details.from_stage
-                ? `${label(String(e.details.from_stage))} → ${label(String(e.details.to_stage))}`
-                : e.details.version
-                  ? `Version ${e.details.version}`
-                  : e.details.fields
-                    ? `Updated ${String(e.details.fields).replaceAll(",", ", ")}`
-                    : "Saved to your workspace"}
-            </p>
-          </div>
-          <time
-            className="shrink-0 text-[10px] text-muted-foreground"
-            dateTime={e.occurred_at}
-          >
-            {dateLabel(e.occurred_at)}
-          </time>
-        </div>
-      ))}
-      {events.length === 0 && (
-        <p className="py-8 text-sm text-muted-foreground">
-          Activity will appear here as this record changes.
-        </p>
-      )}
-    </div>
-  );
+const RichAgentResponse = deferView<{ children: string }>(
+  () =>
+    import("./agent-response").then((module) => ({
+      default: module.AgentResponse,
+    })),
+  "rich content",
+);
+const DeferredWorkConversation = deferView<{
+  resource: "tasks" | "opportunities";
+  recordId: string;
+  disabledReason?: string;
+}>(
+  () =>
+    import("./work-conversation").then((module) => ({
+      default: module.WorkConversation,
+    })),
+  "work conversation",
+);
+
+type ArtifactReviewDecision = "approved" | "rejected" | "revoked";
+type ArtifactReviewDraft = {
+  versionId: string;
+  version: number;
+  contentSha256: string;
+  decision: ArtifactReviewDecision;
+  reason: string;
+};
+type ArtifactVersionSubmission = {
+  basedOnVersionId: string | undefined;
+  expectedVersion: number;
+  text: string;
+};
+
+function reviewSignature(review: ArtifactReviewDraft) {
+  return JSON.stringify(review);
 }
 
-function ArtifactContent({
+export function ArtifactContent({
   record,
   pinnedVersionId,
 }: {
@@ -109,6 +109,7 @@ function ArtifactContent({
   const version = selected
     ? versions.data?.find((candidate) => candidate.id === selected)
     : versions.data?.[0];
+  if (!selected && versions.data?.[0]) setSelected(versions.data[0].id);
   const pinnedVersionMissing =
     !!selected && !versions.isPending && !versions.error && !version;
   const reviews = useQuery({
@@ -128,39 +129,123 @@ function ArtifactContent({
   const [editing, setEditing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [text, setText] = useState("");
-  const [reason, setReason] = useState("");
-  const [decision, setDecision] = useState("approved");
+  const currentText = useRef(text);
+  useLayoutEffect(() => {
+    currentText.current = text;
+  }, [text]);
+  const [appendIntent] = useState(() => new RetainedRequestIntent());
+  const [reviewDraft, setReviewDraft] = useState<ArtifactReviewDraft>();
+  const currentReviewDraft = useRef(reviewDraft);
+  useLayoutEffect(() => {
+    currentReviewDraft.current = reviewDraft;
+  }, [reviewDraft]);
+  const [pendingVersionId, setPendingVersionId] = useState<string>();
+  const [reviewIntent] = useState(() => new RetainedRequestIntent());
+  const matchingReviewDraft =
+    reviewDraft?.versionId === version?.id ? reviewDraft : undefined;
+  const reason = matchingReviewDraft?.reason ?? "";
+  const decision = matchingReviewDraft?.decision ?? "approved";
+  const newestVersion = versions.data?.[0];
+  const newerVersionAvailable =
+    !!version && !!newestVersion && newestVersion.version > version.version;
+  const reviewIsDirty =
+    !!matchingReviewDraft &&
+    (matchingReviewDraft.reason.length > 0 ||
+      matchingReviewDraft.decision !== "approved");
+  const updateReviewDraft = (
+    update: Partial<Pick<ArtifactReviewDraft, "decision" | "reason">>,
+  ) => {
+    if (!version) return;
+    setReviewDraft((current) => ({
+      versionId: version.id,
+      version: version.version,
+      contentSha256: version.content_sha256,
+      decision:
+        current?.versionId === version.id ? current.decision : "approved",
+      reason: current?.versionId === version.id ? current.reason : "",
+      ...update,
+    }));
+  };
   const append = useMutation({
-    mutationFn: () =>
-      api(`artifacts/${record.id}/versions`, {
+    mutationFn: (submission: ArtifactVersionSubmission) => {
+      const target = `artifacts/${record.id}/versions`;
+      const body = {
+        based_on_version_id: submission.basedOnVersionId,
+        expected_version: submission.expectedVersion,
+        text: submission.text,
+      };
+      const intent = appendIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: {
-          based_on_version_id: version?.id,
-          expected_version: record.row_version,
-          text,
-        },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, submission) => {
+      const target = `artifacts/${record.id}/versions`;
+      appendIntent.confirmRequest("POST", target, {
+        based_on_version_id: submission.basedOnVersionId,
+        expected_version: submission.expectedVersion,
+        text: submission.text,
+      });
       queryClient.invalidateQueries();
-      setEditing(false);
-      setSelected(undefined);
+      if (currentText.current === submission.text) {
+        setEditing(false);
+        setSelected(undefined);
+        setReviewDraft(undefined);
+        setPendingVersionId(undefined);
+        reviewIntent.reset();
+      }
       toast.success("New version saved");
     },
     onError: (e) => toast.error(e.message),
   });
   const review = useMutation({
-    mutationFn: () =>
-      api(`versions/${version?.id}/reviews`, {
+    mutationFn: (submission: ArtifactReviewDraft) => {
+      const target = `versions/${submission.versionId}/reviews`;
+      const body = { decision: submission.decision, reason: submission.reason };
+      const intent = reviewIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: { decision, reason },
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries();
-      setReason("");
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, submission) => {
+      queryClient.invalidateQueries({
+        queryKey: ["reviews", submission.versionId],
+      });
+      reviewIntent.confirmRequest(
+        "POST",
+        `versions/${submission.versionId}/reviews`,
+        {
+          decision: submission.decision,
+          reason: submission.reason,
+        },
+      );
+      if (
+        currentReviewDraft.current &&
+        reviewSignature(currentReviewDraft.current) ===
+          reviewSignature(submission)
+      ) {
+        setReviewDraft(undefined);
+      }
       toast.success("Review recorded for this version");
     },
     onError: (e) => toast.error(e.message),
   });
+  const switchVersion = (versionId: string) => {
+    setSelected(versionId);
+    setReviewDraft(undefined);
+    setPendingVersionId(undefined);
+    reviewIntent.reset();
+    review.reset();
+  };
+  const requestVersion = (versionId: string) => {
+    if (versionId === version?.id) return;
+    if (reviewIsDirty) setPendingVersionId(versionId);
+    else switchVersion(versionId);
+  };
   const download = useMutation({
     mutationFn: async () => {
       if (!version) throw new Error("Choose a version to download.");
@@ -195,7 +280,10 @@ function ArtifactContent({
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <Select value={selected ?? version?.id} onValueChange={setSelected}>
+            <Select
+              value={selected ?? version?.id}
+              onValueChange={requestVersion}
+            >
               <SelectTrigger className="w-40" aria-label="Artifact version">
                 <SelectValue />
               </SelectTrigger>
@@ -258,6 +346,53 @@ function ArtifactContent({
               </>
             ) : null}
           </div>
+          {newerVersionAvailable ? (
+            <div className="rounded-md border border-border p-3 text-xs">
+              <p>
+                A newer Version {newestVersion.version} is available. Your
+                displayed content and review remain pinned to Version{" "}
+                {version.version}.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() => requestVersion(newestVersion.id)}
+              >
+                Review version {newestVersion.version}
+              </Button>
+            </div>
+          ) : null}
+          {pendingVersionId && reviewIsDirty && version ? (
+            <div
+              role="alert"
+              className="rounded-md border border-border p-3 text-xs"
+            >
+              <p>
+                Unsaved review belongs to Version {version.version}. Discard it
+                before switching content.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPendingVersionId(undefined)}
+                >
+                  Keep reviewing version {version.version}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => switchVersion(pendingVersionId)}
+                >
+                  Discard review and switch
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {pinnedVersionMissing ? (
             <div
               role="alert"
@@ -275,7 +410,11 @@ function ArtifactContent({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                append.mutate();
+                append.mutate({
+                  basedOnVersionId: version?.id,
+                  expectedVersion: record.row_version,
+                  text,
+                });
               }}
               className="flex flex-col gap-3"
             >
@@ -302,9 +441,9 @@ function ArtifactContent({
             </form>
           ) : (
             <div className="min-h-40 break-words rounded-lg border border-border bg-background p-4">
-              <AgentResponse>
+              <RichAgentResponse>
                 {String(version?.payload?.text || "This version is empty.")}
-              </AgentResponse>
+              </RichAgentResponse>
             </div>
           )}
           {!pinnedVersionMissing ? (
@@ -320,6 +459,30 @@ function ArtifactContent({
                 <p className="mt-1 mb-4 text-xs text-muted-foreground">
                   Review decisions stay with the exact content you checked.
                 </p>
+                {reviews.error ? (
+                  <ErrorState
+                    error={reviews.error}
+                    retry={() => void reviews.refetch()}
+                  />
+                ) : reviews.isPending && !reviews.data ? (
+                  <p
+                    className="mb-4 text-xs text-muted-foreground"
+                    role="status"
+                  >
+                    Loading review history…
+                  </p>
+                ) : reviews.data?.length === 0 ? (
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    No reviews recorded for this version.
+                  </p>
+                ) : reviews.isFetching ? (
+                  <p
+                    className="mb-4 text-xs text-muted-foreground"
+                    role="status"
+                  >
+                    Refreshing review history…
+                  </p>
+                ) : null}
                 {reviews.data?.[0] && (
                   <div className="mb-4 rounded-md bg-muted p-3 text-xs">
                     <strong>{label(reviews.data[0].decision)}</strong>
@@ -331,11 +494,25 @@ function ArtifactContent({
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    review.mutate();
+                    if (!version) return;
+                    review.mutate({
+                      versionId: version.id,
+                      version: version.version,
+                      contentSha256: version.content_sha256,
+                      decision,
+                      reason,
+                    });
                   }}
                   className="flex flex-col gap-3"
                 >
-                  <Select value={decision} onValueChange={setDecision}>
+                  <Select
+                    value={decision}
+                    onValueChange={(value) =>
+                      updateReviewDraft({
+                        decision: value as ArtifactReviewDecision,
+                      })
+                    }
+                  >
                     <SelectTrigger aria-label="Review decision">
                       <SelectValue />
                     </SelectTrigger>
@@ -351,7 +528,9 @@ function ArtifactContent({
                   </Select>
                   <Input
                     value={reason}
-                    onChange={(e) => setReason(e.target.value)}
+                    onChange={(e) =>
+                      updateReviewDraft({ reason: e.target.value })
+                    }
                     required
                     maxLength={2000}
                     aria-label="Review reason"
@@ -364,6 +543,11 @@ function ArtifactContent({
                   >
                     Record review
                   </Button>
+                  {review.error ? (
+                    <p role="alert" className="text-xs text-destructive">
+                      {review.error.message}
+                    </p>
+                  ) : null}
                 </form>
               </div>
             </>
@@ -416,6 +600,15 @@ function LinkedRecord({
   );
 }
 
+export type RecordDetailProps = {
+  resource: Resource;
+  id: string;
+  onClose: () => void;
+  compact?: boolean;
+  initialTab?: "content" | "conversation";
+  pinnedVersionId?: string;
+};
+
 export function RecordDetail({
   resource,
   id,
@@ -423,20 +616,15 @@ export function RecordDetail({
   compact = false,
   initialTab,
   pinnedVersionId,
-}: {
-  resource: Resource;
-  id: string;
-  onClose: () => void;
-  compact?: boolean;
-  initialTab?: "content" | "conversation";
-  pinnedVersionId?: string;
-}) {
+}: RecordDetailProps) {
   const context = useWorkspaceContext();
   const stateFieldId = useId();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab ?? "overview");
+  const [recordIntent] = useState(() => new RetainedRequestIntent());
+  const [archiveIntent] = useState(() => new RetainedRequestIntent());
   const query = useQuery({
     queryKey: [resource, id],
     queryFn: () => api<WorkspaceRecord>(`${resource}/${id}`),
@@ -447,21 +635,33 @@ export function RecordDetail({
   });
   const record = query.data;
   const mutation = useMutation({
-    mutationFn: (body: unknown) =>
-      api(`${resource}/${id}`, { method: "PATCH", body }),
-    onSuccess: () => {
+    mutationFn: (body: unknown) => {
+      const target = `${resource}/${id}`;
+      const intent = recordIntent.forRequest("PATCH", target, body);
+      return api(target, { method: "PATCH", body, key: intent.key });
+    },
+    onSuccess: (_result, body) => {
+      recordIntent.confirmRequest("PATCH", `${resource}/${id}`, body);
       client.invalidateQueries();
       toast.success("Record updated");
     },
     onError: (e) => toast.error(e.message),
   });
   const archive = useMutation({
-    mutationFn: () =>
-      api(`${resource}/${id}/archive`, {
+    mutationFn: (submitted: WorkspaceRecord) => {
+      const target = `${resource}/${id}/archive`;
+      const body = { expected_version: submitted.row_version };
+      const intent = archiveIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: { expected_version: record?.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, submitted) => {
+      archiveIntent.confirmRequest("POST", `${resource}/${id}/archive`, {
+        expected_version: submitted.row_version,
+      });
       client.invalidateQueries();
       toast.success("Record archived");
       onClose();
@@ -734,7 +934,7 @@ export function RecordDetail({
           )}
           {(resource === "tasks" || resource === "opportunities") && (
             <TabsContent value="conversation">
-              <WorkConversation
+              <DeferredWorkConversation
                 key={`${resource}:${id}`}
                 resource={resource}
                 recordId={id}
@@ -783,7 +983,7 @@ export function RecordDetail({
             <Button
               variant="destructive"
               disabled={archive.isPending}
-              onClick={() => archive.mutate()}
+              onClick={() => record && archive.mutate(record)}
             >
               {archive.isPending && <Spinner />}Archive record
             </Button>

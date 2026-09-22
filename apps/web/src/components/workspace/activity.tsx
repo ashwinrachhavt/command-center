@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { api, type Activity, type Page } from "@/lib/api";
-import { ActivityList } from "./record-detail";
+import { ActivityList } from "./activity-list";
 import { EmptyState, ErrorState, LoadingRows, PageHeading } from "./primitives";
 export function ActivityPage() {
   const [offset, setOffset] = useState(0);

@@ -127,7 +127,10 @@ export function RunActivity({
       ) : null}
 
       {showLiveActivity ? (
-        <div className="mt-4 border-t border-border pt-4" aria-label="Live activity">
+        <div
+          className="mt-4 border-t border-border pt-4"
+          aria-label="Live activity"
+        >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <p className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">
               {stream.connection === "live"
@@ -180,7 +183,9 @@ export function RunActivity({
                 state={tool.state}
               />
               <ToolContent>
-                {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}
+                {tool.input !== undefined ? (
+                  <ToolInput input={tool.input} />
+                ) : null}
                 <ToolOutput output={tool.output} errorText={tool.errorText} />
               </ToolContent>
             </Tool>
@@ -199,6 +204,11 @@ export function RunActivity({
         <div className="mt-4">
           <ErrorState error={steps.error} retry={() => steps.refetch()} />
         </div>
+      ) : null}
+      {steps.isPending && !steps.data ? (
+        <p className="mt-4 text-xs text-muted-foreground" role="status">
+          Loading saved steps…
+        </p>
       ) : steps.data?.length ? (
         <div className="mt-4 space-y-2">
           {steps.data.map((step) => {
@@ -247,6 +257,10 @@ export function RunActivity({
             );
           })}
         </div>
+      ) : steps.data ? (
+        <p className="mt-4 text-xs text-muted-foreground">
+          No saved steps for this run.
+        </p>
       ) : null}
 
       {artifacts.error ? (
@@ -256,6 +270,11 @@ export function RunActivity({
             retry={() => artifacts.refetch()}
           />
         </div>
+      ) : null}
+      {artifacts.isPending && !artifacts.data ? (
+        <p className="mt-4 text-xs text-muted-foreground" role="status">
+          Loading saved outputs…
+        </p>
       ) : artifacts.data?.items.length ? (
         <div className="mt-4 flex flex-wrap gap-2" aria-label="Saved outputs">
           {artifacts.data.items.map((artifact) => (
@@ -277,6 +296,10 @@ export function RunActivity({
             </Button>
           ))}
         </div>
+      ) : artifacts.data ? (
+        <p className="mt-4 text-xs text-muted-foreground">
+          No saved outputs for this run.
+        </p>
       ) : null}
 
       {showOutput && run.output ? (

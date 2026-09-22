@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, KeyRound, Plug, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -7,37 +7,115 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { api, label, type Integrations, type Profile } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  label,
+  type Integrations,
+  type Profile,
+} from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
 import { ProfileFacts } from "./profile-facts";
 import { ConnectedAccounts } from "./connected-accounts";
 import { SpendingSettings } from "./spending";
 
-function ProfileForm({ profile }: { profile: Profile }) {
-  const [form, setForm] = useState({
+type ProfileValues = Pick<
+  Profile,
+  "display_name" | "headline" | "location" | "timezone"
+>;
+
+function profileValues(profile: Profile): ProfileValues {
+  return {
     display_name: profile.display_name,
     headline: profile.headline,
     location: profile.location,
     timezone: profile.timezone,
-  });
+  };
+}
+
+function sameProfileValues(left: ProfileValues, right: ProfileValues) {
+  return Object.keys(left).every(
+    (key) =>
+      left[key as keyof ProfileValues] === right[key as keyof ProfileValues],
+  );
+}
+
+type ProfileSubmission = {
+  values: ProfileValues;
+  expectedVersion: number;
+};
+
+export function ProfileForm({ profile }: { profile: Profile }) {
+  const [baseline, setBaseline] = useState(profile);
+  const [form, setForm] = useState<ProfileValues>(() => profileValues(profile));
+  const [seenProfileVersion, setSeenProfileVersion] = useState(
+    profile.row_version,
+  );
+  const currentForm = useRef(form);
+  useLayoutEffect(() => {
+    currentForm.current = form;
+  }, [form]);
+  const [requestIntent] = useState(() => new RetainedRequestIntent());
+  const dirty = !sameProfileValues(form, profileValues(baseline));
+  if (profile.row_version > seenProfileVersion) {
+    setSeenProfileVersion(profile.row_version);
+    if (!dirty) {
+      setBaseline(profile);
+      setForm(profileValues(profile));
+    }
+  }
   const client = useQueryClient();
   const mutation = useMutation({
-    mutationFn: () =>
-      api("me", {
+    mutationFn: (submission: ProfileSubmission) => {
+      const body = {
+        ...submission.values,
+        expected_version: submission.expectedVersion,
+      };
+      const intent = requestIntent.forRequest("PATCH", "me", body);
+      return api<Profile>("me", {
         method: "PATCH",
-        body: { ...form, expected_version: profile.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (saved, submission) => {
+      setBaseline(saved);
+      if (sameProfileValues(currentForm.current, submission.values)) {
+        setForm(profileValues(saved));
+      }
+      requestIntent.confirmRequest("PATCH", "me", {
+        ...submission.values,
+        expected_version: submission.expectedVersion,
+      });
       client.invalidateQueries({ queryKey: ["me"] });
       toast.success("Workspace profile saved");
     },
     onError: (e) => toast.error(e.message),
   });
+  const reload = useMutation({
+    mutationFn: (keepDraft: boolean) =>
+      api<Profile>("me").then((latest) => ({ keepDraft, latest })),
+    onSuccess: ({ keepDraft, latest }) => {
+      setBaseline(latest);
+      if (!keepDraft) setForm(profileValues(latest));
+      requestIntent.reset();
+      mutation.reset();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const newerProfileAvailable = profile.row_version > baseline.row_version;
+  const conflict =
+    mutation.error instanceof ApiError && mutation.error.status === 409;
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        mutation.mutate();
+        mutation.mutate({
+          values: { ...form },
+          expectedVersion: baseline.row_version,
+        });
       }}
     >
       <FieldGroup className="grid gap-5 sm:grid-cols-2">
@@ -53,7 +131,12 @@ function ProfileForm({ profile }: { profile: Profile }) {
               maxLength={
                 key === "headline" ? 300 : key === "timezone" ? 100 : 200
               }
-              onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  [key]: e.target.value,
+                }))
+              }
               placeholder={
                 key === "timezone" ? "America/Los_Angeles" : undefined
               }
@@ -61,6 +144,41 @@ function ProfileForm({ profile }: { profile: Profile }) {
           </Field>
         ))}
       </FieldGroup>
+      {newerProfileAvailable && dirty ? (
+        <div className="mt-4 rounded-md border border-border p-3 text-xs">
+          <p>
+            A newer profile revision is available. This draft is still based on
+            revision {baseline.row_version}.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setBaseline(profile);
+                requestIntent.reset();
+                mutation.reset();
+              }}
+            >
+              Keep draft on latest revision
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setBaseline(profile);
+                setForm(profileValues(profile));
+                requestIntent.reset();
+                mutation.reset();
+              }}
+            >
+              Discard draft and use latest
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <Button className="mt-5" disabled={mutation.isPending}>
         {mutation.isPending ? <Spinner /> : <Save />}Save profile
       </Button>
@@ -69,6 +187,33 @@ function ProfileForm({ profile }: { profile: Profile }) {
           {mutation.error.message}
         </p>
       )}
+      {conflict ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={reload.isPending}
+            onClick={() => reload.mutate(true)}
+          >
+            Reload latest and keep draft
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={reload.isPending}
+            onClick={() => reload.mutate(false)}
+          >
+            Discard draft and reload
+          </Button>
+        </div>
+      ) : null}
+      {reload.error ? (
+        <p role="alert" className="mt-3 text-xs text-destructive">
+          {reload.error.message}
+        </p>
+      ) : null}
     </form>
   );
 }
@@ -106,16 +251,28 @@ export function Settings() {
           <p className="mb-6 text-xs text-muted-foreground">
             Give your work a home. These details stay within your account.
           </p>
-          {profile.error ? (
-            <ErrorState error={profile.error} />
-          ) : profile.isPending ? (
+          {profile.isPending && !profile.data ? (
             <LoadingRows />
-          ) : (
-            <ProfileForm
-              key={profile.data.row_version}
-              profile={profile.data}
+          ) : profile.data ? (
+            <>
+              {profile.error ? (
+                <ErrorState
+                  error={profile.error}
+                  retry={() => void profile.refetch()}
+                />
+              ) : profile.isFetching ? (
+                <p className="mb-4 text-xs text-muted-foreground" role="status">
+                  Refreshing profile…
+                </p>
+              ) : null}
+              <ProfileForm profile={profile.data} />
+            </>
+          ) : profile.error ? (
+            <ErrorState
+              error={profile.error}
+              retry={() => void profile.refetch()}
             />
-          )}
+          ) : null}
         </section>
         <ProfileFacts />
         <SpendingSettings />

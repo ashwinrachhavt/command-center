@@ -15,5 +15,19 @@ export default defineConfig({
       "@clerk/nextjs": fileURLToPath(new URL("clerk.tsx", import.meta.url)),
     },
   },
+  // Deferred rich views can first load in another Playwright worker. Bundle
+  // their bare imports up front so Vite never reloads an active test page to
+  // update its dependency graph.
+  optimizeDeps: {
+    include: [
+      "@streamdown/cjk",
+      "@streamdown/code",
+      "@streamdown/math",
+      "@streamdown/mermaid",
+      "shiki",
+      "streamdown",
+      "use-stick-to-bottom",
+    ],
+  },
   server: { host: "localhost", port: 4318, strictPort: true },
 });

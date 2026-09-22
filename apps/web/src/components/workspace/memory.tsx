@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -28,6 +28,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, dateLabel, type Page } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 
 import { EmptyState, ErrorState, LoadingRows, PageHeading } from "./primitives";
 
@@ -81,31 +82,46 @@ function MemoryEditor({
 }) {
   const [title, setTitle] = useState(record?.current.title ?? "");
   const [content, setContent] = useState(record?.current.content ?? "");
-  const key = useRef({ signature: "", value: "" });
+  const [intent] = useState(() => new RetainedRequestIntent());
   const client = useQueryClient();
   const save = useMutation({
-    mutationFn: () => {
-      const signature = `${title}\n${content}`;
-      if (key.current.signature !== signature)
-        key.current = { signature, value: crypto.randomUUID() };
-      return api(`memories${record ? `/${record.id}` : ""}`, {
-        method: record ? "PATCH" : "POST",
-        body: {
-          title,
-          content,
-          kind: record?.current.kind ?? "note",
-          scope_type: record?.current.scope_type ?? "global",
-          scope_id: record?.current.scope_id ?? null,
-          valid_until: record?.current.valid_until ?? null,
-          source_artifact_id: record?.current.source_artifact_id ?? null,
-          reason: null,
-          confirm: true,
-          ...(record ? { expected_version: record.row_version } : {}),
-        },
-        key: key.current.value,
+    mutationFn: (submission: { title: string; content: string }) => {
+      const target = `memories${record ? `/${record.id}` : ""}`;
+      const method = record ? "PATCH" : "POST";
+      const body = {
+        title: submission.title,
+        content: submission.content,
+        kind: record?.current.kind ?? "note",
+        scope_type: record?.current.scope_type ?? "global",
+        scope_id: record?.current.scope_id ?? null,
+        valid_until: record?.current.valid_until ?? null,
+        source_artifact_id: record?.current.source_artifact_id ?? null,
+        reason: null,
+        confirm: true,
+        ...(record ? { expected_version: record.row_version } : {}),
+      };
+      const request = intent.forRequest(method, target, body);
+      return api(target, {
+        method,
+        body,
+        key: request.key,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_result, submission) => {
+      const target = `memories${record ? `/${record.id}` : ""}`;
+      const method = record ? "PATCH" : "POST";
+      intent.confirmRequest(method, target, {
+        title: submission.title,
+        content: submission.content,
+        kind: record?.current.kind ?? "note",
+        scope_type: record?.current.scope_type ?? "global",
+        scope_id: record?.current.scope_id ?? null,
+        valid_until: record?.current.valid_until ?? null,
+        source_artifact_id: record?.current.source_artifact_id ?? null,
+        reason: null,
+        confirm: true,
+        ...(record ? { expected_version: record.row_version } : {}),
+      });
       void client.invalidateQueries({ queryKey: ["memories"] });
       close();
       toast.success("Reviewed memory saved");
@@ -132,7 +148,7 @@ function MemoryEditor({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            save.mutate();
+            save.mutate({ title, content });
           }}
         >
           <FieldGroup>
@@ -182,6 +198,8 @@ export function MemoryPage() {
   const [offset, setOffset] = useState(0);
   const limit = 30;
   const client = useQueryClient();
+  const [reviewIntent] = useState(() => new RetainedRequestIntent());
+  const [archiveIntent] = useState(() => new RetainedRequestIntent());
   const query = useQuery({
     queryKey: ["memories", offset],
     queryFn: () =>
@@ -198,22 +216,42 @@ export function MemoryPage() {
       const revision = decision === "revoked" ? memory.active : memory.current;
       if (!revision)
         throw new Error("This memory has no active revision to revoke.");
-      return api(`memories/${memory.id}/reviews`, {
+      const target = `memories/${memory.id}/reviews`;
+      const body = {
+        expected_version: memory.row_version,
+        revision_id: revision.id,
+        decision,
+        reason:
+          decision === "approved"
+            ? "Approved in the memory review queue."
+            : decision === "rejected"
+              ? "Rejected in the memory review queue."
+              : "Revoked in the memory review queue.",
+      };
+      const intent = reviewIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: {
-          expected_version: memory.row_version,
-          revision_id: revision.id,
-          decision,
-          reason:
-            decision === "approved"
-              ? "Approved in the memory review queue."
-              : decision === "rejected"
-                ? "Rejected in the memory review queue."
-                : "Revoked in the memory review queue.",
-        },
+        body,
+        key: intent.key,
       });
     },
     onSuccess: (_result, variables) => {
+      const revision =
+        variables.decision === "revoked"
+          ? variables.memory.active!
+          : variables.memory.current;
+      const target = `memories/${variables.memory.id}/reviews`;
+      reviewIntent.confirmRequest("POST", target, {
+        expected_version: variables.memory.row_version,
+        revision_id: revision.id,
+        decision: variables.decision,
+        reason:
+          variables.decision === "approved"
+            ? "Approved in the memory review queue."
+            : variables.decision === "rejected"
+              ? "Rejected in the memory review queue."
+              : "Revoked in the memory review queue.",
+      });
       void client.invalidateQueries({ queryKey: ["memories"] });
       toast.success(
         variables.decision === "approved"
@@ -226,12 +264,20 @@ export function MemoryPage() {
     onError: (error) => toast.error(error.message),
   });
   const archive = useMutation({
-    mutationFn: (memory: Memory) =>
-      api(`memories/${memory.id}/archive`, {
+    mutationFn: (memory: Memory) => {
+      const target = `memories/${memory.id}/archive`;
+      const body = { expected_version: memory.row_version };
+      const intent = archiveIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        body: { expected_version: memory.row_version },
-      }),
-    onSuccess: () => {
+        body,
+        key: intent.key,
+      });
+    },
+    onSuccess: (_result, memory) => {
+      archiveIntent.confirmRequest("POST", `memories/${memory.id}/archive`, {
+        expected_version: memory.row_version,
+      });
       void client.invalidateQueries({ queryKey: ["memories"] });
       const remaining = (query.data?.items.length ?? 1) - 1;
       if (remaining === 0 && offset > 0) setOffset(Math.max(0, offset - limit));

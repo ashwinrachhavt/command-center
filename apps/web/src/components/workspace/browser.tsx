@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -44,9 +44,11 @@ import {
   type Run,
   type WorkspaceRecord,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import {
   EmptyState,
   ErrorState,
+  LoadingRows,
   PageHeading,
   Spinner,
   Status,
@@ -219,10 +221,7 @@ function PreparationForm({
   update: (change: (current: Draft) => Draft) => void;
 }) {
   const client = useQueryClient();
-  const receipts = useRef<Record<string, string>>({});
-  const receipt = (kind: string) =>
-    (receipts.current[kind] ??= crypto.randomUUID());
-  const clearReceipt = (kind: string) => delete receipts.current[kind];
+  const [requestIntent] = useState(() => new RetainedRequestIntent());
   const selectedResume = resumes.items.find(
     (item) => item.version_id === draft.resumeVersionId,
   );
@@ -249,20 +248,21 @@ function PreparationForm({
   ]);
 
   const prepare = useMutation({
-    mutationFn: () =>
-      api<ApplicationPreparation>(
-        `browser/snapshots/${snapshot.id}/preparations`,
-        {
-          method: "POST",
-          key: receipt("prepare"),
-          body: {
-            opportunity_id: draft.opportunityId,
-            resume_version_id: draft.resumeVersionId,
-          },
-        },
-      ),
-    onSuccess: (result) => {
-      clearReceipt("prepare");
+    mutationFn: () => {
+      const target = `browser/snapshots/${snapshot.id}/preparations`;
+      const body = {
+        opportunity_id: draft.opportunityId,
+        resume_version_id: draft.resumeVersionId,
+      };
+      const intent = requestIntent.forRequest("POST", target, body);
+      return api<ApplicationPreparation>(target, {
+        method: "POST",
+        key: intent.key,
+        body,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ result, target, body }) => {
+      requestIntent.confirmRequest("POST", target, body);
       update((current) => ({
         ...mergePreparation(current, result),
         generationRunId: undefined,
@@ -273,13 +273,18 @@ function PreparationForm({
   });
 
   const generate = useMutation({
-    mutationFn: () =>
-      api<{ conversation_id: string; run_id: string }>(
-        `browser/preparations/${preparation!.id}/generate`,
-        { method: "POST", body: {}, key: receipt("generate") },
-      ),
-    onSuccess: (result) => {
-      clearReceipt("generate");
+    mutationFn: () => {
+      const target = `browser/preparations/${preparation!.id}/generate`;
+      const body = {};
+      const intent = requestIntent.forRequest("POST", target, body);
+      return api<{ conversation_id: string; run_id: string }>(target, {
+        method: "POST",
+        body,
+        key: intent.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ result, target, body }) => {
+      requestIntent.confirmRequest("POST", target, body);
       update((current) => ({
         ...current,
         generationRunId: result.run_id,
@@ -359,47 +364,61 @@ function PreparationForm({
   const send = useMutation({
     mutationFn: async () => {
       if (generating)
-        throw new Error("Wait for draft generation to finish before saving a review.");
+        throw new Error(
+          "Wait for draft generation to finish before saving a review.",
+        );
       if (!preparation)
         throw new Error("Prepare this form before sending a proposal.");
       let saved = draft.savedPreparation;
       if (!saved || draft.savedSignature !== revisionSignature) {
-        saved = await api<ApplicationPreparation>(
-          `browser/preparations/${preparation.id}/revisions`,
-          {
-            method: "POST",
-            key: receipt("revision"),
-            body: {
-              expected_version_id: preparation.version_id,
-              fields: revisionFields,
-              resume_version_id: draft.resumeVersionId,
-              replace_fields: commandReplaceFields,
-              remember_fields: commandRememberFields,
-              upload_fields: draft.uploadFields,
-            },
-          },
+        const revisionTarget = `browser/preparations/${preparation.id}/revisions`;
+        const revisionBody = {
+          expected_version_id: preparation.version_id,
+          fields: revisionFields,
+          resume_version_id: draft.resumeVersionId,
+          replace_fields: commandReplaceFields,
+          remember_fields: commandRememberFields,
+          upload_fields: draft.uploadFields,
+        };
+        const revisionIntent = requestIntent.forRequest(
+          "POST",
+          revisionTarget,
+          revisionBody,
         );
-        clearReceipt("revision");
+        saved = await api<ApplicationPreparation>(revisionTarget, {
+          method: "POST",
+          key: revisionIntent.key,
+          body: revisionBody,
+        });
+        requestIntent.confirmRequest("POST", revisionTarget, revisionBody);
         update((current) => ({
           ...mergePreparation(current, saved!),
           savedSignature: revisionSignature,
           savedPreparation: saved,
         }));
       }
-      return api<BrowserFillCommand>("browser/commands", {
+      const commandTarget = "browser/commands";
+      const commandBody = {
+        snapshot_id: snapshot.id,
+        fields: actionFields,
+        uploads,
+        replace_fields: commandReplaceFields,
+        preparation_version_id: saved.version_id,
+      };
+      const commandIntent = requestIntent.forRequest(
+        "POST",
+        commandTarget,
+        commandBody,
+      );
+      const command = await api<BrowserFillCommand>(commandTarget, {
         method: "POST",
-        key: receipt("command"),
-        body: {
-          snapshot_id: snapshot.id,
-          fields: actionFields,
-          uploads,
-          replace_fields: commandReplaceFields,
-          preparation_version_id: saved.version_id,
-        },
+        key: commandIntent.key,
+        body: commandBody,
       });
+      return { command, target: commandTarget, body: commandBody };
     },
-    onSuccess: () => {
-      clearReceipt("command");
+    onSuccess: ({ target, body }) => {
+      requestIntent.confirmRequest("POST", target, body);
       void client.invalidateQueries({ queryKey: ["browser-commands"] });
       toast.success(
         "Fill proposal sent. Review and apply it in the browser companion.",
@@ -752,6 +771,7 @@ function PreparationForm({
 
 export function BrowserPage() {
   const client = useQueryClient();
+  const [requestIntent] = useState(() => new RetainedRequestIntent());
   const [code, setCode] = useState<string>();
   const [selected, setSelected] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -780,21 +800,33 @@ export function BrowserPage() {
       api<Page<WorkspaceRecord>>("opportunities?limit=100&offset=0"),
   });
   const pair = useMutation({
-    mutationFn: () =>
-      api<{ code: string }>("browser/pairings", {
+    mutationFn: () => {
+      const target = "browser/pairings";
+      const body = { name: "My browser" };
+      const intent = requestIntent.forRequest("POST", target, body);
+      return api<{ code: string }>(target, {
         method: "POST",
-        body: { name: "My browser" },
-      }),
+        body,
+        key: intent.key,
+      });
+    },
     onSuccess: (data) => {
+      requestIntent.confirmRequest("POST", "browser/pairings", {
+        name: "My browser",
+      });
       setCode(data.code);
       void client.invalidateQueries({ queryKey: ["devices"] });
     },
     onError: (error) => toast.error(error.message),
   });
   const revoke = useMutation({
-    mutationFn: (id: string) =>
-      api(`browser/devices/${id}/revoke`, { method: "POST" }),
-    onSuccess: () => {
+    mutationFn: (id: string) => {
+      const target = `browser/devices/${id}/revoke`;
+      const intent = requestIntent.forRequest("POST", target);
+      return api(target, { method: "POST", key: intent.key });
+    },
+    onSuccess: (_result, id) => {
+      requestIntent.confirmRequest("POST", `browser/devices/${id}/revoke`);
       void client.invalidateQueries();
       toast.success("Browser access revoked");
     },
@@ -806,6 +838,8 @@ export function BrowserPage() {
     ? (drafts[snapshot.id] ??
       emptyDraft(resumes.data?.default_version_id ?? null))
     : undefined;
+  const activeDevices =
+    devices.data?.filter((device) => !device.revoked_at) ?? [];
   const updateDraft = snapshot
     ? (change: (current: Draft) => Draft) =>
         setDrafts((current) => ({
@@ -877,46 +911,63 @@ export function BrowserPage() {
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="mb-4 text-sm font-medium">Paired browsers</h2>
             {devices.error ? (
-              <ErrorState error={devices.error} />
-            ) : devices.data?.filter((device) => !device.revoked_at).length ===
-              0 ? (
+              <ErrorState
+                error={devices.error}
+                retry={() => void devices.refetch()}
+              />
+            ) : null}
+            {devices.isPending && !devices.data ? (
+              <LoadingRows />
+            ) : activeDevices.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No browser paired yet.
               </p>
             ) : (
-              devices.data
-                ?.filter((device) => !device.revoked_at)
-                .map((device) => (
-                  <div
-                    key={device.id}
-                    className="flex items-center gap-3 border-b border-border py-3 last:border-0"
-                  >
-                    <Link2 className="size-4 text-muted-foreground" />
-                    <div className="flex-1">
-                      <p className="text-xs font-medium">{device.name}</p>
-                      <p className="mt-1 text-[10px] text-muted-foreground">
-                        {device.paired_at
-                          ? `Connected · Last seen ${dateLabel(device.last_seen_at ?? device.paired_at)}`
-                          : "Waiting for pairing"}
-                      </p>
-                    </div>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-label={`Revoke ${device.name}`}
-                      onClick={() => revoke.mutate(device.id)}
-                      disabled={revoke.isPending}
-                    >
-                      <Unplug />
-                    </Button>
+              activeDevices.map((device) => (
+                <div
+                  key={device.id}
+                  className="flex items-center gap-3 border-b border-border py-3 last:border-0"
+                >
+                  <Link2 className="size-4 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium">{device.name}</p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      {device.paired_at
+                        ? `Connected · Last seen ${dateLabel(device.last_seen_at ?? device.paired_at)}`
+                        : "Waiting for pairing"}
+                    </p>
                   </div>
-                ))
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Revoke ${device.name}`}
+                    onClick={() => revoke.mutate(device.id)}
+                    disabled={revoke.isPending}
+                  >
+                    <Unplug />
+                  </Button>
+                </div>
+              ))
             )}
           </div>
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="mb-3 text-sm font-medium">Recent fill proposals</h2>
+            {commands.error ? (
+              <ErrorState
+                error={commands.error}
+                retry={() => void commands.refetch()}
+              />
+            ) : null}
+            {commands.isPending && !commands.data ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Loading fill proposals…
+              </p>
+            ) : null}
             {commands.data?.map((command) => (
-              <div className="border-b border-border py-3 last:border-0" key={command.id}>
+              <div
+                className="border-b border-border py-3 last:border-0"
+                key={command.id}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">
                     {Object.keys(command.fields).length} answers ·{" "}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -43,6 +43,7 @@ import {
   type ResumeSelection,
   type WorkspaceRecord,
 } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 import { sizeLabel } from "./document-intake";
 import { useWorkspaceContext } from "./context";
@@ -65,7 +66,7 @@ const factFields: ProfileFact["field"][] = [
 function ResumeSelector({ selection }: { selection: ResumeSelection }) {
   const client = useQueryClient();
   const [versionId, setVersionId] = useState(selection.version_id ?? "none");
-  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  const [intent] = useState(() => new RetainedRequestIntent());
   const imports = useQuery({
     queryKey: ["document-imports", "resume-options"],
     queryFn: () =>
@@ -108,17 +109,21 @@ function ResumeSelector({ selection }: { selection: ResumeSelection }) {
     ).values(),
   );
   const save = useMutation({
-    mutationFn: () =>
-      api<ResumeSelection>("profile/default-resume", {
+    mutationFn: (submittedVersionId: string) => {
+      const target = "profile/default-resume";
+      const body = {
+        version_id: submittedVersionId === "none" ? null : submittedVersionId,
+        expected_version: selection.row_version,
+      };
+      const request = intent.forRequest("POST", target, body);
+      return api<ResumeSelection>(target, {
         method: "POST",
-        key: requestKey,
-        body: {
-          version_id: versionId === "none" ? null : versionId,
-          expected_version: selection.row_version,
-        },
-      }),
-    onSuccess: () => {
-      setRequestKey(crypto.randomUUID());
+        key: request.key,
+        body,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ target, body }) => {
+      intent.confirmRequest("POST", target, body);
       client.invalidateQueries({ queryKey: ["default-resume"] });
       toast.success("Default resume version saved");
     },
@@ -139,13 +144,7 @@ function ResumeSelector({ selection }: { selection: ResumeSelection }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <Field className="min-w-0 flex-1">
           <FieldLabel htmlFor="default-resume">Pinned version</FieldLabel>
-          <Select
-            value={versionId}
-            onValueChange={(value) => {
-              setVersionId(value);
-              setRequestKey(crypto.randomUUID());
-            }}
-          >
+          <Select value={versionId} onValueChange={setVersionId}>
             <SelectTrigger id="default-resume" aria-label="Default resume">
               <SelectValue />
             </SelectTrigger>
@@ -165,7 +164,7 @@ function ResumeSelector({ selection }: { selection: ResumeSelection }) {
           </Select>
         </Field>
         <Button
-          onClick={() => save.mutate()}
+          onClick={() => save.mutate(versionId)}
           disabled={
             save.isPending || versionId === (selection.version_id ?? "none")
           }
@@ -234,11 +233,10 @@ function FactEditor({
         }
       : emptyDraft,
   );
-  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  const [intent] = useState(() => new RetainedRequestIntent());
   const [error, setError] = useState("");
   const change = (next: Partial<FactDraft>) => {
     setDraft((current) => ({ ...current, ...next }));
-    setRequestKey(crypto.randomUUID());
     setError("");
   };
   const save = useMutation({
@@ -258,13 +256,18 @@ function FactEditor({
             }
           : { field: draft.field }),
       };
-      return api(fact ? `profile/facts/${fact.id}/versions` : "profile/facts", {
+      const target = fact
+        ? `profile/facts/${fact.id}/versions`
+        : "profile/facts";
+      const request = intent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
         body,
-        key: requestKey,
-      });
+        key: request.key,
+      }).then((result) => ({ result, target, body }));
     },
-    onSuccess: () => {
+    onSuccess: ({ target, body }) => {
+      intent.confirmRequest("POST", target, body);
       client.invalidateQueries({ queryKey: ["profile-facts"] });
       toast.success(
         fact ? "New fact revision proposed" : "Fact proposed for review",
@@ -406,7 +409,7 @@ function FactCard({ fact }: { fact: ProfileFact }) {
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  const keys = useRef<Record<string, string>>({});
+  const [reviewIntent] = useState(() => new RetainedRequestIntent());
   const review = useMutation({
     mutationFn: ({
       revision,
@@ -415,22 +418,25 @@ function FactCard({ fact }: { fact: ProfileFact }) {
       revision: FactRevision;
       decision: "approved" | "rejected" | "revoked";
     }) => {
-      const signature = `${revision.id}:${decision}`;
-      keys.current[signature] ??= crypto.randomUUID();
-      return api(`profile/facts/${fact.id}/reviews`, {
+      const target = `profile/facts/${fact.id}/reviews`;
+      const body = {
+        expected_version: fact.row_version,
+        revision_id: revision.id,
+        decision,
+        reason: reason.trim() || undefined,
+      };
+      const intent = reviewIntent.forRequest("POST", target, body);
+      return api(target, {
         method: "POST",
-        key: keys.current[signature],
-        body: {
-          expected_version: fact.row_version,
-          revision_id: revision.id,
-          decision,
-          reason: reason.trim() || undefined,
-        },
-      });
+        key: intent.key,
+        body,
+      }).then((result) => ({ result, target, body }));
     },
-    onSuccess: (_result, variables) => {
-      delete keys.current[`${variables.revision.id}:${variables.decision}`];
-      setReason("");
+    onSuccess: ({ target, body }, variables) => {
+      reviewIntent.confirmRequest("POST", target, body);
+      setReason((current) =>
+        current.trim() === (body.reason ?? "") ? "" : current,
+      );
       setError("");
       client.invalidateQueries({ queryKey: ["profile-facts"] });
       toast.success(`Fact ${variables.decision}`);

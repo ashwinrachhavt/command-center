@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { api, type Schema } from "@/lib/api";
+import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 
 type Summary = Schema["SpendingSummary"];
@@ -79,28 +80,35 @@ function RateCardEditor({ done }: { done: (id: string) => void }) {
   const [tools, setTools] = useState<
     { id: string; slug: string; fixed: string }[]
   >([]);
+  const [intent] = useState(() => new RetainedRequestIntent());
   const save = useMutation({
-    mutationFn: () =>
-      api<RateCard>("spending/rate-cards", {
+    mutationFn: () => {
+      const target = "spending/rate-cards";
+      const body = {
+        name,
+        source_label: source,
+        models: models.map((row) => ({
+          provider: row.provider,
+          model: row.model,
+          input_per_million_micros: micros(row.input),
+          output_per_million_micros: micros(row.output),
+          fixed_micros: micros(row.fixed),
+        })),
+        tools: tools.map((row) => ({
+          slug: row.slug,
+          fixed_micros: micros(row.fixed),
+        })),
+      } satisfies Schema["RateCardCreate"];
+      const request = intent.forRequest("POST", target, body);
+      return api<RateCard>(target, {
         method: "POST",
-        body: {
-          name,
-          source_label: source,
-          models: models.map((row) => ({
-            provider: row.provider,
-            model: row.model,
-            input_per_million_micros: micros(row.input),
-            output_per_million_micros: micros(row.output),
-            fixed_micros: micros(row.fixed),
-          })),
-          tools: tools.map((row) => ({
-            slug: row.slug,
-            fixed_micros: micros(row.fixed),
-          })),
-        } satisfies Schema["RateCardCreate"],
-      }),
-    onSuccess: (card) => {
-      done(card.id);
+        body,
+        key: request.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ result, target, body }) => {
+      intent.confirmRequest("POST", target, body);
+      done(result.id);
       toast.success("Rate card saved");
     },
   });
@@ -361,19 +369,26 @@ function PolicyForm({
   );
   const [active, setActive] = useState(summary.active);
   const [adding, setAdding] = useState(!cards.length);
+  const [intent] = useState(() => new RetainedRequestIntent());
   const save = useMutation({
-    mutationFn: () =>
-      api("spending/policy", {
+    mutationFn: () => {
+      const target = "spending/policy";
+      const body = {
+        rate_card_id: cardId,
+        monthly_limit_micros: micros(monthly),
+        default_work_limit_micros: micros(work),
+        active,
+        expected_version: summary.row_version ?? 0,
+      } satisfies Schema["PolicyUpdate"];
+      const request = intent.forRequest("PUT", target, body);
+      return api(target, {
         method: "PUT",
-        body: {
-          rate_card_id: cardId,
-          monthly_limit_micros: micros(monthly),
-          default_work_limit_micros: micros(work),
-          active,
-          expected_version: summary.row_version ?? 0,
-        } satisfies Schema["PolicyUpdate"],
-      }),
-    onSuccess: () => {
+        body,
+        key: request.key,
+      }).then((result) => ({ result, target, body }));
+    },
+    onSuccess: ({ target, body }) => {
+      intent.confirmRequest("PUT", target, body);
       void client.invalidateQueries({ queryKey: ["spending"] });
       toast.success("Spending limits saved");
     },
