@@ -13,9 +13,23 @@ from command_center.db.reviewed_actions import ExternalAccount, ProviderObservat
 from command_center.db.session import database_is_ready
 
 
+def clear_question_fixtures(engine: Engine) -> None:
+    """The shared synthetic suite may leave durable waiting runs before round-trip tests."""
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM agent_resume_intents"))
+        connection.execute(text("DELETE FROM agent_questions"))
+        connection.execute(
+            text(
+                "UPDATE agent_runs SET state='cancelled', lease_id=NULL, lease_expires_at=NULL, "
+                "completed_at=now() WHERE state='waiting_for_user'"
+            )
+        )
+
+
 def test_connected_context_downgrade_refuses_to_delete_provenance(
     engine: Engine, migration_config: Config
 ) -> None:
+    clear_question_fixtures(engine)
     actor_id, account_id, observation_id, request_id = uuid4(), uuid4(), uuid4(), uuid4()
     with Session(engine) as db, db.begin():
         db.add(Actor(id=actor_id, kind="human", display_name="Migration provenance owner"))
@@ -84,6 +98,7 @@ def test_connected_context_downgrade_refuses_to_delete_provenance(
 def test_upgrade_downgrade_upgrade_and_no_schema_drift(
     engine: Engine, migration_config: Config
 ) -> None:
+    clear_question_fixtures(engine)
     assert database_is_ready(engine)
     command.check(migration_config)
     command.downgrade(migration_config, "base")

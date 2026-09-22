@@ -3,6 +3,7 @@
 import asyncio
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from uuid import NAMESPACE_URL, uuid5
 
@@ -22,10 +23,12 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command, interrupt
 
 from command_center.agents.config import AgentProfile
 from command_center.agents.runtime_control import (
     ActivitySink,
+    ExecutionStopped,
     InstructionSource,
     ModelAccounting,
     ProgressSink,
@@ -52,12 +55,38 @@ class AgentTools(Protocol):
     async def aexecute(self, name: str, arguments: dict[str, Any], call_id: str) -> str: ...
 
 
-def domain_tools(registry: AgentTools) -> list[BaseTool]:
+@dataclass(frozen=True)
+class GraphQuestion:
+    interrupt_id: str
+    branch_id: str
+    role: str
+    tool_call_id: str
+    prompt: str
+
+
+@dataclass(frozen=True)
+class GraphPaused:
+    questions: list[GraphQuestion]
+
+
+def domain_tools(registry: AgentTools, role: str) -> list[BaseTool]:
     def make_tool(schema: dict[str, Any]) -> BaseTool:
         description = schema["function"]
         name = str(description["name"])
 
         async def execute(**arguments: Any) -> str:
+            if name == "ask_user":
+                answer = interrupt(
+                    {
+                        "kind": "user_question",
+                        "prompt": str(arguments["prompt"]),
+                        "role": role,
+                        "tool_call_id": tool_identity.get(),
+                    }
+                )
+                if not isinstance(answer, str) or not answer.strip() or len(answer) > 20_000:
+                    raise ExecutionStopped("invalid_question_answer")
+                return "The user answered this question:\n" + answer
             return await registry.aexecute(name, arguments, tool_identity.get())
 
         return StructuredTool(
@@ -99,7 +128,7 @@ def build_agent(
     return create_deep_agent(
         model=model,
         system_prompt=profile.instructions,
-        tools=domain_tools(registry),
+        tools=domain_tools(registry, role),
         backend=StateBackend(),
         skills=[f"/skills/{role}/"] if profile.skill_files else None,
         permissions=[FilesystemPermission(operations=["write"], paths=["/skills/**"], mode="deny")],
@@ -135,7 +164,9 @@ async def run_graph(
     root_role: str = "lead",
     activity: ActivitySink | None = None,
     spending: ModelSpendingGate | None = None,
-) -> str:
+    resume: tuple[str, str] | None = None,
+    prior_state: dict[str, Any] | None = None,
+) -> str | GraphPaused:
     pending: dict[tuple[str, str], tuple[str, float]] = {}
     delta_lock = asyncio.Lock()
 
@@ -157,6 +188,7 @@ async def run_graph(
         checkpoint,
         initial_sequence,
         ordered_activity if activity is not None else None,
+        prior_state,
     )
     children: list[CompiledSubAgent] = []
     files = {}
@@ -198,7 +230,7 @@ async def run_graph(
         spending=spending,
     )
     messages = [HumanMessage(content=prompt)] if isinstance(prompt, str) else prompt
-    graph_input: dict[str, Any] = {
+    initial_input: dict[str, Any] = {
         "messages": messages,
         "files": files,
         "instruction_sequence": initial_sequence,
@@ -208,6 +240,49 @@ async def run_graph(
         "recursion_limit": profile.max_steps * 5 + 10,
         "max_concurrency": profile.max_parallel_tools,
     }
+    snapshot = await graph.aget_state(config)
+
+    def pending_interrupt_ids() -> set[str]:
+        return {
+            item.id for task in snapshot.tasks if task.result is None for item in task.interrupts
+        }
+
+    def paused() -> GraphPaused:
+        pending_ids = pending_interrupt_ids()
+        questions: list[GraphQuestion] = []
+        for task in snapshot.tasks:
+            for pending_interrupt in task.interrupts:
+                if pending_interrupt.id not in pending_ids:
+                    continue
+                value = pending_interrupt.value
+                if not isinstance(value, dict) or value.get("kind") != "user_question":
+                    raise ExecutionStopped("unsupported_interrupt")
+                questions.append(
+                    GraphQuestion(
+                        interrupt_id=pending_interrupt.id,
+                        branch_id=str(task.id),
+                        role=str(value.get("role", "")),
+                        tool_call_id=str(value.get("tool_call_id", "")),
+                        prompt=str(value.get("prompt", "")),
+                    )
+                )
+        if not questions:
+            raise ExecutionStopped("question_checkpoint_missing")
+        return GraphPaused(questions)
+
+    if pending_interrupt_ids():
+        if resume is None or resume[0] not in pending_interrupt_ids():
+            return paused()
+        graph_input: Any = Command(resume={resume[0]: resume[1]})
+    elif snapshot.values:
+        if not snapshot.next:
+            saved_messages = snapshot.values.get("messages", [])
+            if not saved_messages:
+                raise ExecutionStopped("checkpoint_output_missing")
+            return str(saved_messages[-1].text)
+        graph_input = None
+    else:
+        graph_input = initial_input
     final: dict[str, Any]
     if activity is None:
         final = await graph.ainvoke(graph_input, config)
@@ -258,6 +333,9 @@ async def run_graph(
                         {"message_id": message_id, "delta": buffered},
                     )
         await flush_pending()
+    snapshot = await graph.aget_state(config)
+    if pending_interrupt_ids():
+        return paused()
     async with control.lock:
         control.sequence = max(
             control.sequence, final.get("instruction_sequence", initial_sequence)

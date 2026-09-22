@@ -28,8 +28,10 @@ import {
 import { useWorkspaceContext } from "./context";
 import { ErrorState, Status } from "./primitives";
 import { useRunEvents } from "./use-run-events";
+import { RunQuestions } from "./run-questions";
 
-const activeStates = new Set(["queued", "running"]);
+const activeStates = new Set(["queued", "running", "waiting_for_user"]);
+const streamingStates = new Set(["queued", "running"]);
 
 export function RunActivity({
   run,
@@ -45,13 +47,8 @@ export function RunActivity({
   const context = useWorkspaceContext();
   const queryClient = useQueryClient();
   const reconciledState = useRef("");
-  const persistedActive = activeStates.has(run.state);
-  const stream = useRunEvents(run.id, persistedActive);
-  const displayedState = ["completed", "failed", "cancelled"].includes(
-    stream.runStatus?.state ?? "",
-  )
-    ? stream.runStatus!.state
-    : run.state;
+  const stream = useRunEvents(run.id, streamingStates.has(run.state));
+  const displayedState = stream.runStatus?.state ?? run.state;
   const active = activeStates.has(displayedState);
   const failureCode = stream.runStatus?.errorCode ?? run.error_code;
   const steps = useQuery({
@@ -84,7 +81,11 @@ export function RunActivity({
   }, [artifacts, queryClient, steps, stream.runStatus?.state]);
 
   const showLiveActivity =
-    active || (!!stream.runStatus && showOutput && !run.output);
+    streamingStates.has(displayedState) ||
+    (!!stream.runStatus &&
+      displayedState !== "waiting_for_user" &&
+      showOutput &&
+      !run.output);
 
   return (
     <section
@@ -114,7 +115,9 @@ export function RunActivity({
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           {displayedState === "queued"
             ? "Saved and waiting for a worker."
-            : "Work is active. New instructions join this run at its next safe stopping point."}
+            : displayedState === "waiting_for_user"
+              ? "Work is paused until you answer the saved question below."
+              : "Work is active. New instructions join this run at its next safe stopping point."}
         </p>
       ) : displayedState === "failed" ? (
         <p className="mt-3 text-xs leading-5 text-destructive">
@@ -124,6 +127,13 @@ export function RunActivity({
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           Cancelled. Completed activity remains in this conversation.
         </p>
+      ) : null}
+
+      {active ? (
+        <RunQuestions
+          runId={run.id}
+          canAnswer={displayedState === "waiting_for_user"}
+        />
       ) : null}
 
       {showLiveActivity ? (

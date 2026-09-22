@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -925,7 +925,12 @@ def test_run_outputs_link_exact_owned_versions_after_manual_revision(
 def test_job_discovery_saves_evidence_and_an_unsent_outreach_draft(
     agent_server, engine, scripted_model, mocker
 ):
-    from command_center.db.artifacts import Artifact, ArtifactReview, ArtifactVersion
+    from command_center.db.artifacts import (
+        Artifact,
+        ArtifactDerivation,
+        ArtifactReview,
+        ArtifactVersion,
+    )
     from command_center.db.crm import Job, Opportunity
     from command_center.db.evidence import SourceRecord
     from command_center.integrations.public_research import PublicPage
@@ -989,6 +994,7 @@ def test_job_discovery_saves_evidence_and_an_unsent_outreach_draft(
         sources = latest_result(messages)["items"]
         assert len(sources) == 2
         assert "Build reliable platform tools." in sources[0]["excerpt"]
+        saved["source_version_ids"] = [source["version_id"] for source in sources]
         return call(
             "draft_artifact",
             {
@@ -996,6 +1002,7 @@ def test_job_discovery_saves_evidence_and_an_unsent_outreach_draft(
                 "kind": "message",
                 "text": f"Recipient: not provided\nSubject: Platform Engineer role\n\n"
                 f"Hello, I am interested in the platform tools role.\n\nSource: {url}",
+                "source_version_ids": saved["source_version_ids"],
             },
         )
 
@@ -1048,6 +1055,14 @@ def test_job_discovery_saves_evidence_and_an_unsent_outreach_draft(
             select(ArtifactVersion).where(ArtifactVersion.artifact_id == artifact.id)
         )
         assert url in version.payload["text"]
+        assert set(
+            db.scalars(
+                select(ArtifactDerivation.input_version_id).where(
+                    ArtifactDerivation.output_version_id == version.id,
+                    ArtifactDerivation.method == "agent.draft",
+                )
+            )
+        ) == {UUID(item) for item in saved["source_version_ids"]}
         assert (
             db.scalar(
                 select(ArtifactReview).where(ArtifactReview.artifact_version_id == version.id)

@@ -16,13 +16,14 @@ from command_center.agents.checkpoints import checkpoint_store
 from command_center.agents.config import AgentProfile
 from command_center.agents.mcp_client import MCPTools
 from command_center.agents.models import create_chat_model, missing_profile_credentials
-from command_center.agents.runtime import run_graph
+from command_center.agents.runtime import GraphPaused, run_graph
 from command_center.agents.runtime_control import ExecutionStopped
 from command_center.agents.spending import model_spending_gate
 from command_center.core.capabilities import issue_run_token
 from command_center.core.config import Settings
 from command_center.db import artifacts, browser, evidence  # noqa: F401
 from command_center.db.agent_events import AgentEvent
+from command_center.db.agent_questions import AgentQuestion, AgentResumeIntent
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
 from command_center.db.conversations import AgentMessage, AgentSession
@@ -107,18 +108,127 @@ def conversation_messages(db: Session, run: AgentRun) -> tuple[list[BaseMessage]
     return messages, max((row.sequence for row in rows if row.author == "user"), default=0)
 
 
+def _saved_interrupts(checkpoint: Any) -> list[dict[str, str]]:
+    """Read only trusted local-question payloads from one saver checkpoint tuple."""
+    if checkpoint is None:
+        return []
+    resolved_tasks = {
+        task_id
+        for task_id, channel, _ in checkpoint.pending_writes
+        if channel not in {"__interrupt__", "__error__"}
+    }
+    result: list[dict[str, str]] = []
+    for task_id, channel, value in checkpoint.pending_writes:
+        if channel != "__interrupt__" or task_id in resolved_tasks:
+            continue
+        for item in value:
+            payload = item.value
+            if not isinstance(payload, dict) or payload.get("kind") != "user_question":
+                continue
+            result.append(
+                {
+                    "interrupt_id": str(item.id),
+                    "branch_id": str(task_id),
+                    "role": str(payload.get("role", "")),
+                    "tool_call_id": str(payload.get("tool_call_id", "")),
+                    "prompt": str(payload.get("prompt", "")),
+                }
+            )
+    return result
+
+
+def recover_stale_questions(engine: Engine, settings: Settings, run_id: UUID | None = None) -> int:
+    """Reconcile expired domain leases with durable saver interrupts, outside SQL I/O."""
+    with Session(engine) as db:
+        statement = select(AgentRun.id, AgentRun.lease_id).where(
+            AgentRun.state == "running",
+            AgentRun.lease_expires_at < utc_now(),
+            AgentRun.session_id.is_not(None),
+        )
+        if run_id is not None:
+            statement = statement.where(AgentRun.id == run_id)
+        stale = [(row[0], row[1]) for row in db.execute(statement) if row[1] is not None]
+    if not stale:
+        return 0
+
+    async def inspect() -> dict[UUID, list[dict[str, str]]]:
+        found = {}
+        async with checkpoint_store(settings) as saver:
+            for current_id, _ in stale:
+                checkpoint = await saver.aget_tuple(
+                    {"configurable": {"thread_id": str(current_id)}}
+                )
+                found[current_id] = _saved_interrupts(checkpoint)
+        return found
+
+    checkpoints = asyncio.run(inspect())
+    recovered = 0
+    for current_id, stale_lease in stale:
+        interruptions = checkpoints.get(current_id, [])
+        with Session(engine) as db, db.begin():
+            current = db.scalar(select(AgentRun).where(AgentRun.id == current_id).with_for_update())
+            if (
+                current is None
+                or current.state != "running"
+                or current.lease_id != stale_lease
+                or current.lease_expires_at is None
+                or current.lease_expires_at > utc_now()
+            ):
+                continue
+            if interruptions:
+                AgentQuestion.capture_checkpoint(
+                    db,
+                    run=current,
+                    lease_id=stale_lease,
+                    interruptions=interruptions,
+                    request_id=current.id,
+                    recovering=True,
+                )
+                recovered += 1
+                continue
+            pending = db.scalar(
+                select(AgentResumeIntent.id).where(
+                    AgentResumeIntent.run_id == current.id,
+                    AgentResumeIntent.state == "pending",
+                )
+            )
+            if pending is not None:
+                AgentQuestion.requeue_interrupted_resume(
+                    db,
+                    run=current,
+                    lease_id=stale_lease,
+                    request_id=current.id,
+                )
+                recovered += 1
+    return recovered
+
+
 def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None) -> bool:
+    recover_stale_questions(engine, settings, run_id)
     with Session(engine, expire_on_commit=False) as db, db.begin():
         run = AgentRun.claim(db, run_id)
         if run is None:
             return False
-        run_id, lease_id, snapshot, profile_slug = (
+        run_id, lease_id, config_snapshot, profile_slug, prior_state, consumed_sequence = (
             run.id,
             run.lease_id,
             run.config_snapshot,
             run.profile,
+            run.checkpoint,
+            run.consumed_sequence,
         )
         assert lease_id
+        resume_intent = db.scalar(
+            select(AgentResumeIntent).where(
+                AgentResumeIntent.run_id == run.id,
+                AgentResumeIntent.state == "pending",
+            )
+        )
+        resume = (
+            (resume_intent.interrupt_id, resume_intent.answer)
+            if resume_intent is not None
+            else None
+        )
 
     def checkpoint(state: dict[str, Any]) -> None:
         with Session(engine) as db, db.begin():
@@ -172,7 +282,7 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 ],
             )
 
-    async def execute(profile: AgentProfile) -> str:
+    async def execute(profile: AgentProfile) -> str | GraphPaused:
         async def persist(state: dict[str, Any]) -> None:
             await asyncio.to_thread(checkpoint, state)
 
@@ -197,7 +307,8 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 ),
             )
 
-        messages, sequence = await asyncio.to_thread(context)
+        messages, latest_sequence = await asyncio.to_thread(context)
+        sequence = consumed_sequence if resume is not None else latest_sequence
         registry = await connect()
         specialists = {role: await connect(role) for role in profile.specialists}
         models = {
@@ -219,9 +330,11 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 root_role=profile_slug,
                 activity=activity,
                 spending=model_spending_gate(engine, run_id, lease_id),
+                resume=resume,
+                prior_state=prior_state,
             )
 
-    async def run_owned(profile: AgentProfile) -> str:
+    async def run_owned(profile: AgentProfile) -> str | GraphPaused:
         async def heartbeat() -> None:
             while True:
                 await asyncio.sleep(HEARTBEAT_SECONDS)
@@ -243,14 +356,15 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                     task.cancel()
             await asyncio.gather(execution, pulse, return_exceptions=True)
 
-    output, error_code = None, None
+    result: str | GraphPaused | None = None
+    error_code = None
     try:
-        if not isinstance(snapshot.get("spending"), dict):
+        if not isinstance(config_snapshot.get("spending"), dict):
             raise ExecutionStopped("spending_policy_unconfigured")
-        profile = AgentProfile.model_validate(snapshot["profile"])
+        profile = AgentProfile.model_validate(config_snapshot["profile"])
         if missing_profile_credentials(settings, profile):
             raise ValueError("A configured model provider credential is missing")
-        output = asyncio.run(run_owned(profile))
+        result = asyncio.run(run_owned(profile))
     except LeaseLost:
         return True
     except ExecutionStopped as exc:
@@ -276,9 +390,22 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
     try:
         with Session(engine) as db, db.begin():
             current = leased(db, run_id, lease_id)
-            current.finish(
-                "failed" if error_code else "completed", output=output, error_code=error_code
-            )
+            if isinstance(result, GraphPaused) and error_code is None:
+                AgentQuestion.capture_checkpoint(
+                    db,
+                    run=current,
+                    lease_id=lease_id,
+                    interruptions=[question.__dict__ for question in result.questions],
+                    request_id=current.id,
+                )
+            else:
+                if error_code is None:
+                    AgentQuestion.complete_resume(db, run_id=current.id, request_id=current.id)
+                current.finish(
+                    "failed" if error_code else "completed",
+                    output=result if isinstance(result, str) else None,
+                    error_code=error_code,
+                )
     except LeaseLost:
         pass
     return True

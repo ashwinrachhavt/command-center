@@ -61,6 +61,8 @@ Tasks and opportunities have persistent conversations with a lead or selected sp
 
 Edit `agents/profiles.toml` to choose a `provider` and `model` independently for the lead and each specialist, alongside limits, tools and skills. Supported providers are `openai`, `gemini`, `mistral` and `cohere`; supply `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), `MISTRAL_API_KEY` and/or `COHERE_API_KEY` in root `.env`. Use a tool-calling chat model from the selected provider. Existing profiles default to OpenAI; adding another key alone does not switch them. For example, change an existing profile to `provider = "gemini"` and `model = "gemini-2.5-flash"`. Settings shows configured providers; each profile reports missing credentials, including its delegated specialists. Missing keys fail before enqueue and never silently select another provider. Keys stay outside snapshots and prompts. Restart Compose services after changing `.env`; profile edits apply to new runs and existing runs retain their snapshots.
 
+Agents can ask a saved question when information is missing. Waiting releases worker capacity; your answer resumes the exact checkpoint and specialist that asked it. Other unanswered drafts remain available while the run continues. Refresh and worker recovery preserve saved questions, and duplicate answers cannot resume a different question. Source-backed drafts record exact input-version links, so later edits do not change what an earlier draft was based on.
+
 Executive directives live in `agents/directives/`, reusable skills in `agents/skills/`, and runtime settings in TOML. `AGENTS.md` is exclusively for coding assistants and is never loaded by the application. A run snapshots the fully validated instructions and a revision covering configuration, directives and skills. Both Compose and `make worker`/`make beat` wait for PostgreSQL, Redis and API readiness; optional `CC_AGENT_DEPENDENCY_URLS` gates configured local mock services with a bounded timeout. Celery transports work; PostgreSQL owns state, leases, checkpoints and outcomes. Duplicate deliveries cannot rerun a claimed/completed job. An interrupted run is marked failed and is not automatically replayed.
 
 The internal Streamable HTTP MCP endpoint is `/mcp/`. LangChain's MCP adapter discovers tools per live agent run. Short-lived credentials are scoped to the run/lease and stay outside model messages. MCP and API credentials have separate audiences. Tools call the same owned, idempotent FastAPI mutations used by Next.js; they do not receive SQL access. The public server is not a general anonymous MCP endpoint. Remote third-party MCP clients and OAuth resource-server support are future work.
@@ -120,7 +122,9 @@ Real exports and reports must never be committed.
 ```sh
 make test          # pytest + pytest-mock against disposable PostgreSQL
 make lint          # Ruff, strict mypy, ESLint and TypeScript
-make check         # lint, backend + frontend unit tests, production Next.js build
+make check         # contracts, lint, backend/unit/companion/offline eval checks, web build
+make eval-check    # offline DeepEval adapter/contracts; no model calls
+make eval-plan     # private judge-cost proposal with zero execution allowance
 make schema-check  # Alembic/ORM drift
 make contracts     # regenerate Next.js types and extension runtime validators
 make contracts-check # reject generated contract drift
@@ -133,7 +137,7 @@ npm run test:workspace # real UI components with synthetic API/Clerk/Next fixtur
 npm run preview:workspace # interactive synthetic UI on localhost:4318
 ```
 
-`make migration message="describe change"` generates a migration for review; `make migrate` applies it. One Alembic history owns the schema. The selected test stack is pytest with pytest-mock; agent/LLM evals will use DeepEval (selected, not installed). Existing Vitest/TypeScript Playwright checks remain current frontend coverage. Tests use synthetic actors/data and mocked paid providers. The MCP worker integration test exercises actual HTTP discovery, authentication and SQL writes. Browser tests execute the extension's content script against a controlled local form.
+`make migration message="describe change"` generates a migration for review; `make migrate` applies it. One Alembic history owns the schema. The test stack uses pytest with pytest-mock, plus an isolated [DeepEval recorded-output suite](apps/api/evals/README.md). Paid judging requires a reviewed plan, actual synthetic model-output captures and an explicit allowance; it is excluded from ordinary checks. Existing Vitest/TypeScript Playwright checks remain frontend coverage. Tests use synthetic actors/data and mocked paid providers. The MCP worker integration test exercises actual HTTP discovery, authentication and SQL writes. Browser tests execute the extension's content script against a controlled local form.
 
 ## Supabase deployment path
 

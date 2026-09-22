@@ -46,17 +46,27 @@ class RunControl:
         sink: ProgressSink,
         sequence: int = 0,
         activity: ActivitySink | None = None,
+        prior_state: dict[str, Any] | None = None,
     ):
         self.profile, self.sink = profile, sink
         self.activity = activity
         self.lock = asyncio.Lock()
         self.parallel = asyncio.Semaphore(profile.max_parallel_tools)
-        self.steps = 0
-        self.tool_count = 0
-        self.sequence = sequence
+        prior = prior_state or {}
+        self.steps = int(prior.get("steps", 0))
+        self.tool_count = int(prior.get("tool_count", 0))
+        self.sequence = max(sequence, int(prior.get("instruction_sequence", 0)))
         self.initial_sequence = sequence
-        self.usage = {"input_tokens": 0, "output_tokens": 0}
-        self.tools: dict[str, dict[str, Any]] = {}
+        usage = prior.get("usage", {})
+        self.usage = {
+            "input_tokens": int(usage.get("input_tokens", 0)),
+            "output_tokens": int(usage.get("output_tokens", 0)),
+        }
+        self.tools = {
+            str(item["id"]): copy.deepcopy(item)
+            for item in prior.get("tools", [])
+            if isinstance(item, dict) and item.get("id")
+        }
 
     async def emit_activity(self, event_type: str, role: str, data: dict[str, Any]) -> None:
         if self.activity is not None:
@@ -200,31 +210,35 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         )
         control = self.control
         async with control.lock:
-            if control.tool_count >= control.profile.max_tool_calls:
-                raise ExecutionStopped("tool_limit")
-            control.tool_count += 1
-            control.tools[call_id] = {
-                "id": call_id,
-                "name": call["name"],
-                "role": self.role,
-                "state": "input-available",
-                "output": None,
-            }
-            if call["name"] == "task":
-                control.tools[call_id].update(
-                    specialist=str(call["args"].get("subagent_type", ""))[:100],
-                    summary=str(call["args"].get("description", ""))[:2000],
+            existing = control.tools.get(call_id)
+            if existing is None:
+                if control.tool_count >= control.profile.max_tool_calls:
+                    raise ExecutionStopped("tool_limit")
+                control.tool_count += 1
+                control.tools[call_id] = {
+                    "id": call_id,
+                    "name": call["name"],
+                    "role": self.role,
+                    "state": "input-available",
+                    "output": None,
+                }
+                if call["name"] == "task":
+                    control.tools[call_id].update(
+                        specialist=str(call["args"].get("subagent_type", ""))[:100],
+                        summary=str(call["args"].get("description", ""))[:2000],
+                    )
+                await control.emit()
+                await control.emit_activity(
+                    "tool-input-available",
+                    self.role,
+                    {
+                        "tool_call_id": call_id,
+                        "tool_name": call["name"],
+                        "input": call["args"],
+                    },
                 )
-            await control.emit()
-            await control.emit_activity(
-                "tool-input-available",
-                self.role,
-                {
-                    "tool_call_id": call_id,
-                    "tool_name": call["name"],
-                    "input": call["args"],
-                },
-            )
+            elif existing.get("name") != call["name"] or existing.get("role") != self.role:
+                raise ExecutionStopped("tool_identity_conflict")
         context = tool_identity.set(call_id)
 
         async def dispatch() -> ToolMessage | Command[Any]:

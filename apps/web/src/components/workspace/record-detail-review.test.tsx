@@ -22,6 +22,7 @@ const v1: Schema["VersionRead"] = {
   version: 1,
   payload: { text: "Version one content" },
   content_sha256: "sha-version-one",
+  input_version_ids: [],
   created_at: "2026-09-21T10:00:00Z",
 };
 const v2: Schema["VersionRead"] = {

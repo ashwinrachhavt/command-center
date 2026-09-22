@@ -1,7 +1,8 @@
 UV = uv run --project apps/api
 ALEMBIC = $(UV) alembic -c apps/api/alembic.ini
+EVAL_UV = env UV_PROJECT_ENVIRONMENT=$(CURDIR)/.local/evals-venv PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project apps/api/evals
 
-.PHONY: setup up down db migrate migration schema-check api web worker beat env-sync env-check agent-ready contracts-check test-browser auth-check auth-sync contracts test test-db lint format check smoke
+.PHONY: setup up down db migrate migration schema-check api web worker beat env-sync env-check agent-ready contracts-check test-browser auth-check auth-sync contracts test test-db lint format check smoke eval-check eval-plan eval-paid
 
 setup:
 	python3 scripts/bootstrap.py
@@ -89,7 +90,17 @@ format:
 	$(UV) ruff format apps/api scripts
 	npx --prefix apps/web prettier --write 'apps/web/src/**/*.{ts,tsx,css}' 'apps/extension/{content,popup}.js' 'apps/extension/*.{html,css,json}'
 
-check: env-check contracts-check lint test test-browser
+eval-check:
+	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_contracts.py -q
+
+eval-plan:
+	$(UV) python scripts/evaluation_plan.py
+
+eval-paid:
+	@test -n "$(plan)" -a -n "$(captures)" || (echo 'Use: make eval-paid plan=REVIEWED_PLAN captures=MODEL_CAPTURES'; exit 1)
+	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_quality.py --eval-plan "$(plan)" --eval-captures "$(captures)" --allow-paid -q
+
+check: env-check contracts-check lint test test-browser eval-check
 	npm run build --prefix apps/web
 
 smoke:

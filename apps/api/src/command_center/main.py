@@ -14,6 +14,7 @@ from command_center.agents.mcp_server import AgentMCP
 from command_center.agents.spending import FixedCostReservationHandle, connected_tool_reserver
 from command_center.api import (
     agent_events,
+    agent_questions,
     agents,
     application_preparations,
     artifacts,
@@ -158,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(workspace.router)
     app.include_router(artifacts.router)
     app.include_router(agents.router)
+    app.include_router(agent_questions.router)
     app.include_router(agent_events.router)
     app.include_router(conversations.router)
     app.include_router(leads.router)

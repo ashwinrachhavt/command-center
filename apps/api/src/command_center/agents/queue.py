@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from command_center.actions.worker import perform_reviewed_action
 from command_center.agents.spending import connected_tool_reserver
-from command_center.agents.worker import perform_next
+from command_center.agents.worker import perform_next, recover_stale_questions
 from command_center.core.config import Settings
 from command_center.db.agents import AgentRun
 from command_center.db.document_imports import DocumentImport
@@ -64,6 +64,8 @@ celery.conf.update(
 def dispatch() -> int:
     engine = create_database_engine(settings.database_url, settings.database_pool_mode)
     try:
+        # Saver inspection is network I/O and must finish before the ledger transaction.
+        recover_stale_questions(engine, settings)
         with Session(engine) as db, db.begin():
             AgentRun.expire_stale(db)
             DocumentImport.expire_stale(db)

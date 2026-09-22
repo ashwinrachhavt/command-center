@@ -52,6 +52,7 @@ class AgentProfile(BaseModel):
             "capture_research_source",
             "run_research_script",
             "research_execution",
+            "ask_user",
         ]
     ] = []
     skills: list[str] = Field(default_factory=list, max_length=10)

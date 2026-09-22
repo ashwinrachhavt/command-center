@@ -24,6 +24,7 @@ export type AgentSession = Schema["SessionRead"];
 export type AgentMessage = Schema["MessageRead"];
 export type RunStep = Schema["RunStepRead"];
 export type RunArtifact = Schema["RunArtifactRead"];
+export type AgentRunQuestion = Schema["QuestionRead"];
 export type PublicSearchResult = {
   title: string;
   url: string;

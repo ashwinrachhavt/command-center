@@ -312,6 +312,7 @@ class ToolRegistry:
             self.add(
                 "draft_artifact",
                 "Save a private unreviewed artifact when requested; use kind=message for outreach. "
+                "Pass exact saved source version IDs actually used; omit them when none exist. "
                 "This does not send or submit anything.",
                 {
                     "type": "object",
@@ -319,6 +320,12 @@ class ToolRegistry:
                         "title": {"type": "string", "minLength": 1, "maxLength": 300},
                         "text": {"type": "string", "maxLength": 100000},
                         "kind": {"type": "string", "enum": ["research", "message"]},
+                        "source_version_ids": {
+                            "type": "array",
+                            "items": preparation_id,
+                            "maxItems": 20,
+                            "uniqueItems": True,
+                        },
                     },
                     "required": ["title", "text"],
                     "additionalProperties": False,
@@ -366,6 +373,25 @@ class ToolRegistry:
                     "additionalProperties": False,
                 },
                 lambda args: self.request("POST", "memories", {**args, "confirm": False}),
+            )
+        if "ask_user" in profile.tools:
+            self.add(
+                "ask_user",
+                "Pause this run with one durable question when required information is missing. "
+                "Group related missing details into one prompt. The exact branch resumes only "
+                "after the human answers; do not use this for optional confirmation.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "minLength": 1, "maxLength": 10000}
+                    },
+                    "required": ["prompt"],
+                    "additionalProperties": False,
+                },
+                lambda args: {
+                    "state": "local_interrupt_required",
+                    "prompt": args["prompt"],
+                },
             )
         self._workflow_tools()
 

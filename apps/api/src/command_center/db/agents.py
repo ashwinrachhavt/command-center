@@ -33,7 +33,9 @@ class AgentRun(OwnedRecord, Base):
             ["agent_sessions.id", "agent_sessions.owner_id"],
         ),
         CheckConstraint(
-            "state IN ('queued', 'running', 'completed', 'failed', 'cancelled')", name="state"
+            "state IN ('queued', 'running', 'waiting_for_user', 'completed', 'failed', "
+            "'cancelled')",
+            name="state",
         ),
         CheckConstraint("input_sequence >= 0", name="input_sequence"),
         CheckConstraint("consumed_sequence >= 0", name="consumed_sequence"),
@@ -41,7 +43,9 @@ class AgentRun(OwnedRecord, Base):
             "uq_agent_runs_active_session",
             "session_id",
             unique=True,
-            postgresql_where=text("session_id IS NOT NULL AND state IN ('queued', 'running')"),
+            postgresql_where=text(
+                "session_id IS NOT NULL AND state IN ('queued', 'running', 'waiting_for_user')"
+            ),
         ),
     )
     title: Mapped[str] = mapped_column(String(200))
@@ -186,7 +190,7 @@ class AgentRun(OwnedRecord, Base):
     ) -> None:
         if state not in {"completed", "failed", "cancelled"}:
             raise ValueError("Invalid terminal agent state")
-        if self.state not in {"queued", "running"}:
+        if self.state not in {"queued", "running", "waiting_for_user"}:
             raise RecordConflict("This run has already finished")
         session = object_session(self)
         conversation = None
@@ -219,6 +223,9 @@ class AgentRun(OwnedRecord, Base):
         self.completed_at, self.lease_id, self.lease_expires_at = utc_now(), None, None
         if session:
             from command_center.db.agent_events import AgentEvent
+            from command_center.db.agent_questions import AgentQuestion
+
+            AgentQuestion.cancel_for_run(session, self.id, request_id=self.id)
 
             AgentEvent.append_status(session, self, state)
             record_event(

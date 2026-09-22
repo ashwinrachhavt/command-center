@@ -46,6 +46,19 @@ def artifact_data(db: Database, artifact: Artifact) -> dict[str, Any]:
     return data
 
 
+def version_data(db: Database, version: ArtifactVersion) -> dict[str, Any]:
+    data = serialize(version)
+    data["input_version_ids"] = [
+        str(input_id)
+        for input_id in db.scalars(
+            select(ArtifactDerivation.input_version_id)
+            .where(ArtifactDerivation.output_version_id == version.id)
+            .order_by(ArtifactDerivation.input_version_id)
+        )
+    ]
+    return data
+
+
 @router.get("/document-types")
 def document_types(identity: CurrentIdentity, db: Database) -> list[dict[str, Any]]:
     return [serialize(row) for row in db.scalars(select(DocumentType).order_by(DocumentType.name))]
@@ -143,11 +156,12 @@ def archive_artifact(
 @router.get("/artifacts/{record_id}/versions", response_model=list[s.VersionRead])
 def versions(record_id: UUID, identity: CurrentIdentity, db: Database) -> Any:
     owned(db, Artifact, record_id, identity.id)
-    return db.scalars(
+    rows = db.scalars(
         select(ArtifactVersion)
         .where(ArtifactVersion.artifact_id == record_id)
         .order_by(ArtifactVersion.version.desc())
     ).all()
+    return [version_data(db, version) for version in rows]
 
 
 @router.post("/artifacts/{record_id}/versions", response_model=s.VersionRead, status_code=201)
@@ -169,7 +183,7 @@ def append_version(
             request_id=UUID(request.state.request_id),
         )
         db.flush()
-        return serialize(version)
+        return version_data(db, version)
 
     return write(db, identity.id, key, f"POST:versions:{record_id}", body, change)
 

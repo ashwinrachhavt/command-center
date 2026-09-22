@@ -192,6 +192,7 @@ class ArtifactCreate(Contract):
     sensitivity: Literal["public", "private", "restricted"] = "private"
     document_type_id: UUID | None = None
     text: str = Field(default="", max_length=100000)
+    source_version_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 class ArtifactUpdate(Revision):
@@ -220,6 +221,7 @@ class VersionRead(ResponseContract):
     payload: dict[str, Any] | None
     content_sha256: str
     created_at: datetime
+    input_version_ids: list[UUID]
 
 
 class VersionLineageRead(ResponseContract):

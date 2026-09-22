@@ -38,7 +38,7 @@ import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
 
-const activeStates = new Set(["queued", "running"]);
+const activeStates = new Set(["queued", "running", "waiting_for_user"]);
 const messagePageSize = 100;
 
 export function WorkConversation({

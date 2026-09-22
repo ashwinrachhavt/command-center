@@ -164,7 +164,7 @@ class AgentSession(OwnedRecord, Base):
         active = session.scalar(
             select(AgentRun).where(
                 AgentRun.session_id == self.id,
-                AgentRun.state.in_(("queued", "running")),
+                AgentRun.state.in_(("queued", "running", "waiting_for_user")),
             )
         )
         if active is not None and active.profile != profile:

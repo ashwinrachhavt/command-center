@@ -76,12 +76,14 @@ def test_outreach_artifact_is_a_private_unsent_message(settings, mocker):
     )
     registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-capability")
     request = mocker.patch.object(registry, "request", return_value={"id": "draft"})
+    source_version_id = uuid4()
     registry.execute(
         "draft_artifact",
         {
             "title": "Outreach draft",
             "text": "Subject: Engineering role\n\nHello",
             "kind": "message",
+            "source_version_ids": [str(source_version_id)],
         },
         "draft-1",
     )
@@ -92,6 +94,7 @@ def test_outreach_artifact_is_a_private_unsent_message(settings, mocker):
             "title": "Outreach draft",
             "text": "Subject: Engineering role\n\nHello",
             "kind": "message",
+            "source_version_ids": [str(source_version_id)],
             "sensitivity": "private",
         },
     )

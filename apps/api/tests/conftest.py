@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from command_center.core.config import Settings
 from command_center.db import (  # noqa: F401
     agent_events,
+    agent_questions,
     application_preparations,
     artifacts,
     document_imports,

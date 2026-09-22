@@ -86,7 +86,7 @@ def validate_event(event_type: str, role: str, data: dict[str, Any]) -> dict[str
             raise ValueError("Invalid usage event")
         if data["total_tokens"] != data["input_tokens"] + data["output_tokens"]:
             raise ValueError("Invalid usage event")
-    elif data["state"] not in {"running", *TERMINAL_STATES}:
+    elif data["state"] not in {"queued", "running", "waiting_for_user", *TERMINAL_STATES}:
         raise ValueError("Invalid run status")
     normalized = public_input(data)
     if len(json.dumps(normalized, separators=(",", ":"), default=str)) > 24_000:

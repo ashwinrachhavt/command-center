@@ -675,6 +675,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-runs/{run_id}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Questions */
+        get: operations["questions_api_v1_agent_runs__run_id__questions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-runs/{run_id}/questions/{question_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer Question */
+        post: operations["answer_question_api_v1_agent_runs__run_id__questions__question_id__answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-runs/{run_id}/events": {
         parameters: {
             query?: never;
@@ -2311,6 +2345,8 @@ export interface components {
              * @default
              */
             text: string;
+            /** Source Version Ids */
+            source_version_ids?: string[];
         };
         /** ArtifactRead */
         ArtifactRead: {
@@ -4279,6 +4315,57 @@ export interface components {
              */
             timezone: string;
         };
+        /** QuestionAnswer */
+        QuestionAnswer: {
+            /** Expected Version */
+            expected_version: number;
+            /** Answer */
+            answer: string;
+        };
+        /** QuestionRead */
+        QuestionRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Row Version */
+            row_version: number;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Interrupt Id */
+            interrupt_id: string;
+            /** Branch Id */
+            branch_id: string;
+            /** Role */
+            role: string;
+            /** Tool Call Id */
+            tool_call_id: string;
+            /** Prompt */
+            prompt: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "answered" | "resumed" | "cancelled";
+            /** Answer */
+            answer: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Answered At */
+            answered_at: string | null;
+        };
         /** RateCardCreate */
         RateCardCreate: {
             /** Name */
@@ -5085,6 +5172,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Input Version Ids */
+            input_version_ids: string[];
         };
         /** WorkBudgetRead */
         WorkBudgetRead: {
@@ -6858,6 +6947,75 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    questions_api_v1_agent_runs__run_id__questions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_question_api_v1_agent_runs__run_id__questions__question_id__answer_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                run_id: string;
+                question_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuestionAnswer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuestionRead"];
                 };
             };
             /** @description Validation Error */

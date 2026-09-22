@@ -1,6 +1,6 @@
 # Command Center — Product Spec
 
-**Revision:** 2026-09-22-r14. **Status:** product contract; implemented scope is distinguished below from later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
+**Revision:** 2026-09-22-r15. **Status:** product contract; implemented scope is distinguished below from later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
 
 This is the single source for product behavior and acceptance. [product.md](product.md) owns product direction and scope rationale. [Tech Spec](../tech/tech-spec.md) owns architecture and execution contracts. The former Planning Doc, duplicated requirements, lead-planning notes, and interview material are absorbed here or in Tech Spec; superseded copies are historical only.
 
@@ -26,7 +26,7 @@ Within any page body, prefer a modal, drawer or contextual side panel for record
 
 ### Testing and evaluation — confirmed tooling decision
 
-The user chose **pytest** for test authoring/execution, **pytest-mock** for mocking, and **DeepEval** for agent/LLM evaluations. New planned test work follows these choices; existing TypeScript frontend checks remain current coverage until a deliberate migration preserves their behavior. DeepEval is selected but not installed or implemented yet.
+The user chose **pytest** for test authoring/execution, **pytest-mock** for mocking, and **DeepEval** for agent/LLM evaluations. Existing TypeScript frontend checks remain current coverage until a deliberate migration preserves their behavior. DeepEval 4.2.3 now has an isolated evaluation project with versioned synthetic application, outreach and research cases, offline adapter checks and an explicitly budgeted recorded-output judge runner. Actual model-output captures, reviewed quality thresholds and paid results remain release work; mock scores are not quality evidence.
 
 Release acceptance requires deterministic correctness tests and separate agent-quality evaluations for assisted application answers, reviewed outreach and source-backed research. Mocked model/provider tests prove application behavior and failure handling; they do not establish real model quality. Eval cases must identify fixture/source revisions and assess factual grounding, unsupported claims, relevance and workflow completion. Authorization, owner isolation, preservation of user edits and duplicate-effect prevention are hard correctness gates, not scores that a favorable average can offset. Technical organization and open eval decisions live in [Tech Spec](../tech/tech-spec.md#testing-mocking-and-agent-evaluations).
 

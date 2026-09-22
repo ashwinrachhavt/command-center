@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
@@ -61,11 +62,28 @@ class Artifact(Base):
         text: str,
         document_type_id: UUID | None,
         request_id: UUID,
+        source_version_ids: list[UUID] | None = None,
     ) -> "Artifact":
         if (kind == "document") != (document_type_id is not None):
             raise ValueError("Choose a document type for document artifacts only")
         if document_type_id and session.get(DocumentType, document_type_id) is None:
             raise ValueError("Unknown document type")
+        source_ids = source_version_ids or []
+        if len(source_ids) > 20 or len(set(source_ids)) != len(source_ids):
+            raise ValueError("Choose at most 20 distinct source versions")
+        if source_ids:
+            owned_sources = set(
+                session.scalars(
+                    select(ArtifactVersion.id)
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.id.in_(source_ids),
+                        Artifact.owner_id == owner_id,
+                    )
+                )
+            )
+            if owned_sources != set(source_ids):
+                raise ValueError("Choose existing source versions owned by this actor")
         artifact = cls(
             id=record_id,
             owner_id=owner_id,
@@ -78,7 +96,18 @@ class Artifact(Base):
         session.flush()
         if document_type_id:
             session.add(Document(artifact_id=record_id, document_type_id=document_type_id))
-        artifact.append_text(text, version_id=uuid5(record_id, "version:1"), request_id=request_id)
+        version = artifact.append_text(
+            text, version_id=uuid5(record_id, "version:1"), request_id=request_id
+        )
+        session.flush([version])
+        session.add_all(
+            ArtifactDerivation(
+                output_version_id=version.id,
+                input_version_id=source_id,
+                method="agent.draft",
+            )
+            for source_id in source_ids
+        )
         return artifact
 
     def revise(self, changes: dict[str, Any], *, request_id: UUID) -> None:

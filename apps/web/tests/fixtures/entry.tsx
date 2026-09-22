@@ -80,6 +80,15 @@ const tasks = [
     priority: 1,
     due_date: null,
   },
+  {
+    ...base,
+    id: "task-question",
+    title: "Answer saved agent questions",
+    opportunity_id: opportunities[0].id,
+    state: "open",
+    priority: 2,
+    due_date: null,
+  },
 ];
 const artifact = {
   ...base,
@@ -136,6 +145,9 @@ const conversationBase = {
   created_at: "2026-09-21T10:00:00Z",
   updated_at: "2026-09-21T10:00:00Z",
 };
+const answeredQuestionIds = new Set<string>(
+  JSON.parse(sessionStorage.getItem("answered-question-ids") ?? "[]"),
+);
 const sessions: Record<string, unknown>[] = [
   {
     ...conversationBase,
@@ -153,8 +165,28 @@ const sessions: Record<string, unknown>[] = [
     opportunity_id: null,
     last_sequence: 1,
   },
+  {
+    ...conversationBase,
+    id: "session-question",
+    title: "Saved agent questions",
+    task_id: "task-question",
+    opportunity_id: null,
+    last_sequence: 1,
+  },
 ];
 const sessionMessages: Record<string, Record<string, unknown>[]> = {
+  "session-question": [
+    {
+      ...conversationBase,
+      id: "message-question-user",
+      session_id: "session-question",
+      run_id: "run-question",
+      sequence: 1,
+      author: "user",
+      profile: "lead",
+      content: "Prepare the interview plan and ask when evidence is missing.",
+    },
+  ],
   "session-stream": [
     {
       ...conversationBase,
@@ -202,6 +234,24 @@ const sessionMessages: Record<string, Record<string, unknown>[]> = {
   ],
 };
 const sessionRuns: Record<string, Record<string, unknown>[]> = {
+  "session-question": [
+    {
+      ...conversationBase,
+      id: "run-question",
+      title: "Interview plan with saved questions",
+      prompt: "Prepare the interview plan and ask when evidence is missing.",
+      profile: "lead",
+      state: answeredQuestionIds.has("question-research")
+        ? "queued"
+        : "waiting_for_user",
+      output: null,
+      error_code: null,
+      completed_at: null,
+      session_id: "session-question",
+      input_sequence: 1,
+      consumed_sequence: 1,
+    },
+  ],
   "session-stream": [
     {
       ...conversationBase,
@@ -264,6 +314,45 @@ const sessionRuns: Record<string, Record<string, unknown>[]> = {
     },
   ],
 };
+const runQuestions: Record<string, Record<string, unknown>[]> = {
+  "run-question": [
+    {
+      ...conversationBase,
+      id: "question-research",
+      run_id: "run-question",
+      session_id: "session-question",
+      interrupt_id: "interrupt-research",
+      branch_id: "research-branch",
+      role: "research",
+      tool_call_id: "tool-question-research",
+      prompt: "Which product area should the research branch prioritize?",
+      state: answeredQuestionIds.has("question-research") ? "answered" : "open",
+      answer: answeredQuestionIds.has("question-research")
+        ? "Prioritize the developer platform roadmap."
+        : null,
+      answered_at: answeredQuestionIds.has("question-research")
+        ? "2026-09-21T10:10:00Z"
+        : null,
+    },
+    {
+      ...conversationBase,
+      id: "question-application",
+      run_id: "run-question",
+      session_id: "session-question",
+      interrupt_id: "interrupt-application",
+      branch_id: "application-branch",
+      role: "application",
+      tool_call_id: "tool-question-application",
+      prompt: "Which accomplishment should the application branch emphasize?",
+      state: "open",
+      answer: null,
+      answered_at: null,
+    },
+  ],
+};
+const questionAnswerKeys: Record<string, string[]> = {};
+const failedQuestionAnswers = new Set<string>();
+let failedQuestionRefreshes = 0;
 const runSteps: Record<string, Record<string, unknown>[]> = {
   "run-opportunity-1": [
     {
@@ -802,6 +891,22 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       attempts: streamAttempts,
       after: streamAfterSequences,
     });
+  if (route === "test/question-answer-state")
+    return Response.json({ keys: questionAnswerKeys, questions: runQuestions });
+  if (route === "test/fail-question-refresh" && method === "POST") {
+    failedQuestionRefreshes = 2;
+    return Response.json({ ok: true });
+  }
+  if (route === "test/wait-for-next-question" && method === "POST") {
+    const run = Object.values(sessionRuns)
+      .flat()
+      .find((item) => item.id === "run-question");
+    if (run) {
+      run.state = "waiting_for_user";
+      run.row_version = Number(run.row_version) + 1;
+    }
+    return Response.json(run ?? null);
+  }
   const eventMatch = route.match(/^agent-runs\/([^/]+)\/events$/);
   if (eventMatch)
     return eventResponse(
@@ -1565,6 +1670,65 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       pendingTerminalRunId = undefined;
     }
     return Response.json(page(items, 30));
+  }
+  const questionAnswerMatch = route.match(
+    /^agent-runs\/([^/]+)\/questions\/([^/]+)\/answer$/,
+  );
+  if (questionAnswerMatch && method === "POST") {
+    const [, runId, questionId] = questionAnswerMatch;
+    const question = (runQuestions[runId] ?? []).find(
+      (item) => item.id === questionId,
+    );
+    if (!question)
+      return Response.json({ detail: "Question not found" }, { status: 404 });
+    (questionAnswerKeys[questionId] ??= []).push(idempotencyKey);
+    const body = JSON.parse(String(init?.body)) as {
+      answer: string;
+      expected_version: number;
+    };
+    if (body.expected_version !== question.row_version)
+      return Response.json(
+        { detail: "Question changed. Refresh and try again." },
+        { status: 409 },
+      );
+    if (
+      questionId === "question-research" &&
+      !failedQuestionAnswers.has(questionId)
+    ) {
+      failedQuestionAnswers.add(questionId);
+      return Response.json(
+        { detail: "The saved answer could not be accepted." },
+        { status: 422 },
+      );
+    }
+    question.state = "answered";
+    question.answer = body.answer;
+    question.answered_at = "2026-09-21T10:10:00Z";
+    question.row_version = Number(question.row_version) + 1;
+    const run = Object.values(sessionRuns)
+      .flat()
+      .find((item) => item.id === runId);
+    if (run) {
+      run.state = "queued";
+      run.row_version = Number(run.row_version) + 1;
+    }
+    answeredQuestionIds.add(questionId);
+    sessionStorage.setItem(
+      "answered-question-ids",
+      JSON.stringify([...answeredQuestionIds]),
+    );
+    return Response.json(question);
+  }
+  const runQuestionsMatch = route.match(/^agent-runs\/([^/]+)\/questions$/);
+  if (runQuestionsMatch && method === "GET") {
+    if (failedQuestionRefreshes > 0) {
+      failedQuestionRefreshes -= 1;
+      return Response.json(
+        { detail: "Saved questions are temporarily unavailable." },
+        { status: 503 },
+      );
+    }
+    return Response.json(runQuestions[runQuestionsMatch[1]] ?? []);
   }
   const runRoute = route.match(
     /^agent-runs\/([^/]+)(?:\/(steps|artifacts|cancel))?$/,
