@@ -1808,6 +1808,27 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       stages: { researching: 1, interviewing: 1 },
       tasks,
     };
+  if (route === "agents/models")
+    payload = [
+      {
+        id: "gemini-synthetic-flash",
+        name: "Synthetic Flash",
+        selectable: true,
+        description: "Available for agent chat",
+      },
+      {
+        id: "gemini-synthetic-pro",
+        name: "Synthetic Pro",
+        selectable: true,
+        description: "Available for agent chat",
+      },
+      {
+        id: "synthetic-embedding",
+        name: "Synthetic Embedding",
+        selectable: false,
+        description: "Not supported by this agent chat flow",
+      },
+    ];
   if (route === "agents/profiles")
     payload = [
       {

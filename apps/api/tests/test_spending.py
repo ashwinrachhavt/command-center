@@ -355,3 +355,34 @@ def test_spending_defaults_endpoint_and_fallback_unblocks_testing(settings, engi
             fallback_rate = card.model_rate("openai", "experimental-unlisted-model")
             assert fallback_rate["input_per_million_micros"] == 500_000
             assert fallback_rate["output_per_million_micros"] == 1_500_000
+
+
+def test_first_agent_request_automatically_applies_spending_defaults(settings, engine, mocker):
+    owner_id = uuid4()
+    with Session(engine) as db, db.begin():
+        db.add(Actor(id=owner_id, kind="human", display_name="Automatic defaults user"))
+    profile = AgentProfile(
+        name="Synthetic research",
+        description="Synthetic",
+        provider="openai",
+        model="gpt-5-mini",
+        instructions="Reply briefly.",
+    )
+    mocker.patch("command_center.api.agents.available_profile", return_value=(profile, "synthetic"))
+    app = create_app(settings)
+    app.dependency_overrides[authenticate] = lambda: Identity(owner_id, "synthetic")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent-runs",
+            json={"profile": "research", "prompt": "Synthetic request"},
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert response.status_code == 201, response.text
+        summary = client.get("/api/v1/spending").json()
+        assert summary["active"] is True
+        assert summary["monthly_limit_micros"] == 100_000_000
+        assert summary["default_work_limit_micros"] == 10_000_000
+        with Session(engine) as db:
+            run = db.get(AgentRun, UUID(response.json()["id"]))
+            assert run is not None
+            assert "spending" in run.config_snapshot

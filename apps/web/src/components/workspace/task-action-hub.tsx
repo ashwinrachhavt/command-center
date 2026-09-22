@@ -193,10 +193,10 @@ export function TaskActionHub({
             {PRIORITY_LABELS[priority]}
           </span>
         )}
-        {dueDate && (
+        {typeof dueDate === "string" && dueDate && (
           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
             <Clock className="size-3" />
-            {dateLabel(dueDate as string)}
+            {dateLabel(dueDate)}
           </span>
         )}
       </div>

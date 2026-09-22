@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { afterEach, expect, it, vi } from "vitest";
-import { api, ApiError } from "./api";
+import { api, ApiError, runFailureMessage } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,3 +39,12 @@ it.each([
     );
   },
 );
+
+it.each([
+  ["model_not_found", "Refresh the model picker"],
+  ["model_request_rejected", "tool configuration"],
+  ["model_access_denied", "account does not have access"],
+  ["model_rate_limited", "quota limit"],
+])("explains %s with a recovery action", (code, expected) => {
+  expect(runFailureMessage(code)).toContain(expected);
+});

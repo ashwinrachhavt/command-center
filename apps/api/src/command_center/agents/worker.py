@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session
 from command_center.agents.checkpoints import checkpoint_store
 from command_center.agents.config import AgentProfile
 from command_center.agents.mcp_client import MCPTools
-from command_center.agents.models import create_chat_model, missing_profile_credentials
+from command_center.agents.models import (
+    create_chat_model,
+    missing_profile_credentials,
+    model_failure_code,
+)
 from command_center.agents.runtime import GraphPaused, run_graph
 from command_center.agents.runtime_control import ExecutionStopped
 from command_center.agents.spending import model_spending_gate
@@ -371,9 +375,9 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
         error_code = str(exc)
     except TimeoutError:
         error_code = "execution_timeout"
-    except Exception:
-        error_code = "agent_execution_failed"
-        logger.warning("Agent run %s failed; provider details suppressed", run_id)
+    except Exception as exc:
+        error_code = model_failure_code(exc)
+        logger.warning("Agent run %s failed (%s); provider details suppressed", run_id, error_code)
     finally:
         try:
             with Session(engine) as db, db.begin():

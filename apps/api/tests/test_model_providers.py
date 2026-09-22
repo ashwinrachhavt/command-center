@@ -244,3 +244,92 @@ def test_cohere_bounds_reach_the_actual_sdk_request(settings, mocker):
         asyncio.run(model.ainvoke([HumanMessage(content="Synthetic request")]))
     assert send.await_args.kwargs["max_tokens"] == 777
     assert send.await_args.kwargs["request_options"] == {"max_retries": 0, "timeout_in_seconds": 60}
+
+
+def test_gpt6_tool_calls_use_responses_with_bounded_output(settings, mocker):
+    import httpx
+
+    requests = []
+
+    def respond(request):
+        import json
+
+        requests.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_synthetic",
+                "object": "response",
+                "created_at": 1,
+                "model": "gpt-6-astra",
+                "status": "completed",
+                "error": None,
+                "incomplete_details": None,
+                "output": [
+                    {
+                        "type": "function_call",
+                        "id": "fc_synthetic",
+                        "call_id": "call_synthetic",
+                        "name": "synthetic_lookup",
+                        "arguments": '{"query":"synthetic"}',
+                        "status": "completed",
+                    }
+                ],
+                "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            },
+        )
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+            mocker.patch(
+                "command_center.agents.models.ChatOpenAI",
+                side_effect=lambda **kwargs: ChatOpenAI(**kwargs, http_async_client=http),
+            )
+            model = create_chat_model(
+                configured_settings(settings),
+                profile("openai", "gpt-6-astra", max_output_tokens=256),
+            )
+            result = await model.bind_tools(
+                [
+                    {
+                        "name": "synthetic_lookup",
+                        "description": "Synthetic lookup",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string"}},
+                            "required": ["query"],
+                        },
+                    }
+                ]
+            ).ainvoke("Look up synthetic data.")
+            assert result.tool_calls[0]["name"] == "synthetic_lookup"
+            assert result.usage_metadata["total_tokens"] == 15
+
+    asyncio.run(check())
+    path, body = requests[0]
+    assert path == "/v1/responses"
+    assert body["max_output_tokens"] == 256
+    assert body["store"] is False
+    assert body["tools"][0]["name"] == "synthetic_lookup"
+
+
+@pytest.mark.parametrize(
+    "kind,code",
+    [
+        ("ModelNotFoundError", "model_not_found"),
+        ("ModelAuthenticationError", "model_authentication_failed"),
+        ("ModelPermissionDeniedError", "model_access_denied"),
+        ("ModelRateLimitError", "model_rate_limited"),
+        ("ModelInvalidRequestError", "model_request_rejected"),
+        ("ModelTimeoutError", "model_timeout"),
+        ("ModelConnectionError", "model_connection_failed"),
+        ("ModelAPIError", "model_provider_unavailable"),
+    ],
+)
+def test_provider_errors_have_safe_actionable_codes(kind, code):
+    from langchain_core import exceptions
+
+    from command_center.agents.models import model_failure_code
+
+    assert model_failure_code(getattr(exceptions, kind)("synthetic secret")) == code
+    assert model_failure_code(RuntimeError("synthetic secret")) == "agent_execution_failed"
