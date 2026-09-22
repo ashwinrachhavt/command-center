@@ -32,6 +32,13 @@ CAPABILITIES = {
     "draft_artifact": [("POST", r"/api/v1/artifacts")],
     "memory_read": [("GET", r"/api/v1/memories/retrieve")],
     "memory_append": [("POST", r"/api/v1/memories")],
+    "connected_accounts": [("GET", r"/api/v1/integrations/composio/accounts")],
+    "gmail_search": [("POST", r"/api/v1/gmail/search")],
+    "propose_connected_action": [("POST", r"/api/v1/reviewed-actions")],
+    "reviewed_action": [("GET", r"/api/v1/reviewed-actions/[0-9a-f-]+")],
+    "capture_research_source": [("POST", r"/api/v1/tasks/[0-9a-f-]+/research-sources")],
+    "run_research_script": [("POST", r"/api/v1/tasks/[0-9a-f-]+/research-executions")],
+    "research_execution": [("GET", r"/api/v1/research-executions/[0-9a-f-]+")],
 }
 
 

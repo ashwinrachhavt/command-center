@@ -8,6 +8,8 @@ import { Agents } from "../../src/components/workspace/agents";
 import { BrowserPage } from "../../src/components/workspace/browser";
 import { MemoryPage } from "../../src/components/workspace/memory";
 import { Settings } from "../../src/components/workspace/settings";
+import { ReviewedActions } from "../../src/components/workspace/reviewed-actions";
+import { workflowFixture } from "./workflows";
 import { installNavigation, usePathname } from "./navigation";
 import "../../src/app/globals.css";
 
@@ -371,6 +373,8 @@ const documentImports: Record<string, unknown>[] = [
     row_version: 2,
   },
 ];
+const pdfExports: Record<string, Record<string, unknown>> = {};
+const pdfExportPolls: Record<string, number> = {};
 tasks.push({
   ...base,
   id: "task-document-review",
@@ -696,6 +700,12 @@ function eventResponse(runId: string, afterSequence: number) {
       const send = (value: string) => {
         if (!cancelled) controller.enqueue(encoder.encode(value));
       };
+      if (runId !== "run-stream-a" && runId !== "run-stream-b") {
+        // Other scenarios control lifecycle through their explicit fixture mutations.
+        // Keep their stream idle; never fabricate a completion for an active run.
+        send(": connected\n\n");
+        return;
+      }
       if (runId === "run-stream-a" && attempt === 1) {
         const first = streamEvent(runId, 1, "text-delta", {
           message_id: "stream-message-a",
@@ -774,6 +784,8 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const url = new URL(String(input), location.origin);
   if (!url.pathname.startsWith("/api/backend/"))
     throw new Error("Only fixture API requests are supported");
+  const workflow = await workflowFixture(url, init);
+  if (workflow) return workflow;
   const route = url.pathname.replace("/api/backend/", "");
   const method = init?.method ?? "GET";
   const idempotencyKey =
@@ -942,6 +954,75 @@ const fixtureFetch: typeof fetch = async (input, init) => {
         slug: "interview_brief",
       },
     ]);
+  const createPdfMatch = route.match(
+    /^artifacts\/([^/]+)\/versions\/([^/]+)\/exports$/,
+  );
+  if (createPdfMatch && method === "POST") {
+    const [artifactId, versionId] = createPdfMatch.slice(1);
+    const source = artifactVersions[artifactId]?.find(
+      (candidate) => candidate.id === versionId,
+    );
+    if (!source)
+      return Response.json({ detail: "Version not found" }, { status: 404 });
+    const id = `pdf-export-${versionId}`;
+    const existing = pdfExports[id];
+    if (existing) return Response.json(existing, { status: 202 });
+    const item: Record<string, unknown> = {
+      id,
+      state: "queued",
+      source: {
+        artifact_id: artifactId,
+        artifact_title: String(
+          rows.artifacts.find((candidate) => candidate.id === artifactId)
+            ?.title,
+        ),
+        version_id: versionId,
+        version: Number(source.version),
+      },
+      output: null,
+      renderer_revision: `sha256:${"a".repeat(64)}`,
+      attempt_count: 0,
+      max_attempts: 2,
+      error_code: null,
+      cleanup_pending: false,
+      row_version: 1,
+      created_at: "2026-09-21T10:20:00Z",
+      updated_at: "2026-09-21T10:20:00Z",
+      completed_at: null,
+    };
+    pdfExports[id] = item;
+    pdfExportPolls[id] = 0;
+    return Response.json(item, { status: 202 });
+  }
+  const pdfExportMatch = route.match(
+    /^pdf-exports\/([^/]+)(?:\/(cancel|retry))?$/,
+  );
+  if (pdfExportMatch) {
+    const item = pdfExports[pdfExportMatch[1]];
+    if (!item)
+      return Response.json({ detail: "PDF export not found" }, { status: 404 });
+    if (method === "POST") {
+      item.state = pdfExportMatch[2] === "retry" ? "queued" : "cancelled";
+      item.row_version = Number(item.row_version) + 1;
+      item.error_code = null;
+      pdfExportPolls[pdfExportMatch[1]] = 0;
+      return Response.json(item);
+    }
+    pdfExportPolls[pdfExportMatch[1]] += 1;
+    if (pdfExportPolls[pdfExportMatch[1]] >= 2 && item.state === "queued") {
+      const source = item.source as Record<string, unknown>;
+      item.state = "completed";
+      item.output = {
+        artifact_id: `pdf-output-${source.version_id}`,
+        artifact_title: `${source.artifact_title} — PDF`,
+        version_id: `pdf-output-version-${source.version_id}`,
+        version: 1,
+      };
+      item.row_version = Number(item.row_version) + 1;
+      item.completed_at = "2026-09-21T10:20:05Z";
+    }
+    return Response.json(item);
+  }
   if (route === "documents/imports" && method === "GET")
     return Response.json(page(documentImports, 20));
   if (route === "documents/imports" && method === "POST") {
@@ -1019,14 +1100,16 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const downloadMatch = route.match(
     /^artifacts\/([^/]+)\/versions\/([^/]+)\/download$/,
   );
-  if (downloadMatch)
+  if (downloadMatch) {
+    const pdf = downloadMatch[1].startsWith("pdf-output-");
     return new Response(`Synthetic bytes for ${downloadMatch[2]}`, {
       headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": "attachment; filename=synthetic-document.txt",
+        "Content-Type": pdf ? "application/pdf" : "application/octet-stream",
+        "Content-Disposition": `attachment; filename=synthetic-document.${pdf ? "pdf" : "txt"}`,
         "X-Content-Type-Options": "nosniff",
       },
     });
+  }
   if (route === "profile/default-resume" && method === "GET")
     return Response.json(defaultResume);
   if (route === "profile/default-resume" && method === "POST") {
@@ -1149,6 +1232,36 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const artifactVersionsMatch = route.match(/^artifacts\/([^/]+)\/versions$/);
   if (artifactVersionsMatch && method === "GET")
     return Response.json(artifactVersions[artifactVersionsMatch[1]] ?? []);
+  if (artifactVersionsMatch && method === "POST") {
+    const body = JSON.parse(String(init?.body)) as {
+      based_on_version_id: string;
+      text: string;
+    };
+    const versions = artifactVersions[artifactVersionsMatch[1]] ?? [];
+    const baseVersion = versions.find(
+      (candidate) => candidate.id === body.based_on_version_id,
+    );
+    if (!baseVersion)
+      return Response.json(
+        { detail: "Base version not found" },
+        { status: 422 },
+      );
+    const payload = {
+      ...((baseVersion.payload as Record<string, unknown>) ?? {}),
+      text: body.text,
+    };
+    const created = {
+      ...baseVersion,
+      id: `${artifactVersionsMatch[1]}-version-${versions.length + 1}`,
+      version: versions.length + 1,
+      payload,
+      content_sha256: `${artifactVersionsMatch[1]}-edited-sha`,
+      created_at: "2026-09-21T10:25:00Z",
+    };
+    versions.unshift(created);
+    artifactVersions[artifactVersionsMatch[1]] = versions;
+    return Response.json(created, { status: 201 });
+  }
   if (/^versions\/[^/]+\/reviews$/.test(route)) return Response.json([]);
   if (route === "research/search" && method === "POST") {
     trackLeadRequest("search");
@@ -1657,6 +1770,8 @@ function Preview() {
           <Agents />
         ) : path === "/settings" ? (
           <Settings />
+        ) : path === "/actions" ? (
+          <ReviewedActions />
         ) : path === "/browser" ? (
           <BrowserPage />
         ) : path === "/memory" ? (

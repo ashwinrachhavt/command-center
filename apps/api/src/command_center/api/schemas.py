@@ -209,6 +209,7 @@ class ArtifactRead(RecordRead):
 
 
 class VersionCreate(Revision):
+    based_on_version_id: UUID
     text: str = Field(max_length=100000)
 
 
@@ -219,6 +220,18 @@ class VersionRead(ResponseContract):
     payload: dict[str, Any] | None
     content_sha256: str
     created_at: datetime
+
+
+class VersionLineageRead(ResponseContract):
+    artifact_id: UUID
+    artifact_title: str
+    artifact_kind: str
+    version_id: UUID
+    version: int
+    content_sha256: str
+    media_type: str
+    method: str
+    depth: int
 
 
 class ReviewCreate(Contract):

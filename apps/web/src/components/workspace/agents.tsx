@@ -27,6 +27,7 @@ import {
   api,
   dateLabel,
   label,
+  runFailureMessage,
   type AgentProfile,
   type Page,
   type Run,
@@ -250,7 +251,7 @@ export function Agents() {
                   ) : (
                     <p className="mt-8 text-sm text-muted-foreground">
                       {run.state === "failed"
-                        ? "This run couldn’t finish. Check your provider configuration and worker, then start a new run. No automatic replay was attempted."
+                        ? runFailureMessage(run.error_code)
                         : "This run was cancelled."}
                     </p>
                   )}

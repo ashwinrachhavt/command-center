@@ -14,7 +14,11 @@ from command_center.db import (  # noqa: F401
     idempotency,
     memory,
     models,
+    pdf_exports,
     profile_facts,
+    research_executions,
+    reviewed_actions,
+    spending,
 )
 from command_center.db.base import Base, UTCDateTime
 from command_center.db.session import create_database_engine

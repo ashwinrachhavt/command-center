@@ -18,6 +18,41 @@ from command_center.agents.runtime_control import RunControl
 from command_center.core.capabilities import issue_run_token
 from command_center.db.agents import AgentRun
 from command_center.db.models import Actor, Task
+from command_center.db.spending import SpendingPolicy, SpendingRateCard, SpendingReservation
+
+
+def configure_synthetic_spending(db, owner_id, raw_profile):
+    profile = AgentProfile.model_validate(raw_profile)
+    configured = [profile, *profile.specialists.values()]
+    model_rates = {
+        (item.provider, item.model): {
+            "provider": item.provider,
+            "model": item.model,
+            "input_per_million_micros": 0,
+            "output_per_million_micros": 0,
+            "fixed_micros": 1,
+        }
+        for item in configured
+    }
+    card = SpendingRateCard.create(
+        db,
+        owner_id=owner_id,
+        name="Synthetic worker rates",
+        source_label="Synthetic test fixture",
+        rates={"models": list(model_rates.values()), "tools": []},
+        request_id=uuid4(),
+    )
+    SpendingPolicy.configure(
+        db,
+        owner_id=owner_id,
+        rate_card_id=card.id,
+        monthly_limit_micros=1_000_000,
+        default_work_limit_micros=1_000_000,
+        active=True,
+        request_id=uuid4(),
+        expected_version=None,
+    )
+    db.flush()
 
 
 def enqueue(engine, profile, *, claim=False):
@@ -25,6 +60,7 @@ def enqueue(engine, profile, *, claim=False):
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic deep agent owner")
         db.add(actor)
         db.flush()
+        configure_synthetic_spending(db, actor.id, profile)
         run = AgentRun.enqueue(
             db,
             record_id=uuid4(),
@@ -381,6 +417,7 @@ def test_worker_saves_a_conversation_reply_and_durable_checkpoint(
         task = Task(id=uuid4(), owner_id=actor.id, title="Research synthetic company")
         db.add(task)
         db.flush()
+        configure_synthetic_spending(db, actor.id, profile.model_dump())
         conversation = AgentSession.open(
             db,
             record_id=uuid4(),
@@ -443,6 +480,7 @@ def test_new_instruction_prevents_a_tool_planned_before_it(
         scope = Task(id=uuid4(), owner_id=actor.id, title="Existing work")
         db.add(scope)
         db.flush()
+        configure_synthetic_spending(db, actor.id, profile.model_dump())
         conversation = AgentSession.open(
             db,
             record_id=uuid4(),
@@ -603,6 +641,7 @@ def test_parallel_specialists_do_not_hide_steering_from_the_lead(
         scope = Task(id=uuid4(), owner_id=actor.id, title="Coordinate work")
         db.add(scope)
         db.flush()
+        configure_synthetic_spending(db, actor.id, profile.model_dump())
         conversation = AgentSession.open(
             db,
             record_id=uuid4(),
@@ -709,6 +748,12 @@ def test_parallel_specialists_do_not_hide_steering_from_the_lead(
         assert len(skipped) == (1 if delay_outreach else 2)
         assert len({step["id"] for step in skipped}) == len(skipped)
         assert all(step["state"] == "output-error" for step in skipped)
+        reservations = db.scalars(
+            select(SpendingReservation).where(SpendingReservation.agent_run_id == run_id)
+        ).all()
+        assert len(reservations) >= 5
+        assert {row.role for row in reservations} == {"lead", "research", "outreach"}
+        assert all(row.state == "unknown" for row in reservations)
 
 
 @pytest.mark.parametrize("scope_type", ["task", "opportunity"])
@@ -768,6 +813,7 @@ def test_worker_provides_the_saved_scope_and_linked_job_context(
         )
         db.add(task)
         db.flush()
+        configure_synthetic_spending(db, actor.id, profile.model_dump())
         conversation = AgentSession.open(
             db,
             record_id=uuid4(),

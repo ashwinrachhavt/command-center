@@ -137,7 +137,11 @@ def test_task_completion_and_artifact_reviews(client):
     newer = post(
         client,
         f"artifacts/{artifact['id']}/versions",
-        {"text": "Second draft", "expected_version": artifact["row_version"]},
+        {
+            "based_on_version_id": version["id"],
+            "text": "Second draft",
+            "expected_version": artifact["row_version"],
+        },
     )
     assert newer.status_code == 201, newer.text
     assert client.get(f"/api/v1/versions/{newer.json()['id']}/reviews").json() == []

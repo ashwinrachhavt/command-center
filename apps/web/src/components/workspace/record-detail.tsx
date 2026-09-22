@@ -52,6 +52,7 @@ import { useWorkspaceContext } from "./context";
 import { WorkConversation } from "./work-conversation";
 import { OpportunityResearch } from "./opportunity-research";
 import { DocumentUploadDialog } from "./document-intake";
+import { PdfExportControl } from "./pdf-export";
 
 export function ActivityList({ events }: { events: Activity[] }) {
   return (
@@ -133,7 +134,11 @@ function ArtifactContent({
     mutationFn: () =>
       api(`artifacts/${record.id}/versions`, {
         method: "POST",
-        body: { expected_version: record.row_version, text },
+        body: {
+          based_on_version_id: version?.id,
+          expected_version: record.row_version,
+          text,
+        },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries();
@@ -241,6 +246,15 @@ function ArtifactContent({
                   <Plus />
                   New version
                 </Button>
+                {recordData.kind === "document" && version ? (
+                  <PdfExportControl
+                    artifactId={record.id}
+                    versionId={version.id}
+                    version={version.version}
+                    title={recordName(record)}
+                    editable={typeof version.payload?.text === "string"}
+                  />
+                ) : null}
               </>
             ) : null}
           </div>

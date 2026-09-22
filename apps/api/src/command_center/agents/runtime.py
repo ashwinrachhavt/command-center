@@ -34,6 +34,7 @@ from command_center.agents.runtime_control import (
     WorkState,
     tool_identity,
 )
+from command_center.agents.spending import ModelSpendingGate
 
 # Model prompts cannot expand this policy. Scripts require a separate sandbox backend.
 register_harness_profile(
@@ -80,13 +81,21 @@ def build_agent(
     checkpointer: BaseCheckpointSaver[Any] | None = None,
     instructions: InstructionSource | None = None,
     nested: bool = False,
+    spending: ModelSpendingGate | None = None,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     # Model callbacks also cover framework-owned context compaction calls.
     callbacks = [
         *(model.callbacks if isinstance(model.callbacks, list) else []),
-        ModelAccounting(control, role),
+        ModelAccounting(control, role, profile, spending),
     ]
     model = model.model_copy(update={"callbacks": callbacks})
+
+    def no_retry(*args: Any, **kwargs: Any) -> BaseChatModel:
+        # Deep Agents' compaction middleware otherwise wraps this model in three
+        # implicit paid retries. Each provider attempt must be an explicit run call.
+        return model
+
+    object.__setattr__(model, "with_retry", no_retry)
     return create_deep_agent(
         model=model,
         system_prompt=profile.instructions,
@@ -125,6 +134,7 @@ async def run_graph(
     initial_sequence: int = 0,
     root_role: str = "lead",
     activity: ActivitySink | None = None,
+    spending: ModelSpendingGate | None = None,
 ) -> str:
     pending: dict[tuple[str, str], tuple[str, float]] = {}
     delta_lock = asyncio.Lock()
@@ -172,6 +182,7 @@ async def run_graph(
                     control,
                     instructions=instructions,
                     nested=True,
+                    spending=spending,
                 ),
             }
         )
@@ -184,6 +195,7 @@ async def run_graph(
         subagents=children,
         checkpointer=checkpointer,
         instructions=instructions,
+        spending=spending,
     )
     messages = [HumanMessage(content=prompt)] if isinstance(prompt, str) else prompt
     graph_input: dict[str, Any] = {

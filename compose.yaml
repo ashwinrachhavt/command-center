@@ -30,6 +30,9 @@ x-api: &api
     COHERE_API_KEY: ${COHERE_API_KEY:-}
     COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
     CC_COMPOSIO_AUTH_CONFIGS: ${CC_COMPOSIO_AUTH_CONFIGS:-{}}
+    CC_COMPOSIO_ACTION_TIMEOUT_SECONDS: ${CC_COMPOSIO_ACTION_TIMEOUT_SECONDS:-30}
+    CC_RESEARCH_SANDBOX_IMAGE: ${CC_RESEARCH_SANDBOX_IMAGE:-}
+    CC_PDF_RENDERER_IMAGE: ${CC_PDF_RENDERER_IMAGE:-}
   volumes:
     - ./agents:/app/agents:ro
     - document-blobs:/var/lib/command-center/blobs
@@ -76,12 +79,49 @@ services:
     networks:
       - default
       - research
-    command: ["sh", "-c", "python -m command_center.agents.readiness && exec celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=2"]
+    command: ["sh", "-c", "python -m command_center.agents.readiness && exec celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=${CC_AGENT_CONCURRENCY:-4} --queues=agents"]
     depends_on:
       api:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  integration-worker:
+    <<: *api
+    networks: [default, research]
+    command: ["sh", "-c", "python -m command_center.agents.readiness && exec celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=2 --queues=control,actions,documents"]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  execution-worker:
+    image: command-center-execution-worker:local
+    build:
+      context: .
+      dockerfile: apps/execution-worker/Dockerfile
+    environment:
+      CC_API_TOKEN: ${CC_API_TOKEN:?Run bootstrap}
+      CC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-command_center}:${POSTGRES_PASSWORD:?Run bootstrap}@db:5432/${POSTGRES_DB:-command_center}
+      CC_REDIS_URL: redis://redis:6379/0
+      CC_BLOB_STORE_PATH: /var/lib/command-center/blobs
+      CC_RESEARCH_SANDBOX_IMAGE: ${CC_RESEARCH_SANDBOX_IMAGE:-}
+      CC_PDF_RENDERER_IMAGE: ${CC_PDF_RENDERER_IMAGE:-}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - document-blobs:/var/lib/command-center/blobs
+      - ${CC_EXECUTOR_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    group_add:
+      - ${CC_EXECUTOR_DOCKER_GID:-0}
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    init: true
     restart: unless-stopped
 
   beat:

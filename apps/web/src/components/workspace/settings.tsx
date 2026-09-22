@@ -10,6 +10,8 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { api, label, type Integrations, type Profile } from "@/lib/api";
 import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
 import { ProfileFacts } from "./profile-facts";
+import { ConnectedAccounts } from "./connected-accounts";
+import { SpendingSettings } from "./spending";
 
 function ProfileForm({ profile }: { profile: Profile }) {
   const [form, setForm] = useState({
@@ -116,6 +118,8 @@ export function Settings() {
           )}
         </section>
         <ProfileFacts />
+        <SpendingSettings />
+        <ConnectedAccounts />
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border p-6">
             <h2 className="flex items-center gap-2 text-sm font-medium">

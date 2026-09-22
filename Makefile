@@ -50,7 +50,7 @@ agent-ready:
 	$(UV) python -m command_center.agents.readiness
 
 worker: agent-ready
-	$(UV) celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=2
+	$(UV) celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=4 --queues=agents,control,actions,documents
 
 beat: agent-ready
 	mkdir -p .local

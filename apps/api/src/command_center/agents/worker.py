@@ -18,6 +18,7 @@ from command_center.agents.mcp_client import MCPTools
 from command_center.agents.models import create_chat_model, missing_profile_credentials
 from command_center.agents.runtime import run_graph
 from command_center.agents.runtime_control import ExecutionStopped
+from command_center.agents.spending import model_spending_gate
 from command_center.core.capabilities import issue_run_token
 from command_center.core.config import Settings
 from command_center.db import artifacts, browser, evidence  # noqa: F401
@@ -27,6 +28,7 @@ from command_center.db.base import utc_now
 from command_center.db.conversations import AgentMessage, AgentSession
 from command_center.db.crm import Company, Job, Opportunity
 from command_center.db.models import Task
+from command_center.db.spending import SpendingReservation
 
 logger = logging.getLogger(__name__)
 HEARTBEAT_SECONDS = 15
@@ -216,6 +218,7 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 initial_sequence=sequence,
                 root_role=profile_slug,
                 activity=activity,
+                spending=model_spending_gate(engine, run_id, lease_id),
             )
 
     async def run_owned(profile: AgentProfile) -> str:
@@ -242,6 +245,8 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
 
     output, error_code = None, None
     try:
+        if not isinstance(snapshot.get("spending"), dict):
+            raise ExecutionStopped("spending_policy_unconfigured")
         profile = AgentProfile.model_validate(snapshot["profile"])
         if missing_profile_credentials(settings, profile):
             raise ValueError("A configured model provider credential is missing")
@@ -255,6 +260,19 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
     except Exception:
         error_code = "agent_execution_failed"
         logger.warning("Agent run %s failed; provider details suppressed", run_id)
+    finally:
+        try:
+            with Session(engine) as db, db.begin():
+                SpendingReservation.mark_run_open_unknown(
+                    db,
+                    run_id=run_id,
+                    lease_id=lease_id,
+                    reason="spending_usage_unknown",
+                )
+        except Exception:
+            logger.warning(
+                "Agent run %s spending reconciliation failed; details suppressed", run_id
+            )
     try:
         with Session(engine) as db, db.begin():
             current = leased(db, run_id, lease_id)

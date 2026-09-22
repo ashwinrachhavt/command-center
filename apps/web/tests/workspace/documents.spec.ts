@@ -137,3 +137,35 @@ test("fact evidence opens the pinned extraction version", async ({ page }) => {
       .getByText("Product engineer with accessible systems experience."),
   ).toBeVisible();
 });
+
+test("exports the selected immutable editable version and downloads its PDF derivative", async ({
+  page,
+}) => {
+  await page.goto("/artifacts?record=artifact-1");
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await page.getByLabel("Artifact version").click();
+  await page.getByRole("option", { name: /Version 2/ }).click();
+  await page.getByRole("button", { name: "Export version 2 to PDF" }).click();
+
+  await expect(page.getByText("PDF from version 2")).toBeVisible();
+  const downloadButton = page.getByRole("button", { name: "Download PDF" });
+  await expect(downloadButton).toBeVisible();
+  const download = page.waitForEvent("download");
+  await downloadButton.click();
+  await expect((await download).suggestedFilename()).toBe(
+    "Northstar interview brief-v2.pdf",
+  );
+});
+
+test("human edits pin their base version and retain its reviewed metadata", async ({
+  page,
+}) => {
+  await page.goto("/artifacts?record=artifact-1");
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await page.getByLabel("Artifact version").click();
+  await page.getByRole("option", { name: /Version 2/ }).click();
+  await page.getByRole("button", { name: "New version" }).click();
+  await page.getByLabel("New version content").fill("Human-reviewed edit.");
+  await page.getByRole("button", { name: "Save version" }).click();
+  await expect(page.getByText("Human-reviewed edit.")).toBeVisible();
+});

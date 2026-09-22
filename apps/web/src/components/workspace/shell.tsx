@@ -12,6 +12,7 @@ import {
   CheckCheck,
   Command,
   Files,
+  FileCheck,
   LayoutDashboard,
   Puzzle,
   Search,
@@ -55,6 +56,7 @@ export const navigation = [
   { path: "/jobs", name: "Roles", icon: Search },
   { path: "/tasks", name: "Tasks", icon: CheckCheck },
   { path: "/artifacts", name: "Artifacts", icon: Files },
+  { path: "/actions", name: "Reviewed actions", icon: FileCheck },
   { path: "/agents", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
   { path: "/memory", name: "Memory", icon: BookOpen },
@@ -99,14 +101,20 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
       >
         {navigation.map((item, i) => (
           <div key={item.path}>
-            {(i === 0 || i === 7 || i === 10) && (
+            {(item.path === "/" ||
+              item.path === "/agents" ||
+              item.path === "/activity") && (
               <p
                 className={cn(
                   "px-3 pb-2 text-[10px] font-medium tracking-[0.08em] text-muted-foreground",
                   i > 0 && "mt-6",
                 )}
               >
-                {i === 0 ? "WORKSPACE" : i === 7 ? "ASSISTANTS" : "MANAGE"}
+                {i === 0
+                  ? "WORKSPACE"
+                  : item.path === "/agents"
+                    ? "ASSISTANTS"
+                    : "MANAGE"}
               </p>
             )}
             <Link

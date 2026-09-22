@@ -32,6 +32,7 @@ class Artifact(Base):
         CheckConstraint("sensitivity IN ('public', 'private', 'restricted')", name="sensitivity"),
         CheckConstraint("row_version >= 1", name="row_version"),
         UniqueConstraint("id", "kind"),
+        UniqueConstraint("id", "owner_id", name="uq_artifacts_id_owner_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -141,6 +142,46 @@ class Artifact(Base):
             "artifacts",
             self.id,
             version=latest + 1,
+        )
+        return version
+
+    def revise_text(
+        self,
+        text: str,
+        *,
+        based_on_version_id: UUID,
+        version_id: UUID,
+        request_id: UUID,
+    ) -> "ArtifactVersion":
+        """Append an edit based on one exact textual version and retain its metadata/lineage."""
+        from sqlalchemy import select
+
+        session = object_session(self)
+        if session is None or self.archived_at:
+            raise ValueError("Only an active persisted artifact can receive a version")
+        base = session.scalar(
+            select(ArtifactVersion).where(
+                ArtifactVersion.id == based_on_version_id,
+                ArtifactVersion.artifact_id == self.id,
+            )
+        )
+        if base is None or base.payload is None or not isinstance(base.payload.get("text"), str):
+            raise ValueError("Choose an editable text version from this artifact")
+        payload = dict(base.payload)
+        payload["text"] = text
+        version = self.append_payload(
+            payload,
+            schema_key=base.schema_key or "text.v1",
+            version_id=version_id,
+            request_id=request_id,
+        )
+        session.flush()
+        session.add(
+            ArtifactDerivation(
+                output_version_id=version.id,
+                input_version_id=base.id,
+                method="human.edit",
+            )
         )
         return version
 
@@ -262,6 +303,7 @@ class ArtifactVersion(Base):
     __tablename__ = "artifact_versions"
     __table_args__ = (
         UniqueConstraint("artifact_id", "version"),
+        UniqueConstraint("id", "artifact_id", name="uq_artifact_versions_id_artifact_id"),
         CheckConstraint("version >= 1", name="version"),
         CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="content_sha256"),
         CheckConstraint("(blob_id IS NULL) <> (payload IS NULL)", name="one_content_source"),

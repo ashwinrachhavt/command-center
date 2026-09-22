@@ -26,8 +26,14 @@ type ApplyResult = {
   message: string;
 };
 
-const extensionScript = readFileSync(path.resolve(__dirname, "../../extension/content.js"), "utf8");
-const contracts = readFileSync(path.resolve(__dirname, "../../extension/contracts.js"), "utf8");
+const extensionScript = readFileSync(
+  path.resolve(__dirname, "../../extension/content.js"),
+  "utf8",
+);
+const contracts = readFileSync(
+  path.resolve(__dirname, "../../extension/contracts.js"),
+  "utf8",
+);
 const popupScript = readFileSync(
   path.resolve(__dirname, "../../extension/popup.js"),
   "utf8",
@@ -41,7 +47,10 @@ async function install(page: Page, fixture = "application.html") {
   await page.goto("/fixtures/application.html");
   if (fixture !== "application.html") {
     await page.setContent(
-      readFileSync(path.resolve(__dirname, `../public/fixtures/${fixture}`), "utf8"),
+      readFileSync(
+        path.resolve(__dirname, `../public/fixtures/${fixture}`),
+        "utf8",
+      ),
       { waitUntil: "load" },
     );
   }
@@ -80,7 +89,8 @@ async function message<T>(page: Page, payload: unknown): Promise<T> {
   ) as Promise<T>;
 }
 
-const inspect = (page: Page) => message<Snapshot>(page, { version: 2, action: "inspect" });
+const inspect = (page: Page) =>
+  message<Snapshot>(page, { version: 2, action: "inspect" });
 
 function named(snapshot: Snapshot, label: string): FormField {
   const field = snapshot.fields.find((candidate) => candidate.label === label);
@@ -104,7 +114,9 @@ function command(
   };
 }
 
-test("native controls preserve existing values, fill empty fields once, and never submit", async ({ page }) => {
+test("native controls preserve existing values, fill empty fields once, and never submit", async ({
+  page,
+}) => {
   await install(page);
   await page.locator("#name").fill("Existing local value");
   const snapshot = await inspect(page);
@@ -115,7 +127,9 @@ test("native controls preserve existing values, fill empty fields once, and neve
   expect(snapshot.protocol_version).toBe(2);
   expect(name.value_state).toBe("present");
   expect(name.autocomplete).toBe("name");
-  expect(role.option_labels).toMatchObject({ "Staff Engineer": "Staff Engineer" });
+  expect(role.option_labels).toMatchObject({
+    "Staff Engineer": "Staff Engineer",
+  });
   expect(JSON.stringify(snapshot)).not.toContain("Existing local value");
   expect(JSON.stringify(snapshot)).not.toContain("synthetic-secret");
 
@@ -142,10 +156,19 @@ test("native controls preserve existing values, fill empty fields once, and neve
   await expect(page.locator("#email")).toHaveValue("synthetic@example.com");
   await expect(page.locator("#role")).toHaveValue("Staff Engineer");
   await expect(page.locator("#outcome")).toHaveText("Not submitted");
-  expect(await message(page, { version: 2, action: "apply", command: fill, files: {} })).toMatchObject({ state: "rejected" });
+  expect(
+    await message(page, {
+      version: 2,
+      action: "apply",
+      command: fill,
+      files: {},
+    }),
+  ).toMatchObject({ state: "rejected" });
 });
 
-test("late local edits stay preserved unless replacement is explicit", async ({ page }) => {
+test("late local edits stay preserved unless replacement is explicit", async ({
+  page,
+}) => {
   await install(page);
   let snapshot = await inspect(page);
   let name = named(snapshot, "Full name");
@@ -164,26 +187,39 @@ test("late local edits stay preserved unless replacement is explicit", async ({ 
   result = await message<ApplyResult>(page, {
     version: 2,
     action: "apply",
-    command: command(snapshot, { [name.id]: "Explicit replacement" }, {}, [name.id]),
+    command: command(snapshot, { [name.id]: "Explicit replacement" }, {}, [
+      name.id,
+    ]),
     files: {},
   });
   expect(result.field_results[name.id].status).toBe("filled");
   await expect(page.locator("#name")).toHaveValue("Explicit replacement");
 });
 
-test("radio and checkbox commands use actual values and do not advance", async ({ page }) => {
+test("radio and checkbox commands use actual values and do not advance", async ({
+  page,
+}) => {
   await install(page, "application-grouped.html");
   const snapshot = await inspect(page);
   const workMode = named(snapshot, "Preferred work arrangement");
   const relocate = named(snapshot, "Open to relocation");
-  expect(workMode).toMatchObject({ type: "radio", options: ["remote", "hybrid", "onsite"] });
-  expect(workMode.option_labels).toMatchObject({ remote: "Remote", hybrid: "Hybrid" });
+  expect(workMode).toMatchObject({
+    type: "radio",
+    options: ["remote", "hybrid", "onsite"],
+  });
+  expect(workMode.option_labels).toMatchObject({
+    remote: "Remote",
+    hybrid: "Hybrid",
+  });
   expect(relocate.type).toBe("checkbox");
 
   const result = await message<ApplyResult>(page, {
     version: 2,
     action: "apply",
-    command: command(snapshot, { [workMode.id]: "hybrid", [relocate.id]: "true" }),
+    command: command(snapshot, {
+      [workMode.id]: "hybrid",
+      [relocate.id]: "true",
+    }),
     files: {},
   });
   expect(result.state).toBe("applied");
@@ -194,11 +230,49 @@ test("radio and checkbox commands use actual values and do not advance", async (
   await expect(page.locator("#outcome")).toHaveText("Not advanced");
 });
 
-test("hidden associated file input receives the exact verified resume bytes", async ({ page }) => {
+test("reviewed replacements preserve newer edits and deliberate clears", async ({
+  page,
+}) => {
+  await install(page);
+  await page.locator("#name").fill("Value present at review");
+  const snapshot = await inspect(page);
+  const name = named(snapshot, "Full name");
+  const email = named(snapshot, "Email address");
+  await page.locator("#name").fill("Newer local edit");
+  await page.locator("#email").fill("typed@example.test");
+  await page.locator("#email").clear();
+  const result = await message<ApplyResult>(page, {
+    version: 2,
+    action: "apply",
+    command: command(
+      snapshot,
+      {
+        [name.id]: "Reviewed replacement",
+        [email.id]: "suggested@example.test",
+      },
+      {},
+      [name.id],
+    ),
+    files: {},
+  });
+  expect(result.field_results[name.id].status).toBe("preserved");
+  expect(result.field_results[email.id].status).toBe("preserved");
+  await expect(page.locator("#name")).toHaveValue("Newer local edit");
+  await expect(page.locator("#email")).toHaveValue("");
+  await expect(page.locator("#outcome")).toHaveText("Not submitted");
+});
+
+test("hidden associated file input receives the exact verified resume bytes", async ({
+  page,
+}) => {
   await install(page, "application-upload.html");
   const snapshot = await inspect(page);
   const resume = named(snapshot, "Upload resume");
-  expect(resume).toMatchObject({ type: "file", accept: ".pdf,application/pdf", value_state: "empty" });
+  expect(resume).toMatchObject({
+    type: "file",
+    accept: ".pdf,application/pdf",
+    value_state: "empty",
+  });
   const bytes = Buffer.from("%PDF-1.4\nSynthetic exact resume bytes\n", "utf8");
   const versionId = "00000000-0000-4000-8000-000000000123";
   const transfer = {
@@ -219,7 +293,14 @@ test("hidden associated file input receives the exact verified resume bytes", as
   expect(
     await page.locator("#resume").evaluate(async (input: HTMLInputElement) => {
       const file = input.files?.[0];
-      return file ? { name: file.name, type: file.type, size: file.size, contents: await file.text() } : null;
+      return file
+        ? {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            contents: await file.text(),
+          }
+        : null;
     }),
   ).toEqual({
     name: transfer.filename,
@@ -230,7 +311,9 @@ test("hidden associated file input receives the exact verified resume bytes", as
   await expect(page.locator("#outcome")).toHaveText("Not submitted");
 });
 
-test("incompatible file accepts are rejected without assigning a file", async ({ page }) => {
+test("incompatible file accepts are rejected without assigning a file", async ({
+  page,
+}) => {
   await install(page, "application-upload.html");
   const snapshot = await inspect(page);
   const resume = named(snapshot, "Upload resume");
@@ -251,11 +334,85 @@ test("incompatible file accepts are rejected without assigning a file", async ({
       },
     },
   });
-  expect(result).toMatchObject({ state: "rejected", field_results: { [resume.id]: { status: "rejected" } } });
-  expect(await page.locator("#resume").evaluate((input: HTMLInputElement) => input.files?.length)).toBe(0);
+  expect(result).toMatchObject({
+    state: "rejected",
+    field_results: { [resume.id]: { status: "rejected" } },
+  });
+  expect(
+    await page
+      .locator("#resume")
+      .evaluate((input: HTMLInputElement) => input.files?.length),
+  ).toBe(0);
 });
 
-test("custom widgets are disclosed as unsupported while native controls remain usable", async ({ page }) => {
+test("resume verification cannot overwrite a file chosen during the async check", async ({
+  page,
+}) => {
+  await install(page, "application-upload.html");
+  const input = page.locator("#resume");
+  const original = {
+    name: "original.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("original"),
+  };
+  await input.setInputFiles(original);
+  const snapshot = await inspect(page);
+  const resume = named(snapshot, "Upload resume");
+  const bytes = Buffer.from("reviewed resume");
+  const versionId = "00000000-0000-4000-8000-000000000125";
+  await page.evaluate(() => {
+    const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let first = true;
+    crypto.subtle.digest = async (...args) => {
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve) =>
+          Object.assign(window, { releaseVerification: resolve }),
+        );
+      }
+      return originalDigest(...args);
+    };
+  });
+  const pending = message<ApplyResult>(page, {
+    version: 2,
+    action: "apply",
+    command: command(snapshot, {}, { [resume.id]: versionId }, [resume.id]),
+    files: {
+      [resume.id]: {
+        version_id: versionId,
+        filename: "reviewed.pdf",
+        media_type: "application/pdf",
+        size_bytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        data_base64: bytes.toString("base64"),
+      },
+    },
+  });
+  await expect
+    .poll(() => page.evaluate(() => "releaseVerification" in window))
+    .toBe(true);
+  await input.setInputFiles({
+    ...original,
+    name: "new-local-choice.pdf",
+    buffer: Buffer.from("new choice"),
+  });
+  await page.evaluate(() =>
+    (
+      window as unknown as { releaseVerification: () => void }
+    ).releaseVerification(),
+  );
+  const result = await pending;
+  expect(result.field_results[resume.id].status).toBe("preserved");
+  expect(
+    await input.evaluate(
+      (element: HTMLInputElement) => element.files?.[0].name,
+    ),
+  ).toBe("new-local-choice.pdf");
+});
+
+test("custom widgets are disclosed as unsupported while native controls remain usable", async ({
+  page,
+}) => {
   await install(page, "application-custom.html");
   const snapshot = await inspect(page);
   const unsupported = [
@@ -271,18 +428,26 @@ test("custom widgets are disclosed as unsupported while native controls remain u
   const result = await message<ApplyResult>(page, {
     version: 2,
     action: "apply",
-    command: command(snapshot, { [headline.id]: "Synthetic platform engineer" }),
+    command: command(snapshot, {
+      [headline.id]: "Synthetic platform engineer",
+    }),
     files: {},
   });
   expect(result.field_results[headline.id].status).toBe("filled");
-  await expect(page.locator("#headline")).toHaveValue("Synthetic platform engineer");
+  await expect(page.locator("#headline")).toHaveValue(
+    "Synthetic platform engineer",
+  );
 });
 
-test("schema changes reject before mutation and dynamic replacement reports unknown outcome", async ({ page }) => {
+test("schema changes reject before mutation and dynamic replacement reports unknown outcome", async ({
+  page,
+}) => {
   await install(page, "application-dynamic.html");
   let snapshot = await inspect(page);
   let title = named(snapshot, "Current title");
-  await page.locator('label[for="current-title"]').evaluate((label) => { label.textContent = "Bank account"; });
+  await page.locator('label[for="current-title"]').evaluate((label) => {
+    label.textContent = "Bank account";
+  });
   let result = await message<ApplyResult>(page, {
     version: 2,
     action: "apply",
@@ -292,7 +457,9 @@ test("schema changes reject before mutation and dynamic replacement reports unkn
   expect(result.state).toBe("rejected");
   await expect(page.locator("#current-title")).toHaveValue("");
 
-  await page.locator('label[for="current-title"]').evaluate((label) => { label.textContent = "Current title"; });
+  await page.locator('label[for="current-title"]').evaluate((label) => {
+    label.textContent = "Current title";
+  });
   snapshot = await inspect(page);
   title = named(snapshot, "Answer replaced during input");
   result = await message<ApplyResult>(page, {
@@ -301,15 +468,22 @@ test("schema changes reject before mutation and dynamic replacement reports unkn
     command: command(snapshot, { [title.id]: "Synthetic answer" }),
     files: {},
   });
-  expect(result).toMatchObject({ state: "outcome_unknown", field_results: { [title.id]: { status: "outcome_unknown" } } });
+  expect(result).toMatchObject({
+    state: "outcome_unknown",
+    field_results: { [title.id]: { status: "outcome_unknown" } },
+  });
   await expect(page.locator("#outcome")).toHaveText("Not advanced");
 });
 
-test("changed URL and incompatible protocol are rejected before touching the form", async ({ page }) => {
+test("changed URL and incompatible protocol are rejected before touching the form", async ({
+  page,
+}) => {
   await install(page);
   const snapshot = await inspect(page);
   const name = named(snapshot, "Full name");
-  await page.evaluate(() => history.pushState({}, "", "?different-application=1"));
+  await page.evaluate(() =>
+    history.pushState({}, "", "?different-application=1"),
+  );
   expect(
     await message(page, {
       version: 2,
@@ -319,7 +493,9 @@ test("changed URL and incompatible protocol are rejected before touching the for
     }),
   ).toMatchObject({ state: "rejected" });
   await expect(page.locator("#name")).toHaveValue("");
-  expect(await message(page, { version: 1, action: "inspect" })).toMatchObject({ state: "rejected" });
+  expect(await message(page, { version: 1, action: "inspect" })).toMatchObject({
+    state: "rejected",
+  });
 });
 
 test("popup follows generation to completion and preserves a local answer", async ({
@@ -396,10 +572,7 @@ test("popup follows generation to completion and preserves a local answer", asyn
     };
     let generationPoll = 0;
     Object.assign(window, {
-      CommandCenterContracts: new Proxy(
-        {},
-        { get: () => () => true },
-      ),
+      CommandCenterContracts: new Proxy({}, { get: () => () => true }),
       chrome: {
         storage: {
           local: {
@@ -448,17 +621,30 @@ test("popup follows generation to completion and preserves a local answer", asyn
             },
           ],
         });
-      return Response.json({ detail: `Unexpected fixture route: ${route}` }, { status: 404 });
+      return Response.json(
+        { detail: `Unexpected fixture route: ${route}` },
+        { status: 404 },
+      );
     };
   });
   await page.addScriptTag({ content: popupScript, type: "module" });
 
-  await expect(page.getByRole("button", { name: "Generation queued" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: /Save review/ })).toBeDisabled();
-  await expect(page.getByText("Grounded drafts are ready for review.")).toBeVisible({
+  await expect(
+    page.getByRole("button", { name: "Generation queued" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: /Save review/ }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("Grounded drafts are ready for review."),
+  ).toBeVisible({
     timeout: 4_000,
   });
-  await expect(page.getByLabel("Narrative")).toHaveValue("Keep my local answer.");
-  await expect(page.getByRole("button", { name: "Generate grounded drafts" })).toBeEnabled();
+  await expect(page.getByLabel("Narrative")).toHaveValue(
+    "Keep my local answer.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Generate grounded drafts" }),
+  ).toBeEnabled();
   await expect(page.getByRole("button", { name: /Save review/ })).toBeEnabled();
 });

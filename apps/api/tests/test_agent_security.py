@@ -222,6 +222,7 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
 
     from command_center.agents.worker import perform_next
     from command_center.db.models import Task
+    from command_center.db.spending import SpendingPolicy, SpendingRateCard
 
     profile = AgentProfile(
         name="Test",
@@ -234,6 +235,36 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
     with Session(engine, expire_on_commit=False) as db, db.begin():
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic worker owner")
         db.add(actor)
+        db.flush()
+        card = SpendingRateCard.create(
+            db,
+            owner_id=actor.id,
+            name="Synthetic worker rates",
+            source_label="Synthetic test fixture",
+            rates={
+                "models": [
+                    {
+                        "provider": profile.provider,
+                        "model": profile.model,
+                        "input_per_million_micros": 0,
+                        "output_per_million_micros": 0,
+                        "fixed_micros": 1,
+                    }
+                ],
+                "tools": [],
+            },
+            request_id=uuid4(),
+        )
+        SpendingPolicy.configure(
+            db,
+            owner_id=actor.id,
+            rate_card_id=card.id,
+            monthly_limit_micros=1_000_000,
+            default_work_limit_micros=1_000_000,
+            active=True,
+            request_id=uuid4(),
+            expected_version=None,
+        )
         db.flush()
         run = AgentRun.enqueue(
             db,

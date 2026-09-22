@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -243,8 +244,11 @@ export function WorkConversation({
       ) : selectedProfile && !profileReady ? (
         <p className="mx-6 rounded-md border border-border bg-muted/50 p-3 text-xs leading-5 text-muted-foreground">
           {selectedProfile.name} is unavailable. Configure{" "}
-          {selectedProfile.missing_credentials.join(", ")} in Settings before
-          starting work.
+          {selectedProfile.missing_credentials.join(", ")} in{" "}
+          <Link href="/settings" className="underline underline-offset-2">
+            Settings
+          </Link>{" "}
+          before starting work.
         </p>
       ) : null}
 

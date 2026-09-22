@@ -16,6 +16,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from sqlalchemy import select
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from command_center.agents.config import AgentProfile
@@ -253,6 +254,34 @@ def test_expired_lease_records_recovery_status_and_rejects_late_events(engine) -
             ("run-status", {"state": "running"}),
             ("run-status", {"state": "failed", "error_code": "worker_interrupted"}),
         ]
+
+
+def test_claiming_one_chat_does_not_wait_for_an_unrelated_owners_recovery(engine) -> None:
+    with Session(engine, expire_on_commit=False) as db, db.begin():
+        blocked_owner = Actor(id=uuid4(), kind="human", display_name="Busy owner")
+        ready_owner = Actor(id=uuid4(), kind="human", display_name="Ready owner")
+        db.add_all([blocked_owner, ready_owner])
+        db.flush()
+        stale = AgentRun.claim(db, make_run(db, blocked_owner.id).id)
+        assert stale is not None
+        stale.lease_expires_at = utc_now() - timedelta(seconds=1)
+        ready = make_run(db, ready_owner.id)
+        ready_id, stale_id = ready.id, stale.id
+
+    # A profile/budget edit in another workspace must not delay a ready chat.
+    with Session(engine) as busy, busy.begin():
+        busy.scalar(select(Actor).where(Actor.id == blocked_owner.id).with_for_update())
+        with Session(engine) as db, db.begin():
+            db.execute(sql_text("SET LOCAL statement_timeout = '500ms'"))
+            claimed = AgentRun.claim(db, ready_id)
+            assert claimed is not None and claimed.state == "running"
+            claimed.finish("cancelled")
+
+    with Session(engine) as db, db.begin():
+        # Global recovery remains the dispatcher's responsibility.
+        AgentRun.expire_stale(db)
+        expired = db.get(AgentRun, stale_id)
+        assert expired is not None and expired.state == "failed"
 
 
 def test_sse_replays_after_cursor_and_hides_other_owners(client, engine) -> None:

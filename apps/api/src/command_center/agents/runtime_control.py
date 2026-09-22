@@ -19,6 +19,8 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from command_center.agents.config import AgentProfile
+from command_center.agents.spending import ModelSpendingGate, conservative_input_bound
+from command_center.db.spending import SpendingDenied
 
 type ProgressSink = Callable[[dict[str, Any]], Awaitable[None]]
 type InstructionSource = Callable[[int], Awaitable[tuple[int, list[BaseMessage]]]]
@@ -80,11 +82,23 @@ class ModelAccounting(AsyncCallbackHandler):
 
     raise_error = True
 
-    def __init__(self, control: RunControl, role: str):
-        self.control, self.role = control, role
+    def __init__(
+        self,
+        control: RunControl,
+        role: str,
+        profile: AgentProfile,
+        spending: ModelSpendingGate | None,
+    ):
+        self.control, self.role, self.profile = control, role, profile
+        self.spending = spending
 
     async def on_chat_model_start(
-        self, serialized: dict[str, Any], messages: list[list[BaseMessage]], **kwargs: Any
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[BaseMessage]],
+        *,
+        run_id: UUID,
+        **kwargs: Any,
     ) -> None:
         control = self.control
         size = sum(len(str(message.content)) for batch in messages for message in batch)
@@ -96,14 +110,31 @@ class ModelAccounting(AsyncCallbackHandler):
                 raise ExecutionStopped("model_limit")
             control.steps += 1
             await control.emit()
+        if self.spending is not None:
+            try:
+                await self.spending.reserve(
+                    run_id,
+                    role=self.role,
+                    provider=self.profile.provider,
+                    model=self.profile.model,
+                    input_tokens=conservative_input_bound(
+                        messages, kwargs.get("invocation_params", {})
+                    ),
+                    output_tokens=self.profile.max_output_tokens,
+                )
+            except SpendingDenied as exc:
+                raise ExecutionStopped(exc.code) from exc
 
     async def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
+        call_usage = {"input_tokens": 0, "output_tokens": 0}
         async with self.control.lock:
             for generation in response.generations:
                 for output in generation:
                     usage = getattr(getattr(output, "message", None), "usage_metadata", None) or {}
                     for name in self.control.usage:
-                        self.control.usage[name] += int(usage.get(name, 0))
+                        count = int(usage.get(name, 0))
+                        call_usage[name] += count
+                        self.control.usage[name] += count
             await self.control.emit()
             if any(self.control.usage.values()):
                 await self.control.emit_activity(
@@ -114,6 +145,16 @@ class ModelAccounting(AsyncCallbackHandler):
                         "total_tokens": sum(self.control.usage.values()),
                     },
                 )
+        if self.spending is not None:
+            await self.spending.settle(
+                run_id,
+                call_usage["input_tokens"],
+                call_usage["output_tokens"],
+            )
+
+    async def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if self.spending is not None:
+            await self.spending.unknown(run_id, "spending_usage_unknown")
 
 
 class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):

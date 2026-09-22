@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     docling_url: str = "http://127.0.0.1:5001"
     docling_api_key: SecretStr = SecretStr("")
     blob_store_path: Path = Path(".local/blobs")
+    research_sandbox_image: str = ""
+    pdf_renderer_image: str = ""
     connector_timeout_seconds: float = Field(default=5, gt=0, le=30)
     auth_mode: Literal["clerk", "local"] = "clerk"
     environment: Literal["development", "test", "production"] = "development"
@@ -50,6 +53,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("COMPOSIO_API_KEY", "CC_COMPOSIO_API_KEY"),
     )
     composio_auth_configs: dict[str, str] = {}
+    composio_action_timeout_seconds: float = Field(default=30, gt=0, le=60)
     redis_url: str = Field(default="redis://127.0.0.1:56379/0", repr=False)
     internal_api_url: str = "http://127.0.0.1:8000"
     agent_skills_dir: str = "agents/skills"
@@ -75,6 +79,13 @@ class Settings(BaseSettings):
     def validate_database_url(cls, value: str) -> str:
         if not value.startswith("postgresql+psycopg://"):
             raise ValueError("Use a postgresql+psycopg:// database URL")
+        return value
+
+    @field_validator("research_sandbox_image", "pdf_renderer_image")
+    @classmethod
+    def immutable_execution_image(cls, value: str) -> str:
+        if value and not re.fullmatch(r"(?:[a-zA-Z0-9._:/-]+@)?sha256:[0-9a-f]{64}", value):
+            raise ValueError("Execution images require an immutable SHA-256 image reference")
         return value
 
     @field_validator("firecrawl_url", "searxng_url", "docling_url")

@@ -7,6 +7,7 @@ import { Settings } from "@/components/workspace/settings";
 import { MemoryPage } from "@/components/workspace/memory";
 import { BrowserPage } from "@/components/workspace/browser";
 import { ActivityPage } from "@/components/workspace/activity";
+import { ReviewedActions } from "@/components/workspace/reviewed-actions";
 import { LoadingRows } from "@/components/workspace/primitives";
 import type { Resource } from "@/lib/api";
 
@@ -37,5 +38,6 @@ export default async function SectionPage({
   if (section === "memory") return <MemoryPage />;
   if (section === "browser") return <BrowserPage />;
   if (section === "activity") return <ActivityPage />;
+  if (section === "actions") return <ReviewedActions />;
   notFound();
 }

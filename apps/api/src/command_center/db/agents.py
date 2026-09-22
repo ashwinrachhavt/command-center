@@ -101,6 +101,7 @@ class AgentRun(OwnedRecord, Base):
         request_id: UUID,
         session_id: UUID | None = None,
         input_sequence: int = 0,
+        spending_snapshot: dict[str, Any] | None = None,
     ) -> "AgentRun":
         run = cls(
             id=record_id,
@@ -113,6 +114,15 @@ class AgentRun(OwnedRecord, Base):
             input_sequence=input_sequence,
         )
         session.add(run)
+        session.flush([run])
+        if spending_snapshot is not None:
+            run.config_snapshot = {**run.config_snapshot, "spending": spending_snapshot}
+        else:
+            from command_center.db.spending import SpendingPolicy, prepare_run_spending
+
+            policy = session.get(SpendingPolicy, owner_id)
+            if policy is not None and policy.active:
+                prepare_run_spending(session, run)
         record_event(
             session,
             owner_id,
@@ -126,18 +136,22 @@ class AgentRun(OwnedRecord, Base):
         return run
 
     @classmethod
-    def expire_stale(cls, session: Session) -> None:
-        stale = session.scalars(
+    def expire_stale(cls, session: Session, *, run_id: UUID | None = None) -> None:
+        statement = (
             select(cls)
             .where(cls.state == "running", cls.lease_expires_at < utc_now())
             .with_for_update(skip_locked=True, key_share=True)
-        ).all()
+        )
+        if run_id is not None:
+            statement = statement.where(cls.id == run_id)
+        stale = session.scalars(statement).all()
         for expired in stale:
             expired.finish("failed", error_code="worker_interrupted")
 
     @classmethod
     def claim(cls, session: Session, run_id: UUID | None = None) -> "AgentRun | None":
-        cls.expire_stale(session)
+        # A targeted delivery must not sweep or lock another workspace's recovery.
+        cls.expire_stale(session, run_id=run_id)
         statement = (
             select(cls)
             .where(cls.state == "queued")
@@ -242,4 +256,5 @@ class AgentRun(OwnedRecord, Base):
                         request_id=self.id,
                         session_id=self.session_id,
                         input_sequence=pending.sequence,
+                        spending_snapshot=self.config_snapshot.get("spending"),
                     )

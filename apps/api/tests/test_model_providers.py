@@ -198,14 +198,6 @@ def test_profile_metadata_reports_provider_readiness_for_ui(settings):
     specialist = profile("mistral", "mistral-small-latest")
     lead = profile(
         specialists={"research": specialist},
-        composio_tools=[
-            {
-                "toolkit": "synthetic",
-                "slug": "SYNTHETIC_READ",
-                "version": "20260921_1",
-                "read_only": True,
-            }
-        ],
     )
     only_openai = settings.model_copy(
         update={
@@ -216,7 +208,6 @@ def test_profile_metadata_reports_provider_readiness_for_ui(settings):
     )
     assert missing_profile_configuration(request_for(only_openai), lead) == [
         "MISTRAL_API_KEY",
-        "COMPOSIO_API_KEY",
     ]
 
 

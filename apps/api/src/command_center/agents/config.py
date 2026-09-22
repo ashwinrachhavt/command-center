@@ -44,6 +44,13 @@ class AgentProfile(BaseModel):
             "draft_artifact",
             "memory_read",
             "memory_append",
+            "connected_accounts",
+            "gmail_search",
+            "propose_connected_action",
+            "reviewed_action",
+            "capture_research_source",
+            "run_research_script",
+            "research_execution",
         ]
     ] = []
     skills: list[str] = Field(default_factory=list, max_length=10)
@@ -60,6 +67,11 @@ class AgentProfile(BaseModel):
 
     @model_validator(mode="after")
     def unique_tools(self) -> "AgentProfile":
+        if self.composio_tools:
+            raise ValueError(
+                "Use the connected_accounts, gmail_search and propose_connected_action tools; "
+                "raw Composio grants cannot bypass account selection and spending controls"
+            )
         if len(self.instructions) + sum(map(len, self.skill_files.values())) > 20000:
             raise ValueError("Combined directive and skills exceed the context limit")
         if any(not re.fullmatch(r"[a-z0-9-]{1,80}", slug) for slug in self.skill_files):

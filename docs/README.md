@@ -1,6 +1,6 @@
 # Command Center
 
-**Revision:** 2026-09-21-r13. **Status:** connected workspace and operator import implemented; full-page sidebar navigation, contextual body inspection and appearance implemented locally; broader workspace hardening partial/pending. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Grounded application preparation, exact resume uploads, reviewed scoped memory and durable token/tool streaming are implemented locally with synthetic coverage. Reviewed external actions, isolated scripts/PDF exports, spending controls and full ATS tenant coverage remain in progress.
+**Revision:** 2026-09-21-r13. **Status:** connected workspace and operator import implemented; full-page sidebar navigation, contextual body inspection and appearance implemented locally; broader workspace hardening partial/pending. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Grounded application preparation, exact resume uploads, reviewed scoped memory and durable token/tool streaming are implemented locally with synthetic coverage. Reviewed external actions, isolated scripts/PDF exports, spending controls and job cleanup recovery are implemented locally with synthetic tests. Full ATS tenant coverage, paid-provider evaluation and release verification remain in progress.
 
 A local workspace for autonomous job discovery, relationships, research, tailored applications and follow-ups. Product and technical decisions have one canonical home each.
 
@@ -38,7 +38,7 @@ Latest explicit user decisions supersede historical previews and review scores. 
 
 ## Planning state
 
-**Current checkpoint:** Navigation semantics and pytest/pytest-mock/DeepEval tooling are now explicit; Design is a canonical spec. the eight product-interview rounds are answered (AR-1–AR-26). The architecture is drafted; formal engineering review and the implementation plan are still ahead. No new agent implementation has begun in this planning work.
+**Current checkpoint:** Deep Agents conversations, reviewed browser preparation, scoped memory, streamed tool/token activity, reviewed connected actions, isolated research/PDF jobs and spending controls are implemented locally. The eight product-interview rounds are answered (AR-1–AR-26); numerical budgets and live-provider validation remain explicit setup/release work. Historical architecture drafts below describe direction; current contracts and evidence are in source, migrations and Engineering.
 
 | Part of the design | Current direction | Where to review it |
 | --- | --- | --- |

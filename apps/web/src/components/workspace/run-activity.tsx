@@ -19,6 +19,7 @@ import {
 import {
   api,
   label,
+  runFailureMessage,
   type Page,
   type Run,
   type RunArtifact,
@@ -44,8 +45,15 @@ export function RunActivity({
   const context = useWorkspaceContext();
   const queryClient = useQueryClient();
   const reconciledState = useRef("");
-  const active = activeStates.has(run.state);
-  const stream = useRunEvents(run.id, active);
+  const persistedActive = activeStates.has(run.state);
+  const stream = useRunEvents(run.id, persistedActive);
+  const displayedState = ["completed", "failed", "cancelled"].includes(
+    stream.runStatus?.state ?? "",
+  )
+    ? stream.runStatus!.state
+    : run.state;
+  const active = activeStates.has(displayedState);
+  const failureCode = stream.runStatus?.errorCode ?? run.error_code;
   const steps = useQuery({
     queryKey: ["agent-run-steps", run.id, run.state],
     queryFn: ({ signal }) =>
@@ -87,7 +95,7 @@ export function RunActivity({
         <p className="min-w-0 flex-1 truncate text-xs font-medium">
           {run.title}
         </p>
-        <Status value={run.state} />
+        <Status value={displayedState} />
         {active && onCancel ? (
           <Button
             type="button"
@@ -104,17 +112,15 @@ export function RunActivity({
 
       {active ? (
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
-          {run.state === "queued"
+          {displayedState === "queued"
             ? "Saved and waiting for a worker."
             : "Work is active. New instructions join this run at its next safe stopping point."}
         </p>
-      ) : run.state === "failed" ? (
+      ) : displayedState === "failed" ? (
         <p className="mt-3 text-xs leading-5 text-destructive">
-          This work could not finish
-          {run.error_code ? ` (${label(run.error_code)})` : ""}. Review the
-          issue before trying again.
+          {runFailureMessage(failureCode)}
         </p>
-      ) : run.state === "cancelled" ? (
+      ) : displayedState === "cancelled" ? (
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           Cancelled. Completed activity remains in this conversation.
         </p>

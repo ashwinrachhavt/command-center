@@ -55,6 +55,9 @@ class AgentMCP:
                             "enrich_lead",
                             "propose_profile_fact",
                             "suggest_application_answers",
+                            "propose_connected_action",
+                            "capture_research_source",
+                            "run_research_script",
                         },
                         destructiveHint=False,
                         openWorldHint=t["function"]["name"]
@@ -71,6 +74,11 @@ class AgentMCP:
                             "suggest_application_answers",
                             "lead_evidence",
                             "capture_lead",
+                            "connected_accounts",
+                            "propose_connected_action",
+                            "reviewed_action",
+                            "run_research_script",
+                            "research_execution",
                         },
                     ),
                 )

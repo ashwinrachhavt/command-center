@@ -343,6 +343,8 @@ async def download_version(
         version, _, artifact, imported_filename = row
         digest, media_type = version.content_sha256, version.media_type
         filename = clean_filename(imported_filename or artifact.title)
+        if media_type == "application/pdf" and not filename.lower().endswith(".pdf"):
+            filename = f"{filename}.pdf"
     from command_center.core.storage import BlobStore
 
     content = await run_in_threadpool(

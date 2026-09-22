@@ -57,6 +57,8 @@ export type ResumeSelection = Schema["ResumeSelectionRead"];
 export type FactRevision = Schema["FactRevisionRead"];
 export type ProfileFact = Schema["FactRead"];
 
+export type PdfExport = Schema["PdfExportRead"];
+
 export type BrowserField = {
   id: string;
   label: string;
@@ -115,7 +117,7 @@ export class ApiError extends Error {
 export async function api<T>(
   path: string,
   options: {
-    method?: "GET" | "POST" | "PATCH";
+    method?: "GET" | "POST" | "PUT" | "PATCH";
     body?: unknown;
     key?: string;
     signal?: AbortSignal;
@@ -151,7 +153,9 @@ export async function api<T>(
                       `${item.loc?.at(-1) ?? "Field"}: ${item.msg}`,
                   )
                   .join(". ")
-              : "The request could not be completed.";
+              : typeof data.detail?.message === "string"
+                ? data.detail.message
+                : "The request could not be completed.";
         throw new ApiError(
           response.status,
           response.status === 401
@@ -189,7 +193,12 @@ async function responseError(response: Response) {
                 `${item.loc?.at(-1) ?? "Field"}: ${item.msg}`,
             )
             .join(". ")
-        : "The request could not be completed.";
+        : detail &&
+            typeof detail === "object" &&
+            "message" in detail &&
+            typeof detail.message === "string"
+          ? detail.message
+          : "The request could not be completed.";
   return new ApiError(
     response.status,
     response.status === 401
@@ -247,6 +256,37 @@ export function label(value: string | null | undefined) {
         .replaceAll("-", " ")
         .replace(/^./, (c) => c.toUpperCase())
     : "—";
+}
+
+const runFailureMessages: Record<string, string> = {
+  spending_policy_unconfigured:
+    "Configure spending limits and provider rates in Settings before starting work.",
+  cost_bound_unavailable:
+    "Add a rate for the selected model or connected tool in Settings.",
+  spending_monthly_limit: "The monthly spending limit has been reached.",
+  spending_work_limit:
+    "The spending limit for this task or opportunity has been reached.",
+  spending_period_expired:
+    "This run’s monthly budget snapshot expired. Start a new run.",
+  spending_lease_lost: "This run stopped because its worker lease ended.",
+  spending_reservation_conflict:
+    "The spending record changed. Refresh before trying again.",
+  spending_reservation_missing:
+    "The spending record is unavailable. Refresh before trying again.",
+  execution_timeout: "This run reached its time limit and stopped.",
+  context_limit: "This run reached its context limit and stopped.",
+  model_limit: "This run reached its model-call limit and stopped.",
+  tool_limit: "This run reached its tool-call limit and stopped.",
+  worker_interrupted:
+    "The worker stopped before this run finished. No automatic replay was attempted.",
+  agent_execution_failed:
+    "The provider or worker stopped unexpectedly. No automatic replay was attempted.",
+};
+
+export function runFailureMessage(code: string | null | undefined) {
+  return code && runFailureMessages[code]
+    ? runFailureMessages[code]
+    : "This work could not finish. Review the activity before trying again.";
 }
 export function recordName(record: WorkspaceRecord) {
   return "name" in record ? record.name : record.title;
