@@ -21,19 +21,24 @@ export default function RootLayout({
       signUpFallbackRedirectUrl="/"
       appearance={{
         variables: {
-          colorPrimary: "#42c7a1",
-          colorBackground: "#191b1c",
-          colorForeground: "#f2f3f3",
-          colorMutedForeground: "#9ca3a6",
-          colorInput: "#121415",
-          colorInputForeground: "#f2f3f3",
+          colorPrimary: "var(--primary)",
+          colorBackground: "var(--card)",
+          colorForeground: "var(--foreground)",
+          colorMutedForeground: "var(--muted-foreground)",
+          colorInput: "var(--background)",
+          colorInputForeground: "var(--foreground)",
           borderRadius: "8px",
           fontFamily: "inherit",
         },
       }}
     >
-      <html lang="en" className={`dark ${geist.variable}`}>
+      <html lang="en" className={geist.variable} suppressHydrationWarning>
         <body>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `try{var p=localStorage.getItem('command-center:palette');if(['graphite','teal','blue','violet'].includes(p))document.documentElement.dataset.palette=p}catch{}`,
+            }}
+          />
           <Providers>{children}</Providers>
         </body>
       </html>

@@ -54,6 +54,7 @@ test-db:
 
 test: test-db
 	$(UV) pytest apps/api/tests -q
+	npm run test:unit --prefix apps/web
 
 lint:
 	$(UV) ruff check apps/api scripts

@@ -128,17 +128,8 @@ export function Agents() {
   return (
     <>
       <PageHeading
-        title="Your agents"
-        description="Thinking partners with context, useful tools and a clear record of their work."
-        action={
-          <Badge
-            variant="outline"
-            className="mt-1 gap-1.5 py-1.5 text-muted-foreground"
-          >
-            <span className="size-1.5 rounded-full bg-primary" />
-            Local harness
-          </Badge>
-        }
+        title="Agents"
+        description="Research, drafts, and a record of each run."
       />
       <div className="grid min-h-[620px] grid-cols-1 border-y border-border lg:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="border-b border-border bg-card/40 p-4 lg:border-r lg:border-b-0">
@@ -278,23 +269,22 @@ export function Agents() {
                 <Sparkles className="size-6" />
               </span>
               <h2 className="text-2xl font-medium tracking-tight">
-                What would move you forward?
+                Start a request
               </h2>
               <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                Bring an open question, a company to explore or a draft that
-                needs a little care.
+                Choose a profile, then describe the research or draft you need.
               </p>
               <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-2">
                 {[
                   {
                     icon: BookOpen,
-                    text: "Research a company and find the questions worth asking.",
+                    text: "Research a company",
                     prompt:
                       "Help me research a company. Ask me which company and what I want to learn first.",
                   },
                   {
                     icon: FileText,
-                    text: "Turn my notes into a clear, thoughtful draft.",
+                    text: "Draft an introduction",
                     prompt:
                       "Help me write a concise introduction. Ask for my background and the audience before drafting.",
                   },
@@ -380,7 +370,7 @@ export function Agents() {
               </span>
               <span>
                 {integrations.data?.openai_configured === false ? (
-                  <Link href="/settings" className="text-amber-200">
+                  <Link href="/settings" className="text-[var(--status-amber)]">
                     Connect OpenAI in settings to start
                   </Link>
                 ) : (

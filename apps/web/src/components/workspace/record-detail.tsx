@@ -1,24 +1,9 @@
 "use client";
-import { useState } from "react";
-import Link from "next/link";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Archive,
-  Download,
-  ExternalLink,
-  Pencil,
-  Plus,
-  Save,
-} from "lucide-react";
+import { Archive, ArrowLeft, Download, Pencil, Plus, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -53,6 +38,7 @@ import {
 import { ErrorState, LoadingRows, Mark, Status, Spinner } from "./primitives";
 import { RecordEditor, resourceNames, stages } from "./record-editor";
 import { AgentResponse } from "./agent-response";
+import { useWorkspaceContext } from "./context";
 
 export function ActivityList({ events }: { events: Activity[] }) {
   return (
@@ -294,15 +280,49 @@ function ArtifactContent({ record }: { record: WorkspaceRecord }) {
   );
 }
 
+function LinkedRecord({
+  resource,
+  id,
+  action,
+}: {
+  resource: Resource;
+  id: string;
+  action: string;
+}) {
+  const context = useWorkspaceContext();
+  const query = useQuery({
+    queryKey: [resource, id],
+    queryFn: ({ signal }) =>
+      api<WorkspaceRecord>(`${resource}/${id}`, { signal }),
+  });
+  return (
+    <Button
+      variant="link"
+      aria-label={action}
+      className="h-auto max-w-full justify-start p-0 text-xs"
+      onClick={() => context?.open(resource, id)}
+    >
+      <span className="truncate">
+        {query.data ? recordName(query.data) : action}
+      </span>
+      <span aria-hidden>→</span>
+    </Button>
+  );
+}
+
 export function RecordDetail({
   resource,
   id,
   onClose,
+  compact = false,
 }: {
   resource: Resource;
   id: string;
   onClose: () => void;
+  compact?: boolean;
 }) {
+  const context = useWorkspaceContext();
+  const stateFieldId = useId();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -350,241 +370,278 @@ export function RecordDetail({
             "archived_at",
             "completed_at",
             "latest_version",
+            ...(resource === "opportunities" || resource === "tasks"
+              ? ["stage", "state"]
+              : []),
           ].includes(key) &&
           value !== null &&
           value !== "",
       )
     : [];
-  const hrefKeys: Record<string, string> = {
+  const hrefKeys: Record<string, Resource> = {
     company_id: "companies",
     contact_id: "contacts",
     opportunity_id: "opportunities",
     job_id: "jobs",
   };
   return (
-    <Sheet
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <SheetContent className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-[500px]">
-        <SheetHeader className="border-b border-border px-6 pt-8 pb-6">
-          <SheetDescription className="mb-4 text-xs">
-            {resourceNames[resource].plural} <span className="mx-2">/</span>{" "}
-            Record details
-          </SheetDescription>
-          <div className="flex items-center gap-3">
-            <Mark
-              name={record ? recordName(record) : "…"}
-              className="size-11 text-base"
-            />
-            <SheetTitle className="pr-6 text-xl leading-7">
-              {record ? recordName(record) : "Loading record…"}
-            </SheetTitle>
-          </div>
-          {record && (
-            <div className="mt-5 flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setEditing(true)}
-              >
-                <Pencil />
-                Edit details
-              </Button>
-              {resource !== "tasks" && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="ml-auto text-muted-foreground"
-                  aria-label="Archive record"
-                  onClick={() => setConfirm(true)}
-                >
-                  <Archive />
-                </Button>
-              )}
-            </div>
+    <section aria-label="Record details" className="min-w-0 bg-background">
+      <header className="border-b border-border px-6 py-5">
+        <div className="mb-5 flex items-center gap-2 text-xs text-muted-foreground">
+          {!compact && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Back to list"
+              onClick={onClose}
+            >
+              <ArrowLeft />
+            </Button>
           )}
-        </SheetHeader>
-        {query.error ? (
-          <div className="px-6">
-            <ErrorState error={query.error} retry={() => query.refetch()} />
+          {resourceNames[resource].plural}
+        </div>
+        <div className="flex items-center gap-3">
+          <Mark
+            name={record ? recordName(record) : "…"}
+            className="size-11 text-base"
+          />
+          <h2 className="min-w-0 break-words text-xl leading-7 font-medium tracking-tight">
+            {record ? recordName(record) : "Loading record…"}
+          </h2>
+        </div>
+        {record && (
+          <div className="mt-5 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil />
+              Edit details
+            </Button>
+            {resource !== "tasks" && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="ml-auto text-muted-foreground"
+                aria-label="Archive record"
+                onClick={() => setConfirm(true)}
+              >
+                <Archive />
+              </Button>
+            )}
           </div>
-        ) : !record ? (
-          <LoadingRows />
-        ) : (
-          <Tabs defaultValue="overview" className="gap-0">
-            <div className="border-b border-border px-6">
-              <TabsList className="h-12 bg-transparent p-0">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                {resource === "artifacts" && (
-                  <TabsTrigger value="content">Content & versions</TabsTrigger>
-                )}
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="overview" className="px-6 py-6">
-              {(resource === "opportunities" || resource === "tasks") && (
-                <Field className="mb-6">
-                  <FieldLabel htmlFor="change-state">
-                    {resource === "tasks" ? "Status" : "Stage"}
-                  </FieldLabel>
-                  <Select
-                    value={String(
-                      (record as unknown as Record<string, unknown>)[
-                        resource === "tasks" ? "state" : "stage"
-                      ],
-                    )}
-                    disabled={mutation.isPending}
-                    onValueChange={(v) =>
-                      mutation.mutate({
-                        expected_version: record.row_version,
-                        [resource === "tasks" ? "state" : "stage"]: v,
-                      })
-                    }
-                  >
-                    <SelectTrigger id="change-state">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {(resource === "tasks"
-                          ? ["done", "cancelled"].includes(
+        )}
+        {record && (
+          <>
+            {(resource === "opportunities" || resource === "tasks") && (
+              <Field className="mt-4 w-fit">
+                <FieldLabel htmlFor={stateFieldId} className="sr-only">
+                  {resource === "tasks" ? "Status" : "Stage"}
+                </FieldLabel>
+                <Select
+                  value={String(
+                    (record as unknown as Record<string, unknown>)[
+                      resource === "tasks" ? "state" : "stage"
+                    ],
+                  )}
+                  disabled={mutation.isPending}
+                  onValueChange={(v) =>
+                    mutation.mutate({
+                      expected_version: record.row_version,
+                      [resource === "tasks" ? "state" : "stage"]: v,
+                    })
+                  }
+                >
+                  <SelectTrigger id={stateFieldId} className="min-w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {(resource === "tasks"
+                        ? ["done", "cancelled"].includes(
+                            String(
+                              (record as unknown as Record<string, unknown>)
+                                .state,
+                            ),
+                          )
+                          ? [
                               String(
                                 (record as unknown as Record<string, unknown>)
                                   .state,
                               ),
-                            )
-                            ? [
-                                String(
-                                  (record as unknown as Record<string, unknown>)
-                                    .state,
-                                ),
-                                "open",
-                              ]
-                            : [
-                                "open",
-                                "in_progress",
-                                "snoozed",
-                                "done",
-                                "cancelled",
-                              ]
-                          : stages
-                        ).map((v) => (
-                          <SelectItem key={v} value={v}>
-                            {label(v)}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              )}
-              <dl className="flex flex-col gap-5">
-                {details.map(([key, value]) => (
-                  <div
-                    key={key}
-                    className={
-                      typeof value === "string" && value.length > 200
-                        ? ""
-                        : "grid grid-cols-[120px_1fr] items-start gap-4"
-                    }
-                  >
-                    <dt className="text-xs text-muted-foreground">
-                      {label(key.replace(/_id$/, ""))}
-                    </dt>
-                    <dd className="min-w-0 break-words text-xs leading-6">
-                      {hrefKeys[key] ? (
-                        <Link
-                          href={`/${hrefKeys[key]}?record=${value}`}
-                          className="inline-flex items-center gap-1 text-primary"
-                          onClick={onClose}
-                        >
-                          View {key.replace("_id", "")}
-                          <ExternalLink className="size-3" />
-                        </Link>
-                      ) : ["stage", "state", "relationship"].includes(key) ? (
-                        <Status value={String(value)} />
-                      ) : ["source_url", "linkedin_url"].includes(key) &&
-                        /^https?:\/\//.test(String(value)) ? (
-                        <a
-                          href={String(value)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary"
-                        >
-                          Open source ↗
-                        </a>
-                      ) : key === "priority" ? (
-                        ["Low", "Normal", "High", "Urgent"][Number(value)]
-                      ) : (
-                        <span className="whitespace-pre-wrap">
-                          {String(value)}
-                        </span>
-                      )}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-8 border-t border-border pt-4 text-[10px] text-muted-foreground">
-                <p>
-                  Created {dateLabel(record.created_at)} · Updated{" "}
-                  {dateLabel(record.updated_at)}
-                </p>
-              </div>
-            </TabsContent>
-            {resource === "artifacts" && (
-              <TabsContent value="content" className="p-6">
-                <ArtifactContent record={record} />
-              </TabsContent>
+                              "open",
+                            ]
+                          : [
+                              "open",
+                              "in_progress",
+                              "snoozed",
+                              "done",
+                              "cancelled",
+                            ]
+                        : stages
+                      ).map((v) => (
+                        <SelectItem key={v} value={v}>
+                          {label(v)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
             )}
-            <TabsContent value="activity" className="px-6 py-3">
-              {activity.error ? (
-                <ErrorState error={activity.error} />
-              ) : activity.isPending ? (
-                <LoadingRows />
-              ) : (
-                <ActivityList events={activity.data.items} />
+          </>
+        )}
+      </header>
+      {query.error ? (
+        <div className="px-6">
+          <ErrorState error={query.error} retry={() => query.refetch()} />
+        </div>
+      ) : !record ? (
+        <LoadingRows />
+      ) : (
+        <Tabs defaultValue="overview" className="gap-0">
+          <div className="border-b border-border px-6">
+            <TabsList className="h-12 bg-transparent p-0">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              {resource === "artifacts" && (
+                <TabsTrigger value="content">Content & versions</TabsTrigger>
               )}
+              {resource === "opportunities" && (
+                <TabsTrigger value="contacts">Contacts</TabsTrigger>
+              )}
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+          </div>
+          <TabsContent value="overview" className="px-6 py-6">
+            <dl className="flex flex-col gap-5">
+              {details.map(([key, value]) => (
+                <div
+                  key={key}
+                  className={
+                    typeof value === "string" && value.length > 200
+                      ? ""
+                      : "grid grid-cols-[120px_1fr] items-start gap-4"
+                  }
+                >
+                  <dt className="text-xs text-muted-foreground">
+                    {label(key.replace(/_id$/, ""))}
+                  </dt>
+                  <dd className="min-w-0 break-words text-xs leading-6">
+                    {hrefKeys[key] ? (
+                      <LinkedRecord
+                        resource={hrefKeys[key]}
+                        id={String(value)}
+                        action={`View ${key.replace("_id", "")}`}
+                      />
+                    ) : ["stage", "state", "relationship"].includes(key) ? (
+                      <Status value={String(value)} />
+                    ) : ["source_url", "linkedin_url"].includes(key) &&
+                      /^https?:\/\//.test(String(value)) ? (
+                      <a
+                        href={String(value)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary"
+                      >
+                        Open source ↗
+                      </a>
+                    ) : key === "priority" ? (
+                      ["Low", "Normal", "High", "Urgent"][Number(value)]
+                    ) : (
+                      <span className="whitespace-pre-wrap">
+                        {String(value)}
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-8 border-t border-border pt-4 text-[10px] text-muted-foreground">
+              <p>
+                Created {dateLabel(record.created_at)} · Updated{" "}
+                {dateLabel(record.updated_at)}
+              </p>
+            </div>
+          </TabsContent>
+          {resource === "artifacts" && (
+            <TabsContent value="content" className="p-6">
+              <ArtifactContent record={record} />
             </TabsContent>
-          </Tabs>
-        )}
-        {editing && record && (
-          <RecordEditor
-            key={`${id}:${record.row_version}`}
-            resource={resource}
-            record={record}
-            open={editing}
-            onOpenChange={setEditing}
-          />
-        )}
-        <Dialog open={confirm} onOpenChange={setConfirm}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                Archive this {resourceNames[resource].singular}?
-              </DialogTitle>
-              <DialogDescription>
-                It will leave your active list. Its history and existing
-                relationships are preserved.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirm(false)}>
-                Keep record
-              </Button>
+          )}
+          {resource === "opportunities" && (
+            <TabsContent value="contacts" className="p-6">
+              <p className="mb-4 text-sm text-muted-foreground">
+                People connected to this opportunity.
+              </p>
+              {"contact_id" in record && record.contact_id ? (
+                <LinkedRecord
+                  resource="contacts"
+                  id={String(record.contact_id)}
+                  action="Open linked contact"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No contact linked yet. Edit the opportunity to add one.
+                </p>
+              )}
               <Button
-                variant="destructive"
-                disabled={archive.isPending}
-                onClick={() => archive.mutate()}
+                variant="ghost"
+                className="mt-3 block"
+                onClick={() => context?.open("contacts")}
               >
-                {archive.isPending && <Spinner />}Archive record
+                Browse contacts
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </SheetContent>
-    </Sheet>
+            </TabsContent>
+          )}
+          <TabsContent value="activity" className="px-6 py-3">
+            {activity.error ? (
+              <ErrorState
+                error={activity.error}
+                retry={() => activity.refetch()}
+              />
+            ) : activity.isPending ? (
+              <LoadingRows />
+            ) : (
+              <ActivityList events={activity.data.items} />
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
+      {editing && record && (
+        <RecordEditor
+          key={id}
+          resource={resource}
+          record={record}
+          open={editing}
+          onOpenChange={setEditing}
+        />
+      )}
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Archive this {resourceNames[resource].singular}?
+            </DialogTitle>
+            <DialogDescription>
+              It will leave your active list. Its history and existing
+              relationships are preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(false)}>
+              Keep record
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={archive.isPending}
+              onClick={() => archive.mutate()}
+            >
+              {archive.isPending && <Spinner />}Archive record
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }
