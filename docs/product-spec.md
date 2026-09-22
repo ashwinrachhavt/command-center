@@ -23,14 +23,15 @@ The user selected these first-release experiences during the agent architecture 
 - One lead assistant coordinates visible specialists; a specialist can also be addressed directly.
 - The dashboard prioritizes work needing attention, work in progress and completed outputs. Agent activity remains visible inside each task; this determines information priority, not approval of every preview layout detail.
 - Conversations continue within a task or opportunity. The lead coordinates and specialists contribute in that shared work context; unrelated work starts a separate conversation.
+- New instructions are saved immediately and steer active work at the next safe stopping point. Completed actions remain in history; changed drafts require fresh approval before execution.
 - Task activity, sources and outputs are saved automatically. Agents propose reusable long-term memories for user review; personal facts continue to use the reviewed profile.
 - Deep Agents on LangGraph is the selected harness for the new architecture. This is an architecture decision, not an implemented migration.
-- Research and drafting target an always-on backend. Application filling stays in the user's open Chrome tab.
+- Research and drafting target the existing Docker stack on one always-on server. The exact host, cost and recovery targets remain for operations review. Application filling stays in the user's open Chrome tab.
 - A Chrome-extension application agent fills the current signed-in application page, generates editable responses and supports resume upload. The user reviews, clicks Next, requests filling on subsequent pages and performs final submission. Simplify Copilot is the interaction reference. Greenhouse, Lever, Ashby, Workday and iCIMS are required first-release targets; exact field/tenant coverage and its verification remain to be specified.
 - Existing application values are preserved. Fill empty fields; offer replacements only when the user explicitly chooses to revise an answer.
 - Use the user's selected general portfolio resume as the default upload. Specialized resume variants remain available through explicit selection; do not silently tailor or substitute another version.
 - An outreach request searches relevant messages in one selected Gmail account, gathers person/company/task context, shows its email draft in Command Center and sends after the user approves there. Background inbox monitoring and searches across multiple accounts are outside this initial behavior.
-- A research agent can write/run a script automatically in an isolated task workspace with selected materials and public research access, then save a company-research or interview-prep document in Command Center. Connected-app credentials stay outside scripts; publication uses the approved external-change review flow. Exact input/output formats and sandbox provider remain to be specified.
+- A research agent can write/run a script automatically in an isolated task workspace with selected materials and public research access, then save an editable, source-cited company-research or interview-prep document in Command Center. PDF export and optional reviewed Notion publication are required. Connected-app credentials stay outside scripts. Detailed input formats, document templates and sandbox provider remain to be specified.
 - A user-reviewed Command Center profile backed by selected documents is authoritative for personal facts. Connected apps supply fresh task context. The application agent fills known fields and collects missing personal answers together in the extension; confirmed answers can be retained for appropriate reuse.
 - Composio is the integration priority for Gmail, Google Calendar, Linear and Notion, with Slack next. Calendar supplies event/interview context and proposed event creation/updates; Linear supports reading/creating/updating tasks linked to Command Center work; Notion supplies selected pages and publication/updates of generated research documents. The user reviews external changes in Command Center before execution initially. Account scope and delivery sequencing remain open.
 
@@ -237,15 +238,23 @@ Round 6 is confirmed:
 | AR-19 / R6.2 | Conversation continuity | An ongoing conversation scoped to a task/opportunity, with lead and specialist contributions | Confirmed: ongoing conversations scoped to a task or opportunity |
 | AR-20 / R6.3 | Authority to add long-term memory | Automatically retain task activity/sources/outputs; propose reusable memories for review initially | Confirmed: propose long-term memories for user review; task history is retained automatically and profile facts remain separate |
 
-Round 7 has confirmed existing-value behavior, the general resume default and the spending-control policy. Budget timing remains pending:
+Round 7 is confirmed; numeric spending amounts will follow review of a benchmark plan:
 
 | ID / interview question | Decision needed | Recommendation to discuss | Status |
 | --- | --- | --- | --- |
 | AR-21 / R7.1 | Treatment of existing application values | Preserve existing values; fill empty fields and offer replacements only through explicit revision | Confirmed: preserve existing values and offer replacements explicitly |
 | AR-22 / R7.2 | Resume choice for uploads | Use a selected existing resume version with a saved default; tailoring is a separate requested task | Confirmed after locating four candidates: the general portfolio resume is the default; specialized variants are available for explicit selection. Exact source metadata stays private; no source contents copied into docs |
-| AR-23 / R7.3 | Monthly/per-task model, research and sandbox spending limits | Configurable hard caps, retained partial results and no automatic purchases/top-ups; amounts may follow benchmarking | User accepted the control policy with “yes”; no amounts supplied. Follow-up asks whether to set amounts after a reviewed benchmark plan or specify them now |
+| AR-23 / R7.3 | Monthly/per-task model, research and sandbox spending limits | Configurable hard caps, retained partial results and no automatic purchases/top-ups; choose amounts after reviewing a benchmark plan | Confirmed: set amounts after reviewing the benchmark plan. Dollar values remain unset; no paid benchmark allowance is implied |
 
 Resume source selection authorizes using the chosen existing document; it is not proof that extracted profile facts have been reviewed. Keep the private path/selection metadata outside committed docs and import the selected file into the shared immutable artifact lifecycle when that slice is implemented. The initial source directory is not a reason to give the always-on agent general access to the local portfolio project.
+
+Round 8 is confirmed:
+
+| ID / interview question | Decision needed | Recommendation to discuss | Status |
+| --- | --- | --- | --- |
+| AR-24 / R8.1 | A new user instruction during active work | Save it immediately and steer the current work at the next safe boundary; preserve completed effects and re-review changed drafts | Confirmed: steer current work at the next safe point |
+| AR-25 / R8.2 | First always-on deployment model | Existing Docker stack on one controlled server; choose host/cost during operations review | Confirmed: existing Docker stack on one always-on server |
+| AR-26 / R8.3 | Research-document output and editing destination | Editable source-cited Command Center document with PDF export and optional reviewed Notion publication | Confirmed: editable Command Center document, PDF export and optional Notion publication |
 
 Later dependent topics include account selection, browser field/page support, how agents ask and resume, task workspaces, budget/limits and recovery. Resolve these from the selected workflows and sources instead of prescribing them before the answers above.
 
