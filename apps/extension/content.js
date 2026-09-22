@@ -8,6 +8,10 @@
     /password|passcode|one[ -]?time|\botp\b|social security|\bssn\b|credit card|card number|\bcvv\b|\bcvc\b|bank account|routing number|payment/i;
   let snapshot;
   let applying = false;
+  const watchedDocuments = new WeakSet();
+  const customSelects = new WeakMap();
+  let inspecting = false;
+  const ignoredFrames = /captcha|recaptcha|hcaptcha|turnstile/i;
 
   const pageUrl = () => `${location.origin}${location.pathname}`;
   const trim = (value, maximum) =>
@@ -22,13 +26,21 @@
   function readableLabel(element) {
     const labelledBy = trim(element.getAttribute("aria-labelledby"), 500)
       .split(/\s+/)
-      .map((id) => trim(document.getElementById(id)?.textContent, 500))
+      .map((id) =>
+        trim(element.ownerDocument.getElementById(id)?.textContent, 500),
+      )
       .filter(Boolean)
       .join(" ");
     return trim(
       labelsFor(element).join(" ") ||
         labelledBy ||
         element.getAttribute("aria-label") ||
+        trim(
+          element
+            .closest(".ashby-application-form-field-entry")
+            ?.querySelector(":scope > label")?.textContent,
+          500,
+        ) ||
         element.placeholder ||
         element.name ||
         element.id ||
@@ -38,13 +50,76 @@
   }
 
   function isVisible(element) {
-    const style = getComputedStyle(element);
+    try {
+      const view = element.ownerDocument.defaultView;
+      const style = view.getComputedStyle(element);
+      if (
+        !element.isConnected ||
+        element.disabled ||
+        style.display === "none" ||
+        style.visibility !== "visible" ||
+        !element.getClientRects().length
+      )
+        return false;
+      return !view.frameElement || isVisible(view.frameElement);
+    } catch {
+      return false;
+    }
+  }
+
+  function formDocuments() {
+    const contexts = [];
+    function visit(doc, frame = null, parent = null, depth = 0) {
+      if (contexts.length >= 20 || depth > 4) return;
+      const context = {
+        document: doc,
+        frame,
+        parent,
+        url: doc.defaultView.location.href,
+      };
+      contexts.push(context);
+      for (const child of doc.querySelectorAll("iframe")) {
+        if (
+          !isVisible(child) ||
+          ignoredFrames.test(
+            [child.title, child.name, child.id, child.src].join(" "),
+          )
+        )
+          continue;
+        try {
+          // contentDocument is unavailable for cross-origin/opaque frames. Keep
+          // document objects locally; a URL alone cannot identify a reloaded form.
+          if (child.contentDocument?.defaultView)
+            visit(child.contentDocument, child, context, depth + 1);
+        } catch {
+          // Cross-origin frames are outside the current tab's shared form.
+        }
+      }
+    }
+    visit(document);
+    return contexts;
+  }
+
+  function currentContext(context) {
+    try {
+      return Boolean(
+        context &&
+        context.document.defaultView?.location.href === context.url &&
+        (!context.frame ||
+          (isVisible(context.frame) &&
+            context.frame.contentDocument === context.document &&
+            currentContext(context.parent))),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function currentPage() {
     return (
-      element.isConnected &&
-      !element.disabled &&
-      style.display !== "none" &&
-      style.visibility !== "hidden" &&
-      element.getClientRects().length > 0
+      snapshot &&
+      location.href === snapshot.full_url &&
+      snapshot.entries.every((entry) => currentContext(entry.context))
     );
   }
 
@@ -63,7 +138,7 @@
   function optionData(options) {
     const values = [];
     const optionLabels = {};
-    for (const option of Array.from(options).slice(0, 100)) {
+    for (const option of Array.from(options).slice(0, 300)) {
       const value = trim(option.value, 300);
       if (!value || values.includes(value)) continue;
       values.push(value);
@@ -76,7 +151,9 @@
     return {
       label: readableLabel(element),
       type,
-      required: Boolean(element.required),
+      required: Boolean(
+        element.required || element.getAttribute("aria-required") === "true",
+      ),
       options: [],
       value_state:
         type === "checkbox"
@@ -109,6 +186,205 @@
     };
   }
 
+  function selectContainer(element) {
+    if (!element.matches('input.select__input[role="combobox"]')) return null;
+    const container = element.closest(".select__container");
+    return container?.querySelectorAll('[role="combobox"]').length === 1 &&
+      !container.querySelector(".select__multi-value")
+      ? container
+      : null;
+  }
+
+  function selectedLabel(element) {
+    return trim(
+      selectContainer(element)?.querySelector(".select__single-value")
+        ?.textContent,
+      500,
+    );
+  }
+
+  function selectKey(element, key) {
+    element.dispatchEvent(
+      new element.ownerDocument.defaultView.KeyboardEvent("keydown", {
+        key,
+        code: key,
+        keyCode: key === "ArrowDown" ? 40 : 27,
+        bubbles: true,
+      }),
+    );
+  }
+
+  const nextTurn = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function finiteNumber(value) {
+    return (
+      typeof value === "string" &&
+      value.length <= 100 &&
+      /^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) &&
+      Number.isFinite(Number(value))
+    );
+  }
+
+  function numericConstraints(element) {
+    const minimum = element.getAttribute("min");
+    const maximum = element.getAttribute("max");
+    const step = element.getAttribute("step");
+    return {
+      minimum: finiteNumber(minimum) ? minimum : null,
+      maximum: finiteNumber(maximum) ? maximum : null,
+      step:
+        step === "any" || (finiteNumber(step) && Number(step) > 0) ? step : "1",
+      step_base: finiteNumber(minimum)
+        ? minimum
+        : finiteNumber(element.defaultValue)
+          ? element.defaultValue
+          : "0",
+    };
+  }
+
+  function readSelectOptions(element) {
+    const container = selectContainer(element);
+    const list = element.ownerDocument.getElementById(
+      element.getAttribute("aria-controls"),
+    );
+    if (
+      !container ||
+      !list ||
+      !container.contains(list) ||
+      !isVisible(list) ||
+      list.getAttribute("role") !== "listbox" ||
+      list.getAttribute("aria-multiselectable") === "true" ||
+      list.getAttribute("aria-busy") === "true" ||
+      container.querySelector('[aria-busy="true"],.select__loading-indicator')
+    )
+      return null;
+    const nodes = Array.from(list.querySelectorAll('[role="option"]'));
+    if (!nodes.length || nodes.length > 300) return null;
+    const options = [];
+    const seen = new Set();
+    for (const node of nodes) {
+      if (node.getAttribute("aria-disabled") === "true") continue;
+      const label = String(node.textContent ?? "").trim();
+      const total = Number(node.getAttribute("aria-setsize") || nodes.length);
+      if (
+        !node.id ||
+        !isVisible(node) ||
+        !label ||
+        label.length > 300 ||
+        seen.has(label) ||
+        total !== nodes.length
+      )
+        return null;
+      seen.add(label);
+      options.push({ value: label, label, node });
+    }
+    return options.length ? options : null;
+  }
+
+  async function openSelect(element) {
+    if (!selectContainer(element) || !isVisible(element) || element.value)
+      return null;
+    if (element.getAttribute("aria-expanded") !== "true") {
+      element.focus({ preventScroll: true });
+      selectKey(element, "ArrowDown");
+      await nextTurn();
+    }
+    return readSelectOptions(element);
+  }
+
+  async function closeSelect(element) {
+    if (
+      element.isConnected &&
+      element.getAttribute("aria-expanded") === "true"
+    ) {
+      selectKey(element, "Escape");
+      await nextTurn();
+    }
+  }
+
+  async function captureSelect(element) {
+    if (!selectContainer(element)) return;
+    const wasOpen = element.getAttribute("aria-expanded") === "true";
+    const choices = await openSelect(element);
+    if (choices)
+      customSelects.set(
+        element,
+        choices.map(({ value, label }) => ({ value, label })),
+      );
+    else customSelects.delete(element);
+    if (!wasOpen) await closeSelect(element);
+  }
+
+  function sameSelectOptions(entry, choices) {
+    return (
+      choices &&
+      JSON.stringify(choices.map(({ value, label }) => ({ value, label }))) ===
+        JSON.stringify(entry.customOptions)
+    );
+  }
+
+  async function validateSelect(entry) {
+    const element = entry.elements[0];
+    const wasOpen = element.getAttribute("aria-expanded") === "true";
+    const valid = sameSelectOptions(entry, await openSelect(element));
+    if (!wasOpen) await closeSelect(element);
+    return valid;
+  }
+
+  async function fillSelect(entry, value, replace) {
+    const element = entry.elements[0];
+    const choices = await openSelect(element);
+    if (!sameSelectOptions(entry, choices) || !currentPage()) {
+      await closeSelect(element);
+      return {
+        status: "rejected",
+        detail:
+          "The dropdown choices changed. Share and review this form again.",
+      };
+    }
+    const preserved = preservationReason(entry, replace);
+    if (preserved) {
+      await closeSelect(element);
+      return { status: "preserved", detail: preserved };
+    }
+    const choice = choices.find((item) => item.value === value);
+    if (!choice) {
+      await closeSelect(element);
+      return {
+        status: "rejected",
+        detail: "Choose an exact option from the shared dropdown.",
+      };
+    }
+    choice.node.click();
+    await nextTurn();
+    if (!currentPage() || !element.isConnected)
+      return {
+        status: "outcome_unknown",
+        detail: "The form changed during selection.",
+      };
+    const selected = (await openSelect(element))?.filter(
+      ({ node }) =>
+        node.classList.contains("select__option--is-selected") ||
+        node.getAttribute("aria-selected") === "true",
+    );
+    const verified =
+      selected?.length === 1 &&
+      selected[0].value === value &&
+      selectedLabel(element) === value &&
+      !element.value;
+    await closeSelect(element);
+    if (!verified || !currentPage())
+      return {
+        status: "outcome_unknown",
+        detail:
+          "The dropdown did not confirm the exact reviewed selection. Review it manually.",
+      };
+    return {
+      status: "filled",
+      detail: "Exact dropdown selection confirmed for review.",
+    };
+  }
+
   function radioEntry(element) {
     const name = element.name;
     if (!name)
@@ -117,7 +393,7 @@
         "Radio controls without a group name are unsupported.",
       );
     const radios = Array.from(
-      document.querySelectorAll('input[type="radio"]'),
+      element.ownerDocument.querySelectorAll('input[type="radio"]'),
     ).filter((radio) => radio.name === name && radio.form === element.form);
     const legend = trim(
       element.closest("fieldset")?.querySelector(":scope > legend")
@@ -152,9 +428,10 @@
   }
 
   function describeElement(element) {
+    const view = element.ownerDocument.defaultView;
     if (!isVisible(element)) {
       if (
-        element instanceof HTMLInputElement &&
+        element instanceof view.HTMLInputElement &&
         element.type === "file" &&
         !element.disabled &&
         Array.from(element.labels ?? []).some(isVisible)
@@ -171,27 +448,48 @@
     }
     const label = readableLabel(element);
     if (isSensitive(element, label)) return null;
-    if (element.matches('[role="combobox"]'))
+    if (element.matches('[role="combobox"]')) {
+      const choices = customSelects.get(element);
+      if (selectContainer(element) && choices)
+        return {
+          key: element,
+          elements: [element],
+          customOptions: choices,
+          description: basicDescription(element, "select", {
+            options: choices.map(({ value }) => value),
+            option_labels: Object.fromEntries(
+              choices.map(({ value, label }) => [value, label]),
+            ),
+            value_state:
+              selectedLabel(element) || element.value ? "present" : "empty",
+          }),
+        };
       return unsupportedEntry(
         element,
-        "Custom comboboxes require manual review and entry.",
+        "This dropdown needs manual selection; a complete, unambiguous option list could not be verified.",
       );
+    }
     if (element.matches('[contenteditable="true"]'))
       return unsupportedEntry(
         element,
         "Rich text editors require manual review and entry.",
       );
-    if (element instanceof HTMLTextAreaElement)
+    if (element instanceof view.HTMLTextAreaElement)
       return {
         key: element,
         elements: [element],
         description: basicDescription(element, "textarea"),
       };
-    if (element instanceof HTMLSelectElement) {
+    if (element instanceof view.HTMLSelectElement) {
       if (element.multiple)
         return unsupportedEntry(
           element,
           "Multi-select controls require manual review and entry.",
+        );
+      if (element.options.length > 300)
+        return unsupportedEntry(
+          element,
+          "This dropdown has too many choices to share completely. Select it manually.",
         );
       return {
         key: element,
@@ -203,7 +501,17 @@
         ),
       };
     }
-    if (!(element instanceof HTMLInputElement)) return null;
+    if (!(element instanceof view.HTMLInputElement)) return null;
+    if (
+      element.name === "location" &&
+      element.form?.querySelector(
+        'input[type="hidden"][name="selectedLocation"]',
+      )
+    )
+      return unsupportedEntry(
+        element,
+        "Choose a location suggestion manually; typed text does not verify the selected location.",
+      );
     if (element.type === "radio") return radioEntry(element);
     if (element.type === "checkbox")
       return {
@@ -220,6 +528,14 @@
         elements: [element],
         description: basicDescription(element, "file"),
       };
+    if (element.type === "number")
+      return {
+        key: element,
+        elements: [element],
+        description: basicDescription(element, "number", {
+          numeric_constraints: numericConstraints(element),
+        }),
+      };
     if (supportedTextTypes.has(element.type))
       return {
         key: element,
@@ -232,26 +548,38 @@
     );
   }
 
-  function inspectPage() {
+  async function inspectPage() {
     const seen = new Set();
     const entries = [];
-    for (const element of document.querySelectorAll(
-      'input,textarea,select,[role="combobox"],[contenteditable="true"]',
-    )) {
-      const entry = describeElement(element);
-      if (!entry || seen.has(entry.key)) continue;
-      seen.add(entry.key);
-      entry.capturedValues = localValues(entry);
-      entry.edited = false;
-      entries.push(entry);
-      if (entries.length === 100) break;
-    }
+    const focused = document.activeElement;
     snapshot = {
       id: crypto.randomUUID(),
       page_url: pageUrl(),
       full_url: location.href,
       entries,
     };
+    for (const context of formDocuments()) {
+      watchDocument(context.document);
+      for (const element of context.document.querySelectorAll(
+        'input,textarea,select,[role="combobox"],[contenteditable="true"]',
+      )) {
+        if (element.matches('[role="combobox"]') && isVisible(element))
+          await captureSelect(element);
+        const entry = describeElement(element);
+        if (!entry || seen.has(entry.key)) continue;
+        seen.add(entry.key);
+        entry.context = context;
+        entry.capturedValues = localValues(entry);
+        entry.edited = false;
+        entries.push(entry);
+        if (entries.length === 100) break;
+      }
+      if (entries.length === 100) break;
+    }
+    if (focused?.isConnected && focused !== document.body)
+      focused.focus({ preventScroll: true });
+    if (!currentPage())
+      throw new Error("The page changed while sharing. Try again.");
     return {
       id: snapshot.id,
       protocol_version: 2,
@@ -299,6 +627,8 @@
 
   function valuePresent(entry) {
     const element = entry.elements[0];
+    if (entry.customOptions)
+      return Boolean(selectedLabel(element) || element.value);
     if (entry.description.type === "radio")
       return entry.elements.some((radio) => radio.checked);
     if (entry.description.type === "checkbox") return element.checked;
@@ -308,6 +638,8 @@
   }
 
   function localValues(entry) {
+    if (entry.customOptions)
+      return [selectedLabel(entry.elements[0]), entry.elements[0].value];
     if (entry.description.type === "file")
       return Array.from(entry.elements[0].files ?? []);
     return entry.elements.map((element) =>
@@ -332,16 +664,43 @@
 
   // Exact values stay in this document. An edit followed by a clear is still an
   // intentional edit, even when its final value equals the original empty one.
-  for (const type of ["input", "change"]) {
-    document.addEventListener(
-      type,
-      (event) => {
-        for (const entry of snapshot?.entries ?? []) {
-          if (entry.elements.includes(event.target)) entry.edited = true;
-        }
-      },
-      true,
-    );
+  function watchDocument(doc) {
+    if (watchedDocuments.has(doc)) return;
+    watchedDocuments.add(doc);
+    for (const type of ["input", "change"])
+      doc.addEventListener(
+        type,
+        (event) => {
+          for (const entry of snapshot?.entries ?? []) {
+            if (entry.elements.includes(event.target)) entry.edited = true;
+          }
+        },
+        true,
+      );
+    for (const type of ["click", "keydown"])
+      doc.addEventListener(
+        type,
+        (event) => {
+          if (
+            type === "keydown" &&
+            !["Enter", "Backspace", "Delete"].includes(event.key)
+          )
+            return;
+          for (const entry of snapshot?.entries ?? []) {
+            if (!entry.customOptions) continue;
+            const container = selectContainer(entry.elements[0]);
+            if (
+              container?.contains(event.target) &&
+              (type === "keydown" ||
+                event.target.closest(
+                  '[role="option"],.select__clear-indicator',
+                ))
+            )
+              entry.edited = true;
+          }
+        },
+        true,
+      );
   }
 
   function nativeValue(element, prototype, value) {
@@ -351,26 +710,41 @@
   }
 
   function dispatchChanges(element) {
+    const Event = element.ownerDocument.defaultView.Event;
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   function fillText(entry, value) {
     const element = entry.elements[0];
+    const view = element.ownerDocument.defaultView;
+    if (entry.description.type === "number") {
+      const candidate = element.cloneNode(false);
+      candidate.value = value;
+      if (
+        !finiteNumber(value) ||
+        candidate.value !== value ||
+        !candidate.validity.valid
+      )
+        return {
+          status: "rejected",
+          detail: "Use a number within this field's allowed range and step.",
+        };
+    }
     if (entry.description.type === "select") {
       if (!entry.description.options.includes(value))
         return {
           status: "rejected",
           detail: "Choose one of the captured options.",
         };
-      nativeValue(element, HTMLSelectElement.prototype, value);
+      nativeValue(element, view.HTMLSelectElement.prototype, value);
     } else if (entry.description.type === "textarea") {
-      nativeValue(element, HTMLTextAreaElement.prototype, value);
+      nativeValue(element, view.HTMLTextAreaElement.prototype, value);
     } else {
-      nativeValue(element, HTMLInputElement.prototype, value);
+      nativeValue(element, view.HTMLInputElement.prototype, value);
     }
     dispatchChanges(element);
-    if (!element.isConnected || location.href !== snapshot.full_url)
+    if (!element.isConnected || !currentPage())
       return {
         status: "outcome_unknown",
         detail: "The page changed while this value was applied.",
@@ -384,15 +758,6 @@
   }
 
   function fillChoice(entry, value) {
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "checked",
-    )?.set;
-    if (!setter)
-      return {
-        status: "failed",
-        detail: "The browser could not update this choice.",
-      };
     if (entry.description.type === "checkbox") {
       if (!["true", "false"].includes(value))
         return {
@@ -401,9 +766,8 @@
         };
       const element = entry.elements[0];
       const checked = value === "true";
-      setter.call(element, checked);
-      dispatchChanges(element);
-      if (!element.isConnected || element.checked !== checked)
+      if (element.checked !== checked) element.click();
+      if (!element.isConnected || !currentPage() || element.checked !== checked)
         return {
           status: "outcome_unknown",
           detail: "The page changed while this choice was applied.",
@@ -421,9 +785,8 @@
         status: "rejected",
         detail: "The radio option is no longer available.",
       };
-    setter.call(selected, true);
-    dispatchChanges(selected);
-    if (!selected.isConnected || !selected.checked)
+    if (!selected.checked) selected.click();
+    if (!selected.isConnected || !currentPage() || !selected.checked)
       return {
         status: "outcome_unknown",
         detail: "The page changed while this choice was applied.",
@@ -493,24 +856,21 @@
         status: "rejected",
         detail: "The reviewed file type is not accepted by this control.",
       };
-    if (
-      !element.isConnected ||
-      !snapshot ||
-      location.href !== snapshot.full_url
-    )
+    if (!element.isConnected || !currentPage())
       return {
         status: "outcome_unknown",
         detail: "The page changed during file verification.",
       };
     const preserved = preservationReason(entry, replace);
     if (preserved) return { status: "preserved", detail: preserved };
-    const file = new File([bytes], transfer.filename, {
+    const view = element.ownerDocument.defaultView;
+    const file = new view.File([bytes], transfer.filename, {
       type: transfer.media_type,
     });
-    const data = new DataTransfer();
+    const data = new view.DataTransfer();
     data.items.add(file);
     const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
+      view.HTMLInputElement.prototype,
       "files",
     )?.set;
     if (!setter)
@@ -521,7 +881,7 @@
     setter.call(element, data.files);
     dispatchChanges(element);
     const assigned = element.files?.[0];
-    if (!element.isConnected || !assigned)
+    if (!element.isConnected || !currentPage() || !assigned)
       return {
         status: "outcome_unknown",
         detail: "The page changed while this file was attached.",
@@ -532,7 +892,8 @@
       assigned.size !== transfer.size_bytes ||
       (await sha256(await assigned.arrayBuffer())) !== transfer.sha256 ||
       element.files?.[0] !== assigned ||
-      !element.isConnected
+      !element.isConnected ||
+      !currentPage()
     )
       return {
         status: "outcome_unknown",
@@ -563,7 +924,7 @@
       !snapshot ||
       snapshot.id !== command.snapshot_id ||
       snapshot.page_url !== command.page_url ||
-      snapshot.full_url !== location.href ||
+      !currentPage() ||
       requested.some(({ entry }) => !entry);
     if (stale) {
       snapshot = undefined;
@@ -595,11 +956,25 @@
       }
     }
 
+    for (const entry of snapshot.entries) {
+      if (entry.customOptions && !(await validateSelect(entry))) {
+        snapshot = undefined;
+        return {
+          state: "rejected",
+          field_results: rejectedResults(
+            requested,
+            "Dropdown choices changed. Share a fresh form.",
+          ),
+          message: "Dropdown choices changed. Share this form again.",
+        };
+      }
+    }
+
     const replacements = new Set(command.replace_fields);
     const fieldResults = {};
     try {
       for (const { id, entry } of requested) {
-        if (location.href !== snapshot.full_url) {
+        if (!currentPage()) {
           fieldResults[id] = {
             status: "outcome_unknown",
             detail: "The page changed during apply.",
@@ -626,6 +1001,12 @@
               entry.description.unsupported_reason ||
               "Enter this value manually.",
           };
+        } else if (entry.customOptions) {
+          fieldResults[id] = await fillSelect(
+            entry,
+            command.fields[id],
+            replacements.has(id),
+          );
         } else if (Object.hasOwn(command.uploads, id)) {
           fieldResults[id] = await uploadFile(
             entry,
@@ -675,7 +1056,7 @@
       });
       return false;
     }
-    if (applying) {
+    if (applying || inspecting) {
       respond({
         state: "rejected",
         field_results:
@@ -686,17 +1067,51 @@
               )
             : {},
         message:
-          "Wait for the current apply to finish before sharing or applying again.",
+          "Wait for the current form operation to finish before sharing or applying again.",
       });
       return false;
     }
     if (message.action === "inspect") {
-      respond(inspectPage());
-      return false;
+      inspecting = true;
+      inspectPage()
+        .then(respond)
+        .catch(() => {
+          snapshot = undefined;
+          respond({
+            state: "rejected",
+            field_results: {},
+            message: "The form changed while sharing. Try again.",
+          });
+        })
+        .finally(() => {
+          inspecting = false;
+        });
+      return true;
     }
     applying = true;
     apply(message)
       .then(respond)
+      .catch(() => {
+        snapshot = undefined;
+        respond({
+          state: "outcome_unknown",
+          field_results: Object.fromEntries(
+            [
+              ...Object.keys(message.command.fields),
+              ...Object.keys(message.command.uploads),
+            ].map((id) => [
+              id,
+              {
+                status: "outcome_unknown",
+                detail:
+                  "The form became unavailable during this command. Review it manually.",
+              },
+            ]),
+          ),
+          message:
+            "The form became unavailable. Review the requested fields before continuing.",
+        });
+      })
       .finally(() => {
         applying = false;
       });

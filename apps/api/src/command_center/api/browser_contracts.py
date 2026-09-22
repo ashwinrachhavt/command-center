@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import Field, HttpUrl, model_validator
 
 from command_center.api import schemas as s
+from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal
 
 FieldId = Annotated[str, Field(pattern=r"^f[0-9]{1,3}$")]
 FieldValue = Annotated[str, Field(max_length=5000)]
@@ -18,6 +19,10 @@ OptionLabel = Annotated[str, Field(max_length=500)]
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 MAX_RESUME_BYTES = 20 * 1024 * 1024
 MAX_RESUME_BASE64 = 4 * ((MAX_RESUME_BYTES + 2) // 3)
+NumericValue = Annotated[
+    str,
+    Field(min_length=1, max_length=100, pattern=HTML_NUMBER_PATTERN),
+]
 
 
 class PairCreate(s.Contract):
@@ -26,6 +31,28 @@ class PairCreate(s.Contract):
 
 class PairExchange(s.Contract):
     code: str = Field(min_length=32, max_length=100)
+
+
+class NumericConstraints(s.Contract):
+    minimum: NumericValue | None = None
+    maximum: NumericValue | None = None
+    step: NumericValue | Literal["any"]
+    step_base: NumericValue
+
+    @model_validator(mode="after")
+    def validate_decimals(self) -> "NumericConstraints":
+        try:
+            minimum = parse_browser_decimal(self.minimum) if self.minimum is not None else None
+            maximum = parse_browser_decimal(self.maximum) if self.maximum is not None else None
+            step = None if self.step == "any" else parse_browser_decimal(self.step)
+            parse_browser_decimal(self.step_base)
+        except ValueError as exc:
+            raise ValueError("Numeric constraints must contain finite decimals") from exc
+        if step is not None and step <= 0:
+            raise ValueError("Numeric step must be positive or 'any'")
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError("Numeric minimum cannot exceed maximum")
+        return self
 
 
 class FormField(s.Contract):
@@ -41,20 +68,26 @@ class FormField(s.Contract):
         "file",
         "radio",
         "checkbox",
+        "number",
         "unsupported",
     ]
     required: bool = False
-    options: list[Option] = Field(default_factory=list, max_length=100)
+    options: list[Option] = Field(default_factory=list, max_length=300)
     value_state: Literal["empty", "present"]
     autocomplete: str = Field(default="", max_length=100)
     accept: str = Field(default="", max_length=300)
-    option_labels: dict[Option, OptionLabel] = Field(default_factory=dict, max_length=100)
+    option_labels: dict[Option, OptionLabel] = Field(default_factory=dict, max_length=300)
     unsupported_reason: str | None = Field(default=None, max_length=300)
+    numeric_constraints: NumericConstraints | None = None
 
     @model_validator(mode="after")
     def validate_options(self) -> "FormField":
         if not set(self.option_labels) <= set(self.options):
             raise ValueError("Option labels must describe shared option values")
+        if self.type == "number" and self.numeric_constraints is None:
+            raise ValueError("Number fields require normalized numeric constraints")
+        if self.type != "number" and self.numeric_constraints is not None:
+            raise ValueError("Only number fields may contain numeric constraints")
         return self
 
 

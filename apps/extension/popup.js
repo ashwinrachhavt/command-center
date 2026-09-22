@@ -2,7 +2,11 @@ const contracts = globalThis.CommandCenterContracts;
 const element = (id) => document.getElementById(id);
 const allowedApis = new Set(["http://localhost:8000", "http://127.0.0.1:8000"]);
 await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-const stored = await chrome.storage.local.get(["connection", "applicationDraft", "claimedCommands"]);
+const stored = await chrome.storage.local.get([
+  "connection",
+  "applicationDraft",
+  "claimedCommands",
+]);
 let connection = stored.connection;
 let draft = stored.applicationDraft;
 let claimedCommands = new Set(stored.claimedCommands ?? []);
@@ -10,7 +14,9 @@ let generationTimer;
 
 function validate(name, value) {
   if (!contracts[name](value))
-    throw new Error("Invalid companion response. Reload the extension and try again.");
+    throw new Error(
+      "Invalid companion response. Reload the extension and try again.",
+    );
   return value;
 }
 
@@ -24,15 +30,27 @@ function renderConnection() {
 }
 
 function validGeneration(value) {
-  const states = new Set(["idle", "queued", "running", "completed", "failed", "cancelled"]);
+  const states = new Set([
+    "idle",
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+  ]);
   if (
     !value ||
     !states.has(value.state) ||
-    !(value.conversation_id === null || typeof value.conversation_id === "string") ||
+    !(
+      value.conversation_id === null ||
+      typeof value.conversation_id === "string"
+    ) ||
     !(value.run_id === null || typeof value.run_id === "string") ||
     !(value.error_code === null || typeof value.error_code === "string")
   )
-    throw new Error("Invalid generation status. Reload the extension and try again.");
+    throw new Error(
+      "Invalid generation status. Reload the extension and try again.",
+    );
   return value;
 }
 
@@ -55,7 +73,8 @@ function renderGeneration() {
         : "Generate grounded drafts";
   const descriptions = {
     idle: "",
-    queued: "Generation is queued. This popup will refresh the draft when it finishes.",
+    queued:
+      "Generation is queued. This popup will refresh the draft when it finishes.",
     running: "Generation is running. Your local edits remain unchanged.",
     completed: "Grounded drafts are ready for review.",
     failed: `Generation failed${draft?.generation?.error_code ? ` (${draft.generation.error_code})` : ""}.`,
@@ -65,31 +84,44 @@ function renderGeneration() {
 }
 
 async function api(path, options = {}) {
-  const base = options.unauthenticated ? element("api-url").value : connection?.base;
-  if (!allowedApis.has(base)) throw new Error("Choose a supported local API address.");
-  const method = options.method ?? (options.body === undefined ? "GET" : "POST");
+  const base = options.unauthenticated
+    ? element("api-url").value
+    : connection?.base;
+  if (!allowedApis.has(base))
+    throw new Error("Choose a supported local API address.");
+  const method =
+    options.method ?? (options.body === undefined ? "GET" : "POST");
   const response = await fetch(`${base}/api/v1/browser/${path}`, {
     method,
     credentials: "omit",
     redirect: "error",
     signal: AbortSignal.timeout(15000),
     headers: {
-      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...(options.unauthenticated ? {} : { Authorization: `Bearer ${connection.token}` }),
-      ...(method === "GET" ? {} : { "Idempotency-Key": options.key ?? crypto.randomUUID() }),
+      ...(options.body === undefined
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...(options.unauthenticated
+        ? {}
+        : { Authorization: `Bearer ${connection.token}` }),
+      ...(method === "GET"
+        ? {}
+        : { "Idempotency-Key": options.key ?? crypto.randomUUID() }),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(
-      typeof result.detail === "string" ? result.detail : "The request could not be completed.",
+      typeof result.detail === "string"
+        ? result.detail
+        : "The request could not be completed.",
     );
   return result;
 }
 
 async function apiBytes(path) {
-  if (!allowedApis.has(connection?.base)) throw new Error("Reconnect this browser first.");
+  if (!allowedApis.has(connection?.base))
+    throw new Error("Reconnect this browser first.");
   const response = await fetch(`${connection.base}/api/v1/browser/${path}`, {
     credentials: "omit",
     redirect: "error",
@@ -98,7 +130,11 @@ async function apiBytes(path) {
   });
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
-    throw new Error(typeof result.detail === "string" ? result.detail : "The file could not be read.");
+    throw new Error(
+      typeof result.detail === "string"
+        ? result.detail
+        : "The file could not be read.",
+    );
   }
   return new Uint8Array(await response.arrayBuffer());
 }
@@ -139,15 +175,30 @@ function validResumes(value) {
   if (
     !value ||
     !Array.isArray(value.items) ||
-    !(value.default_version_id === null || typeof value.default_version_id === "string")
+    !(
+      value.default_version_id === null ||
+      typeof value.default_version_id === "string"
+    )
   )
     throw new Error("Invalid resume options. Reload the extension.");
   return value;
 }
 
 function validPreparation(value) {
-  const required = ["id", "snapshot_id", "task_id", "artifact_id", "version_id", "version", "fields"];
-  if (!value || required.some((key) => value[key] === undefined) || !Array.isArray(value.fields))
+  const required = [
+    "id",
+    "snapshot_id",
+    "task_id",
+    "artifact_id",
+    "version_id",
+    "version",
+    "fields",
+  ];
+  if (
+    !value ||
+    required.some((key) => value[key] === undefined) ||
+    !Array.isArray(value.fields)
+  )
     throw new Error("Invalid application preparation. Reload the extension.");
   return value;
 }
@@ -187,7 +238,8 @@ function editorFor(field, prepared) {
   if (field.type === "select" || field.type === "checkbox") {
     control = document.createElement("select");
     control.append(new Option("Leave blank", ""));
-    const values = field.type === "checkbox" ? ["true", "false"] : field.options;
+    const values =
+      field.type === "checkbox" ? ["true", "false"] : field.options;
     for (const value of values)
       control.append(new Option(field.option_labels[value] ?? value, value));
     control.value = current;
@@ -196,14 +248,28 @@ function editorFor(field, prepared) {
     appendChoice(group, field, "", "Leave blank");
     for (const value of field.options)
       appendChoice(group, field, value, field.option_labels[value] ?? value);
-    if (prepared?.status === "preserved" && !draft.replaceFields.includes(field.id))
-      for (const input of group.querySelectorAll("input")) input.disabled = true;
+    if (
+      prepared?.status === "preserved" &&
+      !draft.replaceFields.includes(field.id)
+    )
+      for (const input of group.querySelectorAll("input"))
+        input.disabled = true;
     return group;
   } else {
-    control = field.type === "textarea" ? document.createElement("textarea") : document.createElement("input");
+    control =
+      field.type === "textarea"
+        ? document.createElement("textarea")
+        : document.createElement("input");
     if (control instanceof HTMLInputElement) control.type = field.type;
     control.value = current;
     control.maxLength = 5000;
+    if (field.type === "number" && field.numeric_constraints) {
+      if (field.numeric_constraints.minimum !== null)
+        control.min = field.numeric_constraints.minimum;
+      if (field.numeric_constraints.maximum !== null)
+        control.max = field.numeric_constraints.maximum;
+      control.step = field.numeric_constraints.step;
+    }
   }
   control.addEventListener("input", async () => {
     draft.values[field.id] = control.value;
@@ -211,7 +277,11 @@ function editorFor(field, prepared) {
     await saveDraft();
   });
   control.setAttribute("aria-label", field.label);
-  if (prepared?.status === "preserved" && !draft.replaceFields.includes(field.id)) control.disabled = true;
+  if (
+    prepared?.status === "preserved" &&
+    !draft.replaceFields.includes(field.id)
+  )
+    control.disabled = true;
   return control;
 }
 
@@ -233,7 +303,9 @@ function renderFields() {
     row.append(label);
     if (field.type === "unsupported") {
       const reason = document.createElement("small");
-      reason.textContent = field.unsupported_reason || "Complete this control manually on the page.";
+      reason.textContent =
+        field.unsupported_reason ||
+        "Complete this control manually on the page.";
       row.append(reason);
     } else if (field.type === "file") {
       const choice = document.createElement("div");
@@ -271,7 +343,9 @@ function renderFields() {
             ? [...new Set([...draft.replaceFields, field.id])]
             : draft.replaceFields.filter((id) => id !== field.id);
           if (!replace.checked) {
-            draft.uploadFields = draft.uploadFields.filter((id) => id !== field.id);
+            draft.uploadFields = draft.uploadFields.filter(
+              (id) => id !== field.id,
+            );
             input.checked = false;
           }
           input.disabled = !draft.resumeVersionId || !replace.checked;
@@ -299,7 +373,8 @@ function renderFields() {
             : draft.replaceFields.filter((id) => id !== field.id);
           if ("disabled" in editor) editor.disabled = !replace.checked;
           else
-            for (const input of editor.querySelectorAll("input")) input.disabled = !replace.checked;
+            for (const input of editor.querySelectorAll("input"))
+              input.disabled = !replace.checked;
           await saveDraft();
         });
         const replaceLabel = document.createElement("label");
@@ -327,7 +402,12 @@ async function loadResumes() {
   const select = element("resume");
   select.replaceChildren(new Option("No resume selected", ""));
   for (const resume of resumes.items)
-    select.append(new Option(`${resume.title} · v${resume.version} · ${resume.filename}`, resume.version_id));
+    select.append(
+      new Option(
+        `${resume.title} · v${resume.version} · ${resume.filename}`,
+        resume.version_id,
+      ),
+    );
   select.value = draft.resumeVersionId ?? "";
   await saveDraft();
 }
@@ -351,7 +431,9 @@ function mergePreparation(preparation) {
     .map((field) => field.id);
   draft.uploadFields = draft.snapshot.fields
     .filter((field) =>
-      draft.uploadTouched[field.id] ? localUploads.has(field.id) : serverUploads.has(field.id),
+      draft.uploadTouched[field.id]
+        ? localUploads.has(field.id)
+        : serverUploads.has(field.id),
     )
     .map((field) => field.id);
   for (const prepared of preparation.fields) {
@@ -361,7 +443,8 @@ function mergePreparation(preparation) {
   if (preparation.resume?.version_id && !draft.resumeTouched)
     draft.resumeVersionId = preparation.resume.version_id;
   element("resume").value = draft.resumeVersionId ?? "";
-  element("conversation").href = `http://localhost:3001/tasks?record=${encodeURIComponent(preparation.task_id)}&tab=conversation`;
+  element("conversation").href =
+    `http://localhost:3001/tasks?record=${encodeURIComponent(preparation.task_id)}&tab=conversation`;
   element("conversation").hidden = false;
   renderFields();
 }
@@ -413,7 +496,8 @@ async function renderDraft() {
   draft.uploadFields ??= [];
   await loadResumes();
   if (draft.preparation) {
-    element("conversation").href = `http://localhost:3001/tasks?record=${encodeURIComponent(draft.preparation.task_id)}&tab=conversation`;
+    element("conversation").href =
+      `http://localhost:3001/tasks?record=${encodeURIComponent(draft.preparation.task_id)}&tab=conversation`;
     element("conversation").hidden = false;
   }
   renderFields();
@@ -425,7 +509,11 @@ function reviewedFields() {
   return Object.fromEntries(
     draft.snapshot.fields
       .filter((field) => !["file", "unsupported"].includes(field.type))
-      .filter((field) => field.value_state !== "present" || draft.replaceFields.includes(field.id))
+      .filter(
+        (field) =>
+          field.value_state !== "present" ||
+          draft.replaceFields.includes(field.id),
+      )
       .filter((field) => (draft.values[field.id] ?? "") !== "")
       .map((field) => [field.id, draft.values[field.id]]),
   );
@@ -437,7 +525,8 @@ function revisionFields() {
       .filter((field) => !["file", "unsupported"].includes(field.type))
       .map((field) => [
         field.id,
-        field.value_state === "present" && !draft.replaceFields.includes(field.id)
+        field.value_state === "present" &&
+        !draft.replaceFields.includes(field.id)
           ? ""
           : (draft.values[field.id] ?? ""),
       ]),
@@ -446,12 +535,16 @@ function revisionFields() {
 
 function reviewedUploads() {
   if (!draft.resumeVersionId) return {};
-  return Object.fromEntries(draft.uploadFields.map((fieldId) => [fieldId, draft.resumeVersionId]));
+  return Object.fromEntries(
+    draft.uploadFields.map((fieldId) => [fieldId, draft.resumeVersionId]),
+  );
 }
 
 async function digestHex(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 function base64(bytes) {
@@ -465,9 +558,16 @@ function base64(bytes) {
 async function reviewedFiles(command) {
   const files = {};
   for (const [fieldId, metadata] of Object.entries(command.upload_files)) {
-    const bytes = await apiBytes(`device/commands/${command.id}/files/${encodeURIComponent(fieldId)}`);
-    if (bytes.length !== metadata.size_bytes || (await digestHex(bytes)) !== metadata.sha256)
-      throw new Error(`The exact reviewed file for ${fieldById(fieldId)?.label ?? fieldId} failed verification.`);
+    const bytes = await apiBytes(
+      `device/commands/${command.id}/files/${encodeURIComponent(fieldId)}`,
+    );
+    if (
+      bytes.length !== metadata.size_bytes ||
+      (await digestHex(bytes)) !== metadata.sha256
+    )
+      throw new Error(
+        `The exact reviewed file for ${fieldById(fieldId)?.label ?? fieldId} failed verification.`,
+      );
     files[fieldId] = { ...metadata, data_base64: base64(bytes) };
   }
   return files;
@@ -476,9 +576,13 @@ async function reviewedFiles(command) {
 function renderResult(card, command, result) {
   const list = document.createElement("ul");
   list.className = "result-list";
-  for (const [fieldId, fieldResult] of Object.entries(result.field_results ?? {})) {
+  for (const [fieldId, fieldResult] of Object.entries(
+    result.field_results ?? {},
+  )) {
     const item = document.createElement("li");
-    const label = command.form_fields.find((field) => field.id === fieldId)?.label ?? fieldId;
+    const label =
+      command.form_fields.find((field) => field.id === fieldId)?.label ??
+      fieldId;
     item.textContent = `${label}: ${fieldResult.status}${fieldResult.detail ? ` — ${fieldResult.detail}` : ""}`;
     list.append(item);
   }
@@ -495,7 +599,8 @@ function renderProposal(command, tab) {
     const row = document.createElement("div");
     row.className = "answer";
     const label = document.createElement("strong");
-    label.textContent = command.form_fields.find((field) => field.id === id)?.label ?? id;
+    label.textContent =
+      command.form_fields.find((field) => field.id === id)?.label ?? id;
     const content = document.createElement("span");
     content.textContent = value;
     row.append(label, content);
@@ -505,7 +610,8 @@ function renderProposal(command, tab) {
     const row = document.createElement("div");
     row.className = "answer";
     const label = document.createElement("strong");
-    label.textContent = command.form_fields.find((field) => field.id === id)?.label ?? id;
+    label.textContent =
+      command.form_fields.find((field) => field.id === id)?.label ?? id;
     const content = document.createElement("span");
     content.textContent = `${file.filename} · ${file.size_bytes} bytes · exact version ${file.version_id}`;
     row.append(label, content);
@@ -515,8 +621,17 @@ function renderProposal(command, tab) {
   apply.textContent = "Apply reviewed values and files";
   apply.addEventListener("click", () =>
     action(apply, async () => {
-      if (claimedCommands.has(command.id)) throw new Error("This command was already claimed and will not replay.");
-      validate("ClaimResult", await api(`device/commands/${command.id}/claim`, { method: "POST", body: {} }));
+      if (claimedCommands.has(command.id))
+        throw new Error(
+          "This command was already claimed and will not replay.",
+        );
+      validate(
+        "ClaimResult",
+        await api(`device/commands/${command.id}/claim`, {
+          method: "POST",
+          body: {},
+        }),
+      );
       claimedCommands.add(command.id);
       await chrome.storage.local.set({ claimedCommands: [...claimedCommands] });
       let result;
@@ -542,12 +657,19 @@ function renderProposal(command, tab) {
         result = {
           state: "outcome_unknown",
           field_results: Object.fromEntries(
-            [...Object.keys(command.fields), ...Object.keys(command.uploads)].map((id) => [
+            [
+              ...Object.keys(command.fields),
+              ...Object.keys(command.uploads),
+            ].map((id) => [
               id,
-              { status: "outcome_unknown", detail: "Claimed; page or exact file became unavailable." },
+              {
+                status: "outcome_unknown",
+                detail: "Claimed; page or exact file became unavailable.",
+              },
             ]),
           ),
-          message: "The claimed command had an uncertain outcome. Review the page; it will not replay.",
+          message:
+            "The claimed command had an uncertain outcome. Review the page; it will not replay.",
         };
       }
       try {
@@ -563,7 +685,8 @@ function renderProposal(command, tab) {
     }),
   );
   const note = document.createElement("small");
-  note.textContent = "Applies only this reviewed proposal. Next and Submit stay manual.";
+  note.textContent =
+    "Applies only this reviewed proposal. Next and Submit stay manual.";
   card.append(apply, note);
   return card;
 }
@@ -586,25 +709,46 @@ element("pair-form").addEventListener("submit", (event) => {
 
 element("disconnect").addEventListener("click", async () => {
   clearTimeout(generationTimer);
-  await chrome.storage.local.remove(["connection", "applicationDraft", "claimedCommands"]);
+  await chrome.storage.local.remove([
+    "connection",
+    "applicationDraft",
+    "claimedCommands",
+  ]);
   connection = undefined;
   draft = undefined;
   claimedCommands = new Set();
   renderConnection();
   element("preparation").hidden = true;
-  message("Disconnected here. Revoke the device in your workspace to invalidate its credential.");
+  message(
+    "Disconnected here. Revoke the device in your workspace to invalidate its credential.",
+  );
 });
 
 element("share").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     clearTimeout(generationTimer);
     const tab = await activeTab();
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["contracts.js", "content.js"] });
-    const snapshot = validate(
-      "SnapshotCreate",
-      await chrome.tabs.sendMessage(tab.id, { version: 2, action: "inspect" }),
-    );
-    if (!snapshot.fields.length) throw new Error("No safe form controls were found on this page.");
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["contracts.js", "content.js"],
+    });
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      version: 2,
+      action: "inspect",
+    });
+    if (response?.state === "rejected" && typeof response.message === "string")
+      throw new Error(response.message.slice(0, 300));
+    const snapshot = validate("SnapshotCreate", response);
+    if (!snapshot.fields.some((field) => field.type !== "unsupported")) {
+      const workday = /(^|\.)myworkdayjobs\.com$/.test(
+        new URL(tab.url).hostname,
+      );
+      throw new Error(
+        workday
+          ? "Open the Workday application step after signing in, then share the form again. This page is not ready for filling."
+          : "No supported application controls were found. Open the application step, then share again.",
+      );
+    }
     await api("snapshots", { method: "POST", body: snapshot });
     draft = {
       snapshot,
@@ -618,7 +762,9 @@ element("share").addEventListener("click", (event) =>
     };
     await renderDraft();
     element("prepare").hidden = false;
-    message(`${snapshot.fields.length} controls shared without their existing values. Choose an exact resume, then prepare.`);
+    message(
+      `${snapshot.fields.length} controls shared without their existing values. Choose an exact resume, then prepare.`,
+    );
   }),
 );
 
@@ -636,19 +782,28 @@ element("prepare").addEventListener("click", (event) =>
       await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
         method: "POST",
         key: receipt("prepare"),
-        body: { opportunity_id: null, resume_version_id: draft.resumeVersionId ?? null },
+        body: {
+          opportunity_id: null,
+          resume_version_id: draft.resumeVersionId ?? null,
+        },
       }),
     );
     mergePreparation(preparation);
     clearReceipt("prepare");
     await saveDraft();
-    message("Answers prepared. Review every value and choose each resume upload explicitly.");
+    message(
+      "Answers prepared. Review every value and choose each resume upload explicitly.",
+    );
   }),
 );
 
 element("reload-preparation").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
-    mergePreparation(validPreparation(await api(`device/preparations/${draft.preparation.id}`)));
+    mergePreparation(
+      validPreparation(
+        await api(`device/preparations/${draft.preparation.id}`),
+      ),
+    );
     await saveDraft();
     message("Draft refreshed. Your local edits were kept.");
   }),
@@ -656,12 +811,16 @@ element("reload-preparation").addEventListener("click", (event) =>
 
 element("generate").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
-    if (generationPending()) throw new Error("Generation is already in progress.");
-    const result = await api(`device/preparations/${draft.preparation.id}/generate`, {
-      method: "POST",
-      key: receipt("generate"),
-      body: {},
-    });
+    if (generationPending())
+      throw new Error("Generation is already in progress.");
+    const result = await api(
+      `device/preparations/${draft.preparation.id}/generate`,
+      {
+        method: "POST",
+        key: receipt("generate"),
+        body: {},
+      },
+    );
     draft.generation = {
       conversation_id: result.conversation_id,
       run_id: result.run_id,
@@ -672,21 +831,32 @@ element("generate").addEventListener("click", (event) =>
     await saveDraft();
     renderGeneration();
     scheduleGenerationPoll();
-    message("Grounded draft generation queued. This popup will refresh it when ready.");
+    message(
+      "Grounded draft generation queued. This popup will refresh it when ready.",
+    );
   }),
 );
 
 element("propose").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     if (generationPending())
-      throw new Error("Wait for draft generation to finish before saving a review.");
+      throw new Error(
+        "Wait for draft generation to finish before saving a review.",
+      );
     const fields = reviewedFields();
     const reviewedRevision = revisionFields();
     const uploads = reviewedUploads();
     if (!Object.keys(fields).length && !Object.keys(uploads).length)
-      throw new Error("Review at least one answer or select one resume upload.");
-    const requested = new Set([...Object.keys(fields), ...Object.keys(uploads)]);
-    const replaceFields = draft.replaceFields.filter((fieldId) => requested.has(fieldId));
+      throw new Error(
+        "Review at least one answer or select one resume upload.",
+      );
+    const requested = new Set([
+      ...Object.keys(fields),
+      ...Object.keys(uploads),
+    ]);
+    const replaceFields = draft.replaceFields.filter((fieldId) =>
+      requested.has(fieldId),
+    );
     const reviewSignature = JSON.stringify({
       fields: reviewedRevision,
       resume_version_id: draft.resumeVersionId ?? null,
@@ -694,7 +864,10 @@ element("propose").addEventListener("click", (event) =>
       upload_fields: draft.uploadFields,
     });
     let saved = draft.preparation;
-    if (draft.savedSignature !== reviewSignature || draft.savedVersionId !== saved.version_id) {
+    if (
+      draft.savedSignature !== reviewSignature ||
+      draft.savedVersionId !== saved.version_id
+    ) {
       saved = validPreparation(
         await api(`device/preparations/${draft.preparation.id}/revisions`, {
           method: "POST",
@@ -728,7 +901,9 @@ element("propose").addEventListener("click", (event) =>
     });
     clearReceipt("command");
     await saveDraft();
-    message("Reviewed proposal saved. Check fill proposals here before applying it.");
+    message(
+      "Reviewed proposal saved. Check fill proposals here before applying it.",
+    );
   }),
 );
 
@@ -745,11 +920,21 @@ element("refresh").addEventListener("click", (event) =>
     const tab = await activeTab();
     const target = new URL(tab.url);
     const currentPage = target.origin + target.pathname;
-    const commands = validate("PendingCommands", await api("device/commands")).filter(
-      (command) => command.page_url === currentPage && !claimedCommands.has(command.id),
+    const commands = validate(
+      "PendingCommands",
+      await api("device/commands"),
+    ).filter(
+      (command) =>
+        command.page_url === currentPage && !claimedCommands.has(command.id),
     );
-    element("proposals").replaceChildren(...commands.map((command) => renderProposal(command, tab)));
-    message(commands.length ? "Review every answer and exact file before applying." : "No pending proposals for this page.");
+    element("proposals").replaceChildren(
+      ...commands.map((command) => renderProposal(command, tab)),
+    );
+    message(
+      commands.length
+        ? "Review every answer and exact file before applying."
+        : "No pending proposals for this page.",
+    );
   }),
 );
 

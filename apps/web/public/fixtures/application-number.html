@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Numeric application controls</title>
+  </head>
+  <body>
+    <h1>Synthetic numeric application</h1>
+    <form id="application">
+      <label for="years">Years of relevant experience</label>
+      <input
+        id="years"
+        max="10.5"
+        min="1.5"
+        name="years"
+        step="0.5"
+        type="number"
+      />
+      <label for="headline">Professional headline</label>
+      <input id="headline" name="headline" type="text" />
+      <button type="submit">Submit application</button>
+    </form>
+    <p id="outcome">Not submitted</p>
+    <script>
+      document
+        .getElementById("application")
+        .addEventListener("submit", (event) => {
+          event.preventDefault();
+          document.getElementById("outcome").textContent = "Submitted";
+        });
+    </script>
+  </body>
+</html>

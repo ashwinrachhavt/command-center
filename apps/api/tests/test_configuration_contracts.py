@@ -91,8 +91,82 @@ def test_readiness_retries_and_fails_closed_without_connection_details(mocker):
 def test_browser_contract_rejects_oversized_options_and_unversioned_messages():
     with pytest.raises(ValidationError):
         FormField(id="f0", label="Role", type="select", options=["x" * 301])
+    FormField(
+        id="f0",
+        label="Country",
+        type="select",
+        options=[f"country-{index}" for index in range(300)],
+        value_state="empty",
+    )
+    with pytest.raises(ValidationError):
+        FormField(
+            id="f0",
+            label="Country",
+            type="select",
+            options=[f"country-{index}" for index in range(301)],
+            value_state="empty",
+        )
     with pytest.raises(ValidationError):
         ApplyMessage.model_validate({"action": "apply", "command": {}})
+
+
+def test_browser_number_contract_requires_normalized_finite_constraints():
+    field = FormField.model_validate(
+        {
+            "id": "f0",
+            "label": "Years of experience",
+            "type": "number",
+            "value_state": "empty",
+            "numeric_constraints": {
+                "minimum": ".1",
+                "maximum": "1.1e1",
+                "step": "0.2",
+                "step_base": ".1",
+            },
+        }
+    )
+    assert field.numeric_constraints is not None
+    assert field.numeric_constraints.step == "0.2"
+
+    invalid_constraints = [
+        {"minimum": "NaN", "maximum": None, "step": "1", "step_base": "0"},
+        {"minimum": "+1", "maximum": None, "step": "1", "step_base": "0"},
+        {"minimum": "1.", "maximum": None, "step": "1", "step_base": "0"},
+        {"minimum": "1e999", "maximum": None, "step": "1", "step_base": "0"},
+        {"minimum": None, "maximum": None, "step": "0", "step_base": "0"},
+        {"minimum": "2", "maximum": "1", "step": "any", "step_base": "2"},
+        {"minimum": None, "maximum": None, "step": "Infinity", "step_base": "0"},
+    ]
+    for constraints in invalid_constraints:
+        with pytest.raises(ValidationError):
+            FormField.model_validate(
+                {
+                    "id": "f0",
+                    "label": "Years",
+                    "type": "number",
+                    "value_state": "empty",
+                    "numeric_constraints": constraints,
+                }
+            )
+    with pytest.raises(ValidationError):
+        FormField.model_validate(
+            {"id": "f0", "label": "Years", "type": "number", "value_state": "empty"}
+        )
+    with pytest.raises(ValidationError):
+        FormField.model_validate(
+            {
+                "id": "f0",
+                "label": "Name",
+                "type": "text",
+                "value_state": "empty",
+                "numeric_constraints": {
+                    "minimum": None,
+                    "maximum": None,
+                    "step": "1",
+                    "step_base": "0",
+                },
+            }
+        )
 
 
 def test_browser_v2_contract_preserves_value_metadata_and_rejects_v1():

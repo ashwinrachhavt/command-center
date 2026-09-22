@@ -72,6 +72,7 @@ export type BrowserField = {
     | "file"
     | "radio"
     | "checkbox"
+    | "number"
     | "unsupported";
   required: boolean;
   options: string[];
@@ -80,6 +81,12 @@ export type BrowserField = {
   autocomplete: string;
   accept: string;
   unsupported_reason: string | null;
+  numeric_constraints: {
+    minimum: string | null;
+    maximum: string | null;
+    step: string;
+    step_base: string;
+  } | null;
 };
 export type BrowserSnapshot = {
   id: string;

@@ -2925,7 +2925,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "text" | "email" | "tel" | "url" | "textarea" | "select" | "file" | "radio" | "checkbox" | "unsupported";
+            type: "text" | "email" | "tel" | "url" | "textarea" | "select" | "file" | "radio" | "checkbox" | "number" | "unsupported";
             /**
              * Required
              * @default false
@@ -2954,6 +2954,7 @@ export interface components {
             };
             /** Unsupported Reason */
             unsupported_reason?: string | null;
+            numeric_constraints?: components["schemas"]["NumericConstraints"] | null;
         };
         /** GmailSearchCreate */
         GmailSearchCreate: {
@@ -3501,6 +3502,17 @@ export interface components {
             kind: "notion_update";
             /** Page Id */
             page_id: string;
+        };
+        /** NumericConstraints */
+        NumericConstraints: {
+            /** Minimum */
+            minimum?: string | null;
+            /** Maximum */
+            maximum?: string | null;
+            /** Step */
+            step: string | "any";
+            /** Step Base */
+            step_base: string;
         };
         /** OpportunityCreate */
         OpportunityCreate: {

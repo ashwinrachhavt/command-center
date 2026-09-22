@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from command_center.core.identity import Identity, authenticate
 from command_center.db.base import utc_now
-from command_center.db.browser import BrowserCommand, BrowserSnapshot
+from command_center.db.browser import BrowserCommand, BrowserSnapshot, validate_numeric_answer
 from command_center.db.models import Actor
 from command_center.main import create_app
 
@@ -49,13 +49,20 @@ def pair(client, name: str = "Synthetic browser") -> dict[str, str]:
     }
 
 
-def share(client, headers: dict[str, str], *, file_accept: str = "text/plain") -> dict:
+def share(
+    client,
+    headers: dict[str, str],
+    *,
+    file_accept: str = "text/plain",
+    fields: list[dict] | None = None,
+) -> dict:
     snapshot = {
         "id": str(uuid4()),
         "protocol_version": 2,
         "page_url": "https://jobs.example.test/apply",
         "title": "Synthetic application",
-        "fields": [
+        "fields": fields
+        or [
             {
                 "id": "f0",
                 "label": "Name",
@@ -74,6 +81,65 @@ def share(client, headers: dict[str, str], *, file_accept: str = "text/plain") -
     response = client.post("/api/v1/browser/snapshots", json=snapshot, headers=headers)
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_numeric_validation_rejects_out_of_browser_range() -> None:
+    field = {
+        "type": "number",
+        "numeric_constraints": {
+            "minimum": None,
+            "maximum": None,
+            "step": "1",
+            "step_base": "0",
+        },
+    }
+    with pytest.raises(ValueError, match="finite"):
+        validate_numeric_answer(field, "1e999999")
+
+
+def test_number_answers_use_exact_bounds_and_step_before_command_creation(client) -> None:
+    device = pair(client)
+    snapshot = share(
+        client,
+        device,
+        fields=[
+            {
+                "id": "f0",
+                "label": "Years of experience",
+                "type": "number",
+                "value_state": "empty",
+                "numeric_constraints": {
+                    "minimum": "0.1",
+                    "maximum": "1.1",
+                    "step": "0.2",
+                    "step_base": "0.1",
+                },
+            }
+        ],
+    )
+    path = "/api/v1/browser/device/commands"
+    for value in ["NaN", "+1", "1.", "1e999", "0.0", "1.2", "0.2"]:
+        rejected = client.post(
+            path,
+            json={"snapshot_id": snapshot["id"], "fields": {"f0": value}},
+            headers={
+                "Authorization": device["Authorization"],
+                "Idempotency-Key": str(uuid4()),
+            },
+        )
+        assert rejected.status_code == 422, rejected.text
+    assert client.get(path, headers={"Authorization": device["Authorization"]}).json() == []
+
+    accepted = client.post(
+        path,
+        json={"snapshot_id": snapshot["id"], "fields": {"f0": "3e-1"}},
+        headers={
+            "Authorization": device["Authorization"],
+            "Idempotency-Key": str(uuid4()),
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["fields"] == {"f0": "3e-1"}
 
 
 def upload_resume(client, content: bytes, title: str) -> dict:

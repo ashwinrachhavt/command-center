@@ -146,6 +146,39 @@ def opportunity(client):
     return created.json()["id"]
 
 
+def test_reviewed_number_answer_obeys_snapshot_constraints(client):
+    snapshot, _ = shared_page(
+        client,
+        fields=[
+            {
+                "id": "f0",
+                "label": "Years of experience",
+                "type": "number",
+                "value_state": "empty",
+                "numeric_constraints": {
+                    "minimum": "0.1",
+                    "maximum": "1.1",
+                    "step": "0.2",
+                    "step_base": "0.1",
+                },
+            }
+        ],
+    )
+    preparation = prepare(client, snapshot)
+    rejected = post(
+        client,
+        f"browser/preparations/{preparation['id']}/revisions",
+        {
+            "expected_version_id": preparation["version_id"],
+            "resume_version_id": None,
+            "fields": {"f0": "0.2"},
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
+    reviewed = revise(client, preparation, fields={"f0": "0.3"})
+    assert reviewed["fields"][0]["value"] == "0.3"
+
+
 def upload_resume(client, content=b"Synthetic exact resume"):
     resume_type = next(
         item for item in client.get("/api/v1/document-types").json() if item["slug"] == "resume"

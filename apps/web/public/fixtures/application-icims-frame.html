@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>iCIMS-shaped nested application</title>
+    <style>
+      iframe {
+        width: 640px;
+        min-height: 240px;
+        border: 1px solid #999;
+      }
+      #hidden-branding-frame {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Synthetic career portal</h1>
+    <iframe
+      id="application-frame"
+      title="iCIMS Content iFrame"
+      srcdoc='<!doctype html><html lang="en"><body><main><h2>Enter Your Information</h2><label for="email">Email</label><input id="email" name="css_loginName" type="email"><button id="next" type="button">Next</button><p id="document-marker">Original document</p><p id="outcome">Not advanced</p></main></body></html>'
+    ></iframe>
+    <iframe
+      id="captcha-frame"
+      title="Widget containing checkbox for hCaptcha security challenge"
+      srcdoc='<!doctype html><html lang="en"><body><label for="captcha-answer">Captcha answer</label><input id="captcha-answer" name="captcha_answer"></body></html>'
+    ></iframe>
+    <iframe
+      id="hidden-branding-frame"
+      title="Hidden employer branding"
+      srcdoc='<!doctype html><html lang="en"><body><label for="hidden-code">Hidden branding code</label><input id="hidden-code" name="hidden_code"></body></html>'
+    ></iframe>
+    <iframe
+      id="cross-origin-frame"
+      title="Cross-origin employer branding"
+      src="data:text/html,%3C!doctype%20html%3E%3Clabel%20for%3D%22external%22%3EExternal%20tracking%20field%3C%2Flabel%3E%3Cinput%20id%3D%22external%22%3E"
+    ></iframe>
+  </body>
+</html>

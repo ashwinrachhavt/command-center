@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
 from command_center.db.artifacts import Artifact, ArtifactReview, ArtifactVersion, TaskArtifact
 from command_center.db.base import Base, UTCDateTime, utc_now
-from command_center.db.browser import BrowserDevice, BrowserSnapshot
+from command_center.db.browser import BrowserDevice, BrowserSnapshot, validate_numeric_answer
 from command_center.db.conversations import AgentSession
 from command_center.db.crm import CandidateProfile, Opportunity, record_event
 from command_center.db.errors import RecordConflict, RecordNotFound
@@ -93,6 +93,8 @@ def validate_field_value(field: dict[str, Any], value: str) -> None:
         raise ValueError("Choose an exact option from the shared form")
     if value and field["type"] == "checkbox" and value not in {"true", "false"}:
         raise ValueError("A checkbox answer must be true or false")
+    if value and field["type"] == "number":
+        validate_numeric_answer(field, value)
 
 
 def initial_answer(

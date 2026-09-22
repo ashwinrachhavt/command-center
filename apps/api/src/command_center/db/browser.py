@@ -2,8 +2,11 @@
 
 import hashlib
 import importlib
+import math
+import re
 import secrets
 from datetime import datetime, timedelta
+from decimal import Decimal, DecimalException, localcontext
 from pathlib import PurePath
 from typing import Any
 from urllib.parse import urlsplit
@@ -29,6 +32,77 @@ from command_center.db.crm import CandidateProfile, record_event
 from command_center.db.document_imports import DocumentImport
 from command_center.db.errors import RecordConflict
 from command_center.db.models import Actor
+
+NUMBER_DECIMAL_WORK_LIMIT = 10_000
+HTML_NUMBER_PATTERN = r"^-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$"
+
+
+def parse_browser_decimal(value: str) -> Decimal:
+    """Parse the finite number grammar and range used by native HTML inputs."""
+    if len(value) > 100 or re.fullmatch(HTML_NUMBER_PATTERN, value) is None:
+        raise ValueError("Enter a finite number for this field")
+    try:
+        number = Decimal(value)
+        browser_number = float(value)
+    except (DecimalException, OverflowError, ValueError) as exc:
+        raise ValueError("Enter a finite number for this field") from exc
+    if not number.is_finite() or not math.isfinite(browser_number):
+        raise ValueError("Enter a finite number for this field")
+    return number
+
+
+def validate_numeric_answer(field: dict[str, Any], value: str) -> None:
+    """Validate an HTML number answer with exact decimal bounds and stepping."""
+    constraints = field.get("numeric_constraints")
+    if not isinstance(constraints, dict):
+        raise ValueError("Reshare this number field with its numeric constraints")
+    number = parse_browser_decimal(value)
+    try:
+        minimum = (
+            parse_browser_decimal(constraints["minimum"])
+            if constraints.get("minimum") is not None
+            else None
+        )
+        maximum = (
+            parse_browser_decimal(constraints["maximum"])
+            if constraints.get("maximum") is not None
+            else None
+        )
+        step_base = parse_browser_decimal(constraints["step_base"])
+        step_value = constraints["step"]
+        step = None if step_value == "any" else parse_browser_decimal(step_value)
+    except (DecimalException, KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Reshare this number field with valid numeric constraints") from exc
+    decimals = [item for item in (number, minimum, maximum, step_base, step) if item is not None]
+    if not all(item.is_finite() for item in decimals):
+        raise ValueError("Enter a finite number for this field")
+    if minimum is not None and number < minimum:
+        raise ValueError("Number is below the minimum for this field")
+    if maximum is not None and number > maximum:
+        raise ValueError("Number is above the maximum for this field")
+    if step is not None:
+        if step <= 0:
+            raise ValueError("Reshare this number field with valid numeric constraints")
+        try:
+            exponents: list[int] = []
+            for item in decimals:
+                exponent = item.as_tuple().exponent
+                if not isinstance(exponent, int):
+                    raise ValueError("Enter a number compatible with this field")
+                exponents.append(exponent)
+            adjusted = [item.adjusted() for item in decimals if item]
+            precision = max(adjusted, default=0) - min(exponents, default=0) + 2
+            positions = (*exponents, *adjusted)
+            if precision > NUMBER_DECIMAL_WORK_LIMIT or any(
+                abs(position) > NUMBER_DECIMAL_WORK_LIMIT for position in positions
+            ):
+                raise ValueError("Enter a number compatible with this field")
+            with localcontext() as context:
+                context.prec = max(28, precision)
+                if (number - step_base) % step != 0:
+                    raise ValueError("Number does not match the step for this field")
+        except DecimalException as exc:
+            raise ValueError("Enter a number compatible with this field") from exc
 
 
 def digest(value: str) -> str:
@@ -347,6 +421,8 @@ class BrowserSnapshot(Base):
                 raise ValueError("Use one of the options shared for this field")
             if field["type"] == "checkbox" and value not in {"true", "false"}:
                 raise ValueError("Checkbox values must be true or false")
+            if field["type"] == "number":
+                validate_numeric_answer(field, value)
         upload_files: dict[str, dict[str, object]] = {}
         for field_id, version_id in uploads.items():
             field = known.get(field_id)
