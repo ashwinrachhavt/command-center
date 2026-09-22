@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,7 @@ export const resourceNames: Record<
     description: "Build a clear picture of the teams you want to work with.",
   },
   contacts: {
-    plural: "People",
+    plural: "Contacts",
     singular: "person",
     description: "Good opportunities start with meaningful relationships.",
   },
@@ -318,24 +318,29 @@ export function RecordEditor({
   onSaved?: (record: WorkspaceRecord) => void;
 }) {
   const client = useQueryClient();
+  const [baseline, setBaseline] = useState(record);
   const initial = Object.fromEntries(
     fields[resource].map((f) => [
       f.name,
-      record && f.name in record
-        ? String((record as unknown as Record<string, unknown>)[f.name] ?? "")
+      baseline && f.name in baseline
+        ? String((baseline as unknown as Record<string, unknown>)[f.name] ?? "")
         : (f.initial ?? ""),
     ]),
   );
   const [form, setForm] = useState<FormValues>(initial);
+  const currentForm = useRef(form);
+  useLayoutEffect(() => {
+    currentForm.current = form;
+  }, [form]);
   const [closeWarning, setCloseWarning] = useState(false);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const requestKey = useRef({ signature: "", key: "" });
   const mutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (submitted: FormValues) => {
       const body: Record<string, string | number | null> = {};
       for (const field of fields[resource]) {
         if (record && field.createOnly) continue;
-        const raw = form[field.name] ?? "";
+        const raw = submitted[field.name] ?? "";
         if (field.required && !raw.trim())
           throw new Error(`${field.title} is required.`);
         body[field.name] =
@@ -345,15 +350,15 @@ export function RecordEditor({
               : null
             : raw || (field.required || field.name === "text" ? "" : null);
       }
-      if (resource === "artifacts" && !record && form.kind !== "document")
+      if (resource === "artifacts" && !record && submitted.kind !== "document")
         body.document_type_id = null;
-      if (record) body.expected_version = record.row_version;
+      if (baseline) body.expected_version = baseline.row_version;
       if (
         resource === "tasks" &&
         record &&
         "due_at" in record &&
         record.due_at &&
-        form.due_date
+        submitted.due_date
       )
         body.due_at = null;
       const signature = JSON.stringify(body);
@@ -368,13 +373,19 @@ export function RecordEditor({
         },
       );
     },
-    onSuccess: (saved) => {
+    onSuccess: (saved, submitted) => {
+      setBaseline(saved);
+      requestKey.current = { signature: "", key: "" };
       client.invalidateQueries();
       toast.success(
         `${label(resourceNames[resource].singular)} ${record ? "updated" : "created"}`,
       );
       onSaved?.(saved);
-      onOpenChange(false);
+      if (
+        !record ||
+        JSON.stringify(currentForm.current) === JSON.stringify(submitted)
+      )
+        onOpenChange(false);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -403,86 +414,92 @@ export function RecordEditor({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            mutation.mutate();
+            mutation.mutate({ ...form });
           }}
         >
-          <FieldGroup className="gap-5 py-3">
-            {fields[resource]
-              .filter(
-                (f) =>
-                  !(record && f.createOnly) &&
-                  !(f.name === "document_type_id" && form.kind !== "document"),
-              )
-              .map((f) => (
-                <Field key={f.name}>
-                  <FieldLabel htmlFor={f.name}>
-                    {f.title}
-                    {f.required && (
-                      <span className="text-muted-foreground">*</span>
+          <fieldset disabled={!record && mutation.isPending}>
+            <FieldGroup className="gap-5 py-3">
+              {fields[resource]
+                .filter(
+                  (f) =>
+                    !(record && f.createOnly) &&
+                    !(
+                      f.name === "document_type_id" && form.kind !== "document"
+                    ),
+                )
+                .map((f) => (
+                  <Field key={f.name}>
+                    <FieldLabel htmlFor={f.name}>
+                      {f.title}
+                      {f.required && (
+                        <span className="text-muted-foreground">*</span>
+                      )}
+                    </FieldLabel>
+                    {f.lookup ? (
+                      <Lookup
+                        field={f}
+                        value={form[f.name]}
+                        onChange={(v) => setForm({ ...form, [f.name]: v })}
+                        companyId={form.company_id}
+                      />
+                    ) : f.kind === "select" ? (
+                      <Select
+                        value={form[f.name]}
+                        onValueChange={(v) => setForm({ ...form, [f.name]: v })}
+                      >
+                        <SelectTrigger id={f.name} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {f.choices?.map((v) => (
+                              <SelectItem key={v} value={v}>
+                                {f.name === "priority"
+                                  ? ["Low", "Normal", "High", "Urgent"][
+                                      Number(v)
+                                    ]
+                                  : label(v)}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    ) : f.kind === "textarea" ? (
+                      <Textarea
+                        id={f.name}
+                        rows={f.name === "text" ? 8 : 4}
+                        maxLength={f.max}
+                        value={form[f.name]}
+                        onChange={(e) =>
+                          setForm({ ...form, [f.name]: e.target.value })
+                        }
+                      />
+                    ) : (
+                      <Input
+                        id={f.name}
+                        type={f.kind ?? "text"}
+                        required={f.required}
+                        maxLength={f.max}
+                        min={f.kind === "number" ? 0 : undefined}
+                        value={form[f.name]}
+                        onChange={(e) =>
+                          setForm({ ...form, [f.name]: e.target.value })
+                        }
+                        placeholder={
+                          f.name === "domain" ? "company.com" : undefined
+                        }
+                      />
                     )}
-                  </FieldLabel>
-                  {f.lookup ? (
-                    <Lookup
-                      field={f}
-                      value={form[f.name]}
-                      onChange={(v) => setForm({ ...form, [f.name]: v })}
-                      companyId={form.company_id}
-                    />
-                  ) : f.kind === "select" ? (
-                    <Select
-                      value={form[f.name]}
-                      onValueChange={(v) => setForm({ ...form, [f.name]: v })}
-                    >
-                      <SelectTrigger id={f.name} className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {f.choices?.map((v) => (
-                            <SelectItem key={v} value={v}>
-                              {f.name === "priority"
-                                ? ["Low", "Normal", "High", "Urgent"][Number(v)]
-                                : label(v)}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  ) : f.kind === "textarea" ? (
-                    <Textarea
-                      id={f.name}
-                      rows={f.name === "text" ? 8 : 4}
-                      maxLength={f.max}
-                      value={form[f.name]}
-                      onChange={(e) =>
-                        setForm({ ...form, [f.name]: e.target.value })
-                      }
-                    />
-                  ) : (
-                    <Input
-                      id={f.name}
-                      type={f.kind ?? "text"}
-                      required={f.required}
-                      maxLength={f.max}
-                      min={f.kind === "number" ? 0 : undefined}
-                      value={form[f.name]}
-                      onChange={(e) =>
-                        setForm({ ...form, [f.name]: e.target.value })
-                      }
-                      placeholder={
-                        f.name === "domain" ? "company.com" : undefined
-                      }
-                    />
-                  )}
-                  {f.name === "sensitivity" && (
-                    <FieldDescription>
-                      Controls classification. Your artifacts are always private
-                      to this workspace.
-                    </FieldDescription>
-                  )}
-                </Field>
-              ))}
-          </FieldGroup>
+                    {f.name === "sensitivity" && (
+                      <FieldDescription>
+                        Controls classification. Your artifacts are always
+                        private to this workspace.
+                      </FieldDescription>
+                    )}
+                  </Field>
+                ))}
+            </FieldGroup>
+          </fieldset>
           {mutation.error && (
             <p role="alert" className="mb-4 text-sm text-destructive">
               {mutation.error.message}

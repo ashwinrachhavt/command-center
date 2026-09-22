@@ -5,7 +5,6 @@ import { UserButton } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  ArrowUpRight,
   BookOpen,
   Bot,
   BriefcaseBusiness,
@@ -17,7 +16,6 @@ import {
   Puzzle,
   Search,
   Settings2,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { useState } from "react";
@@ -46,11 +44,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { api, type Page, type Resources, type Profile } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Appearance } from "@/components/appearance";
+import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 
 export const navigation = [
   { path: "/", name: "Overview", icon: LayoutDashboard },
   { path: "/opportunities", name: "Opportunities", icon: BriefcaseBusiness },
-  { path: "/contacts", name: "People", icon: Users },
+  { path: "/contacts", name: "Contacts", icon: Users },
   { path: "/companies", name: "Companies", icon: Building2 },
   { path: "/jobs", name: "Roles", icon: Search },
   { path: "/tasks", name: "Tasks", icon: CheckCheck },
@@ -64,6 +64,7 @@ export const navigation = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
+  const context = useWorkspaceContext();
   const profile = useQuery({
     queryKey: ["me"],
     queryFn: () => api<Profile>("me"),
@@ -110,7 +111,22 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               </p>
             )}
             <Link
-              onClick={onNavigate}
+              onClick={(event) => {
+                const resource = item.path.slice(1);
+                if (
+                  context &&
+                  isResource(resource) &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault();
+                  if (path === item.path) context.close();
+                  else context.open(resource);
+                }
+                onNavigate?.();
+              }}
               href={item.path}
               aria-current={path === item.path ? "page" : undefined}
               className={cn(
@@ -131,29 +147,11 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         ))}
       </nav>
-      <div className="mt-6 rounded-lg border border-border bg-background/30 p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium">
-          <Sparkles className="size-3.5 text-primary" />A little help. A lot of
-          focus.
-        </div>
-        <p className="text-[11px] leading-5 text-muted-foreground">
-          Put research and thoughtful drafts in the hands of your agents.
-        </p>
-        <Link
-          href="/agents"
-          onClick={onNavigate}
-          className="mt-2 flex items-center gap-1 text-xs text-primary"
-        >
-          Meet your agents <ArrowUpRight className="size-3" />
-        </Link>
-      </div>
       <div className="mt-4 flex items-center gap-2.5 border-t border-border px-2 pt-4">
         <UserButton />
         <div>
           <p className="text-xs">Your account</p>
-          <p className="text-[10px] text-muted-foreground">
-            Managed with Clerk
-          </p>
+          <p className="text-[10px] text-muted-foreground">Personal account</p>
         </div>
       </div>
     </div>
@@ -167,6 +165,7 @@ function WorkspaceSearch({
   open: boolean;
   setOpen: (open: boolean) => void;
 }) {
+  const context = useWorkspaceContext();
   const [q, setQ] = useState("");
   const query = useQuery({
     queryKey: ["search", q],
@@ -233,7 +232,24 @@ function WorkspaceSearch({
           ) : (
             query.data?.map((r) => (
               <Link
-                onClick={() => setOpen(false)}
+                onClick={(event) => {
+                  if (
+                    context &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    const [target, params] = r.href.slice(1).split("?");
+                    if (isResource(target))
+                      context.open(
+                        target,
+                        new URLSearchParams(params).get("record") ?? undefined,
+                      );
+                  }
+                  setOpen(false);
+                }}
                 key={r.href}
                 href={r.href}
                 className="flex items-center justify-between rounded-md p-3 hover:bg-muted"
@@ -258,58 +274,46 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const [searchOpen, setSearchOpen] = useState(false);
   return (
-    <SidebarProvider
-      style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
-    >
-      <Sidebar collapsible="offcanvas" className="border-r border-border">
-        <SidebarNavigation />
-      </Sidebar>
-      <SidebarInset className="min-w-0 bg-background">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-5 backdrop-blur-md md:px-7">
-          <SidebarTrigger className="text-muted-foreground" />
-          <Breadcrumb>
-            <BreadcrumbList className="text-xs">
-              <BreadcrumbItem className="hidden sm:block">
-                Workspace
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="hidden sm:block" />
-              <BreadcrumbItem>
-                <BreadcrumbPage>
-                  {navigation.find((n) => n.path === path)?.name ?? "Workspace"}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Search workspace"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Search />
-            </Button>
-            <span className="mx-2 hidden h-4 border-l border-border sm:block" />
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/agents">
-                <Sparkles data-icon="inline-start" />
-                Ask an agent
-              </Link>
-            </Button>
-          </div>
-        </header>
-        <main className="min-w-0 flex-1">{children}</main>
-        <footer className="mt-auto flex items-center justify-between px-5 py-5 text-[11px] text-muted-foreground md:px-9">
-          <span>
-            Command Center <span className="mx-1.5 opacity-40">/</span> Your
-            work, in focus.
-          </span>
-          <Link href="/settings" className="hover:text-foreground">
-            Workspace settings ↗
-          </Link>
-        </footer>
-      </SidebarInset>
-      <WorkspaceSearch open={searchOpen} setOpen={setSearchOpen} />
-    </SidebarProvider>
+    <WorkspaceContext>
+      <SidebarProvider
+        style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
+      >
+        <Sidebar collapsible="offcanvas" className="border-r border-border">
+          <SidebarNavigation />
+        </Sidebar>
+        <SidebarInset className="min-w-0 bg-background">
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-5 backdrop-blur-md md:px-7">
+            <SidebarTrigger className="text-muted-foreground" />
+            <Breadcrumb>
+              <BreadcrumbList className="text-xs">
+                <BreadcrumbItem className="hidden sm:block">
+                  Workspace
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden sm:block" />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>
+                    {navigation.find((n) => n.path === path)?.name ??
+                      "Workspace"}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Search workspace"
+                onClick={() => setSearchOpen(true)}
+              >
+                <Search />
+              </Button>
+              <Appearance />
+            </div>
+          </header>
+          <main className="min-w-0 flex-1">{children}</main>
+        </SidebarInset>
+        <WorkspaceSearch open={searchOpen} setOpen={setSearchOpen} />
+      </SidebarProvider>
+    </WorkspaceContext>
   );
 }

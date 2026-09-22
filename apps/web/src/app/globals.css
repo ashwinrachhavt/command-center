@@ -8,31 +8,84 @@
 @source "../../node_modules/@streamdown/mermaid/dist/*.js";
 @custom-variant dark (&:is(.dark *));
 :root {
-  color-scheme: dark;
-  --background: #101213;
-  --foreground: #edf0ef;
-  --card: #17191a;
-  --card-foreground: #edf0ef;
-  --popover: #1b1e1f;
-  --popover-foreground: #edf0ef;
-  --primary: #58cfaa;
-  --primary-foreground: #08251b;
-  --secondary: #25292b;
-  --secondary-foreground: #e3e8e6;
-  --muted: #222627;
-  --muted-foreground: #9ba5a2;
-  --accent: #252b29;
-  --accent-foreground: #eff5f2;
-  --destructive: #f08686;
-  --border: #2a2e2f;
-  --input: #343b3b;
-  --ring: #58cfaa;
-  --sidebar: #161819;
-  --sidebar-foreground: #b3bcb8;
-  --sidebar-accent: #252c29;
-  --sidebar-accent-foreground: #f0f5f2;
-  --sidebar-border: #292e2c;
+  color-scheme: light;
+  --background: #fafafa;
+  --foreground: #25272d;
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: #ffffff;
+  --popover-foreground: var(--foreground);
+  --primary: #30333a;
+  --primary-foreground: #ffffff;
+  --secondary: #eeeff1;
+  --secondary-foreground: #353941;
+  --muted: #f0f1f3;
+  --muted-foreground: #626873;
+  --accent: #eeeff2;
+  --accent-foreground: #25272d;
+  --destructive: #b83642;
+  --border: #e1e3e7;
+  --input: #c9cdd4;
+  --ring: var(--primary);
+  --sidebar: #f3f4f6;
+  --sidebar-foreground: #5c626d;
+  --sidebar-accent: #e6e8ed;
+  --sidebar-accent-foreground: #25272d;
+  --sidebar-border: #e1e3e7;
   --radius: 0.5rem;
+  --status-neutral: #586575;
+  --status-violet: #77499d;
+  --status-blue: #2865a4;
+  --status-amber: #8f651c;
+  --status-green: #247750;
+  --status-red: #a1454c;
+}
+.dark {
+  color-scheme: dark;
+  --background: #151619;
+  --foreground: #e9eaed;
+  --card: #1a1c20;
+  --popover: #202227;
+  --primary: #d9dce1;
+  --primary-foreground: #181a20;
+  --secondary: #292c33;
+  --secondary-foreground: #e0e2e7;
+  --muted: #23262c;
+  --muted-foreground: #a0a6b1;
+  --accent: #2a2d35;
+  --accent-foreground: #eff0f3;
+  --destructive: #f1979f;
+  --border: #30333b;
+  --input: #414651;
+  --sidebar: #191b1f;
+  --sidebar-foreground: #afb4bf;
+  --sidebar-accent: #282b32;
+  --sidebar-accent-foreground: #eff0f3;
+  --sidebar-border: #30333b;
+  --status-neutral: #a8b5c0;
+  --status-violet: #d2b3ed;
+  --status-blue: #93bdef;
+  --status-amber: #e4c38a;
+  --status-green: #71d8ae;
+  --status-red: #d5a3a3;
+}
+:root[data-palette="teal"] {
+  --primary: #087c6b;
+}
+:root[data-palette="blue"] {
+  --primary: #285be0;
+}
+:root[data-palette="violet"] {
+  --primary: #7545cf;
+}
+.dark[data-palette="teal"] {
+  --primary: #67d2bd;
+}
+.dark[data-palette="blue"] {
+  --primary: #91b4ff;
+}
+.dark[data-palette="violet"] {
+  --primary: #c3a0f4;
 }
 @theme inline {
   --font-sans: var(--font-geist), sans-serif;
@@ -82,19 +135,19 @@
     cursor: not-allowed;
   }
   ::selection {
-    background: #326e59;
-    color: #fff;
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: #39433f transparent;
+    scrollbar-color: var(--input) transparent;
   }
 }
 .stage-researching,
 .stage-new,
 .stage-open,
 .stage-queued {
-  color: #a8b5c0;
+  color: var(--status-neutral);
   background: #8293a314;
   border-color: #8293a330;
 }
@@ -102,19 +155,19 @@
 .stage-connected,
 .stage-in_progress,
 .stage-running {
-  color: #d2b3ed;
+  color: var(--status-violet);
   background: #a67ac214;
   border-color: #a67ac230;
 }
 .stage-applied,
 .stage-warm {
-  color: #93bdef;
+  color: var(--status-blue);
   background: #6098d414;
   border-color: #6098d430;
 }
 .stage-interviewing,
 .stage-snoozed {
-  color: #e4c38a;
+  color: var(--status-amber);
   background: #d9a75114;
   border-color: #d9a75130;
 }
@@ -123,7 +176,7 @@
 .stage-done,
 .stage-completed,
 .stage-applied-fill {
-  color: #71d8ae;
+  color: var(--status-green);
   background: #41b78b14;
   border-color: #41b78b30;
 }
@@ -131,7 +184,7 @@
 .stage-cancelled,
 .stage-failed,
 .stage-rejected {
-  color: #d5a3a3;
+  color: var(--status-red);
   background: #bf7a7a14;
   border-color: #bf7a7a30;
 }

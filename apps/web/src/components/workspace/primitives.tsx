@@ -36,18 +36,11 @@ export function Mark({
   name: string;
   className?: string;
 }) {
-  const palette = [
-    "bg-emerald-400/10 text-emerald-200",
-    "bg-indigo-400/10 text-indigo-200",
-    "bg-amber-400/10 text-amber-200",
-    "bg-rose-400/10 text-rose-200",
-  ];
   return (
     <span
       aria-hidden
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/5 text-xs font-medium",
-        palette[(name.charCodeAt(0) || 0) % 4],
+        "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground text-xs font-medium",
         className,
       )}
     >
@@ -76,7 +69,7 @@ export function Priority({ value }: { value: number }) {
             "w-0.75 rounded-xs",
             i <= value
               ? value === 3
-                ? "bg-amber-300"
+                ? "bg-[var(--status-amber)]"
                 : "bg-muted-foreground"
               : "bg-border",
           )}

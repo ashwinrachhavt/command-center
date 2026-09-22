@@ -1,6 +1,6 @@
 # Command Center
 
-A personal workspace for opportunities, relationships, tasks, artifacts and research agents. FastAPI owns the domain and PostgreSQL; Next.js provides the Clerk-authenticated shadcn interface. LangGraph agents discover scoped API tools through MCP and run in Celery workers. Firecrawl and SearXNG connect to the existing `local-research` Docker stack.
+A personal workspace for opportunities, relationships, tasks, artifacts and research agents. Related records open alongside your current work; Appearance offers light, dark and system modes with four accents. FastAPI owns the domain and PostgreSQL; Next.js provides the Clerk-authenticated shadcn interface. LangGraph agents discover scoped API tools through MCP and run in Celery workers. Firecrawl and SearXNG connect to the existing `local-research` Docker stack.
 
 ## Run locally
 
@@ -87,13 +87,15 @@ Real exports and reports must never be committed.
 ```sh
 make test          # pytest + pytest-mock against disposable PostgreSQL
 make lint          # Ruff, strict mypy, ESLint and TypeScript
-make check         # lint, backend tests and production Next.js build
+make check         # lint, backend + frontend unit tests, production Next.js build
 make schema-check  # Alembic/ORM drift
 make contracts     # regenerate the typed Next.js API schema
 make smoke         # functional checks against existing research services
 cd apps/web
 npx playwright install chromium
-npm run test:browser  # with the web server on localhost:3001
+npm run test:browser  # companion, with the web server on localhost:3001
+npm run test:workspace # real UI components with synthetic API/Clerk/Next fixtures
+npm run preview:workspace # interactive synthetic UI on localhost:4318
 ```
 
 `make migration message="describe change"` generates a migration for review; `make migrate` applies it. One Alembic history owns the schema. Tests use synthetic actors/data and mocked paid providers. The MCP worker integration test exercises actual HTTP discovery, authentication and SQL writes. Browser tests execute the extension's content script against a controlled local form.
@@ -104,4 +106,4 @@ Keep FastAPI as the sole database access boundary. The migrations enable RLS on 
 
 ## Specifications
 
-Exactly two active specifications: [Product Spec](docs/product-spec.md) and [Tech Spec](docs/tech-spec.md). Supporting [design](docs/tech/design.md), [engineering](docs/tech/engineering.md) and [handoff](docs/HANDOFF.md) documents record interface decisions and delivery evidence. Autonomous campaign limits, imports, verified candidate facts, outreach and application submission remain product work beyond the connected scaffold.
+Exactly two active specifications: [Product Spec](docs/product-spec.md) and [Tech Spec](docs/tech-spec.md). The [documentation index](docs/README.md) maps their supporting documents. [Engineering](docs/tech/engineering.md) owns the accepted, pending workspace fixes and verification plan; [handoff](docs/HANDOFF.md) records the latest work. Portal import staging/live sync, autonomous campaign limits, verified candidate facts, outreach and application submission remain future work beyond the connected workspace and operator importer.
