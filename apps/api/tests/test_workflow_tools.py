@@ -1,8 +1,10 @@
 """Network-free workflow tool, queue and spending-wiring regressions."""
 
+import json
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -47,6 +49,7 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
         workflow_profile(
             tools=[
                 "connected_accounts",
+                "connected_context",
                 "gmail_search",
                 "propose_connected_action",
                 "reviewed_action",
@@ -59,6 +62,7 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
     discovered = schemas(registry)
     assert set(discovered) == {
         "connected_accounts",
+        "connected_context",
         "gmail_search",
         "propose_connected_action",
         "reviewed_action",
@@ -71,10 +75,69 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
     search = discovered["gmail_search"]
     assert search["required"] == ["query"]
     assert "account_id" not in search["properties"]
+    context = discovered["connected_context"]
+    assert set(context["required"]) == {"account_id", "query"}
+    assert set(context["properties"]) == {"account_id", "query"}
+    assert context["additionalProperties"] is False
+    assert set(context["properties"]["query"]["discriminator"]["mapping"]) == {
+        "calendar_events",
+        "calendar_event",
+        "linear_issue",
+        "notion_page",
+    }
     proposal = discovered["propose_connected_action"]
     assert {"account_id", "payload", "reason"}.issubset(proposal["required"])
     assert {"task_id", "opportunity_id"}.issubset(proposal["properties"])
     assert proposal["additionalProperties"] is False
+
+
+def test_connected_context_tool_pins_call_identity_and_rejects_extra_authority(
+    settings, mocker
+) -> None:
+    requests = []
+    observation_id = str(uuid4())
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json={"observation_id": observation_id})
+
+    http_client = httpx.Client
+    mocker.patch(
+        "command_center.agents.tools.httpx.Client",
+        side_effect=lambda **kwargs: http_client(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    run_id = uuid4()
+    registry = ToolRegistry(
+        settings,
+        workflow_profile(tools=["connected_context"]),
+        uuid4(),
+        run_id,
+        "synthetic-capability",
+    )
+    arguments = {
+        "account_id": str(uuid4()),
+        "query": {"kind": "notion_page", "page_id": str(uuid4())},
+    }
+    for call_id in ("context-1", "context-1", "context-2"):
+        result = json.loads(registry.execute("connected_context", arguments, call_id))
+        assert result["observation_id"] == observation_id
+    assert len(requests) == 3
+    for request in requests:
+        assert request.method == "POST"
+        assert request.url.path == "/api/v1/integrations/composio/context"
+        assert json.loads(request.content) == arguments
+        assert request.headers["authorization"] == "Bearer synthetic-capability"
+    assert requests[0].headers["idempotency-key"] == str(uuid5(run_id, "context-1"))
+    assert requests[1].headers["idempotency-key"] == requests[0].headers["idempotency-key"]
+    assert requests[2].headers["idempotency-key"] != requests[0].headers["idempotency-key"]
+
+    for unexpected in ("owner_id", "task_id", "agent_run_id"):
+        result = registry.execute(
+            "connected_context", {**arguments, unexpected: str(uuid4())}, "invalid"
+        )
+        assert "invalid" in result
+    assert "Denied" in registry.execute("propose_connected_action", arguments, "write")
+    assert len(requests) == 3
 
 
 @pytest.mark.parametrize(

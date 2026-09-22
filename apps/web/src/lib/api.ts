@@ -116,6 +116,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
   }
@@ -168,6 +169,7 @@ export async function api<T>(
           response.status === 401
             ? "Your session expired. Sign in again to continue."
             : detail,
+          typeof data.detail?.code === "string" ? data.detail.code : undefined,
         );
       }
       return data as T;

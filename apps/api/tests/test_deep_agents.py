@@ -573,13 +573,24 @@ def test_heartbeat_renews_and_cancels_an_inflight_provider_request(
     async def slow_provider(messages):
         try:
             with Session(engine) as db, db.begin():
-                db.get(AgentRun, run.id).lease_expires_at = utc_now() + timedelta(minutes=1)
+                current = db.scalar(
+                    select(AgentRun).where(AgentRun.id == run.id).with_for_update(key_share=True)
+                )
+                assert current
+                current.lease_expires_at = utc_now() + timedelta(minutes=1)
             # Observe a committed renewal, rather than assuming a scheduler deadline.
             deadline = monotonic() + 10
             while monotonic() < deadline:
                 await asyncio.sleep(0.02)
                 with Session(engine) as db, db.begin():
-                    current = db.get(AgentRun, run.id)
+                    # Match the cancellation API's row lock so the terminal transition
+                    # cannot lose an optimistic-version race to the heartbeat update.
+                    current = db.scalar(
+                        select(AgentRun)
+                        .where(AgentRun.id == run.id)
+                        .with_for_update(key_share=True)
+                    )
+                    assert current
                     if current.lease_expires_at > utc_now() + timedelta(minutes=4):
                         current.finish("cancelled")
                         break

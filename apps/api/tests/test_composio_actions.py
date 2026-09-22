@@ -1,17 +1,23 @@
 """Offline adapter checks for exact Composio schemas and dispatch accounting."""
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
 
-from command_center.db.reviewed_actions import TOOLKIT_VERSIONS
+from command_center.db.reviewed_actions import (
+    TOOLKIT_VERSIONS,
+    CalendarEventsQuery,
+    NotionPageQuery,
+)
 from command_center.integrations.composio_actions import (
     CONNECTED_ACCOUNTS_LIST_OPERATION,
     AccountMetadata,
     ChargeContext,
     ComposioActionClient,
+    ProviderFailure,
     ProviderOutcomeUnknown,
 )
 
@@ -58,6 +64,18 @@ def gmail_account() -> AccountMetadata:
         is_disabled=False,
         provider_updated_at=datetime(2026, 9, 21, tzinfo=UTC),
         provider_identity={"email": "sender@example.com"},
+    )
+
+
+def context_account(toolkit: str) -> AccountMetadata:
+    return AccountMetadata(
+        connected_account_id=f"ca_{toolkit}",
+        toolkit=toolkit,
+        auth_config_id=f"ac_{toolkit}",
+        status="ACTIVE",
+        is_disabled=False,
+        provider_updated_at=None,
+        provider_identity={"id": f"{toolkit}-user"},
     )
 
 
@@ -225,3 +243,135 @@ def test_notion_observation_allocates_distinct_durable_budget_operations():
     assert [call[0] for call in tools.calls] == ["NOTION_RETRIEVE_PAGE", "NOTION_GET_PAGE_MARKDOWN"]
     assert charges[0][1] != charges[1][1]
     assert all(charge[2].settled == 1 for charge in charges)
+
+
+def test_calendar_context_uses_pinned_camel_case_list_schema_and_exact_window():
+    client, tools = client_with(
+        {
+            "successful": True,
+            "log_id": "log_calendar",
+            "data": {
+                "etag": "revision-calendar",
+                "timeZone": "America/Los_Angeles",
+                "nextPageToken": "next-synthetic",
+                "items": [
+                    {
+                        "id": "event-synthetic",
+                        "summary": "Synthetic interview",
+                        "start": {"dateTime": "2026-10-01T10:00:00-07:00"},
+                        "end": {"dateTime": "2026-10-01T11:00:00-07:00"},
+                        "etag": "event-revision",
+                    }
+                ],
+            },
+        }
+    )
+    reserve, charges = budget_recorder()
+    query = CalendarEventsQuery(
+        kind="calendar_events",
+        time_min=datetime(2026, 10, 1, tzinfo=UTC),
+        time_max=datetime(2026, 10, 8, tzinfo=UTC),
+        max_results=20,
+        page_token="page-synthetic",
+    )
+    result = client.read_context(
+        query,
+        account=context_account("googlecalendar"),
+        user_id="owner-synthetic",
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert result.context["events"][0]["summary"] == "Synthetic interview"
+    assert result.external_revision == "revision-calendar"
+    assert result.provider_log_ids == ["log_calendar"]
+    assert tools.calls[0][0] == "GOOGLECALENDAR_EVENTS_LIST"
+    assert tools.calls[0][1]["arguments"] == {
+        "calendarId": "primary",
+        "timeMin": "2026-10-01T00:00:00+00:00",
+        "timeMax": "2026-10-08T00:00:00+00:00",
+        "maxResults": 20,
+        "pageToken": "page-synthetic",
+        "singleEvents": True,
+        "orderBy": "startTime",
+    }
+    assert charges[0][0] == "GOOGLECALENDAR_EVENTS_LIST"
+    assert charges[0][2].settled == 1
+
+
+def test_notion_context_returns_bounded_markdown_and_distinct_log_ids():
+    client, _ = client_with(
+        {
+            "successful": True,
+            "log_id": "log_page",
+            "data": {
+                "id": "page-synthetic",
+                "url": "https://notion.example.test/page",
+                "last_edited_time": "2026-10-01T12:00:00Z",
+            },
+        },
+        {
+            "successful": True,
+            "log_id": "log_markdown",
+            "data": {"markdown": "Readable synthetic context. " * 1000},
+        },
+    )
+    reserve, charges = budget_recorder()
+    result = client.read_context(
+        NotionPageQuery(kind="notion_page", page_id="page-synthetic"),
+        account=context_account("notion"),
+        user_id="owner-synthetic",
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert result.context["markdown"].startswith("Readable synthetic context.")
+    assert result.truncated is True
+    assert result.content_sha256 is not None
+    assert result.provider_log_ids == ["log_page", "log_markdown"]
+    assert len(str(result.context)) < 12_500
+    assert charges[0][1] != charges[1][1]
+
+
+def test_calendar_context_rejects_malformed_success_and_preserves_local_pagination():
+    query = CalendarEventsQuery(
+        kind="calendar_events",
+        time_min=datetime(2026, 10, 1, tzinfo=UTC),
+        time_max=datetime(2026, 10, 2, tzinfo=UTC),
+    )
+    malformed, _ = client_with({"successful": True, "data": {"events": []}})
+    reserve, _ = budget_recorder()
+    with pytest.raises(ProviderFailure, match="event list"):
+        malformed.read_context(
+            query,
+            account=context_account("googlecalendar"),
+            user_id="owner-synthetic",
+            charge=ChargeContext(uuid4()),
+            reserve_budget=reserve,
+        )
+
+    large_text = 'Readable "unicode" context 🗓 ' * 300
+    bounded, _ = client_with(
+        {
+            "successful": True,
+            "data": {
+                "nextPageToken": "remote-next-page",
+                "items": [
+                    {"id": f"event-{index}", "summary": f"Event {index}", "description": large_text}
+                    for index in range(20)
+                ],
+            },
+        }
+    )
+    reserve, _ = budget_recorder()
+    result = bounded.read_context(
+        query,
+        account=context_account("googlecalendar"),
+        user_id="owner-synthetic",
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert result.truncated is True
+    assert result.content_sha256 is not None
+    assert result.context["next_page_token"] is None
+    assert result.context["local_omitted_count"] > 0
+    assert "smaller time window" in result.context["continuation_note"]
+    assert len(json.dumps(result.context, ensure_ascii=False).encode()) <= 12_000

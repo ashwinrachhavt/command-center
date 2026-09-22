@@ -33,6 +33,7 @@ CAPABILITIES = {
     "memory_read": [("GET", r"/api/v1/memories/retrieve")],
     "memory_append": [("POST", r"/api/v1/memories")],
     "connected_accounts": [("GET", r"/api/v1/integrations/composio/accounts")],
+    "connected_context": [("POST", r"/api/v1/integrations/composio/context")],
     "gmail_search": [("POST", r"/api/v1/gmail/search")],
     "propose_connected_action": [("POST", r"/api/v1/reviewed-actions")],
     "reviewed_action": [("GET", r"/api/v1/reviewed-actions/[0-9a-f-]+")],

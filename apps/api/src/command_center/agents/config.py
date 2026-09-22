@@ -45,6 +45,7 @@ class AgentProfile(BaseModel):
             "memory_read",
             "memory_append",
             "connected_accounts",
+            "connected_context",
             "gmail_search",
             "propose_connected_action",
             "reviewed_action",
@@ -69,7 +70,7 @@ class AgentProfile(BaseModel):
     def unique_tools(self) -> "AgentProfile":
         if self.composio_tools:
             raise ValueError(
-                "Use the connected_accounts, gmail_search and propose_connected_action tools; "
+                "Use typed connected account, context and proposal tools; "
                 "raw Composio grants cannot bypass account selection and spending controls"
             )
         if len(self.instructions) + sum(map(len, self.skill_files.values())) > 20000:

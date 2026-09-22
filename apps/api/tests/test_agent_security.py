@@ -76,13 +76,13 @@ def test_clerk_invalid_session_rejected(clerk_client, changes):
 
 
 @pytest.fixture
-def running(settings, engine):
+def running(settings, engine, request):
     profile = AgentProfile(
         name="Synthetic",
         description="Test",
         model="synthetic",
         instructions="Use only test tools",
-        tools=["create_task", "memory_read"],
+        tools=getattr(request, "param", ["create_task", "memory_read"]),
     )
     with Session(engine, expire_on_commit=False) as db, db.begin():
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic agent owner")
@@ -189,6 +189,46 @@ def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
             ).status_code
             == 401
         )
+
+
+@pytest.mark.parametrize("running", [["connected_context"]], indirect=True)
+def test_connected_context_grant_does_not_grant_mail_or_external_changes(settings, engine, running):
+    run_id, lease_id = running
+    mcp_headers = {
+        "Authorization": "Bearer "
+        + issue_run_token(settings, run_id, lease_id, audience="command-center-mcp"),
+        "Accept": "application/json, text/event-stream",
+    }
+    api_headers = {
+        "Authorization": "Bearer " + issue_run_token(settings, run_id, lease_id),
+        "Idempotency-Key": str(uuid4()),
+    }
+    with TestClient(create_app(settings)) as client:
+        discovered = client.post(
+            "/mcp/", headers=mcp_headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        )
+        assert discovered.status_code == 200, discovered.text
+        tools = discovered.json()["result"]["tools"]
+        assert [tool["name"] for tool in tools] == ["connected_context"]
+        assert tools[0]["annotations"]["readOnlyHint"] is True
+        assert tools[0]["annotations"]["openWorldHint"] is True
+        for path in (
+            "gmail/search",
+            "integrations/composio/accounts/sync",
+            "reviewed-actions",
+        ):
+            denied = client.post(f"/api/v1/{path}", headers=api_headers, json={})
+            assert denied.status_code == 403, denied.text
+        unscoped = client.post(
+            "/api/v1/integrations/composio/context",
+            headers=api_headers,
+            json={
+                "account_id": str(uuid4()),
+                "query": {"kind": "notion_page", "page_id": str(uuid4())},
+            },
+        )
+        assert unscoped.status_code == 403, unscoped.text
+        assert unscoped.json() == {"detail": "Agent run has no owned work scope"}
 
 
 def test_duplicate_delivery_and_expired_lease_do_not_restart(engine, running):

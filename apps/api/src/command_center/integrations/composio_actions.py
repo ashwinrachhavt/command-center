@@ -17,15 +17,21 @@ from command_center.db.reviewed_actions import (
     ACTION_PAYLOAD,
     TOOLKIT_VERSIONS,
     CalendarCreatePayload,
+    CalendarEventQuery,
+    CalendarEventsQuery,
     CalendarUpdatePayload,
+    ConnectedContextQuery,
     GmailSendPayload,
     LinearCreatePayload,
+    LinearIssueQuery,
     LinearUpdatePayload,
+    NotionPageQuery,
     NotionPublishPayload,
     NotionUpdatePayload,
 )
 
 MAX_SAFE_RESULT_CHARS = 100_000
+MAX_CONTEXT_RESULT_CHARS = 12_000
 IDENTITY_TOOLS = {
     "gmail": "GMAIL_GET_PROFILE",
     "googlecalendar": "GOOGLECALENDAR_GET_CURRENT_USER",
@@ -43,7 +49,7 @@ CONNECTED_OPERATION_LABELS = {
     "NOTION_GET_ABOUT_ME": "Verify Notion identity",
     "GMAIL_FETCH_EMAILS": "Search Gmail messages",
     "GOOGLECALENDAR_EVENTS_GET": "Read Google Calendar event",
-    "GOOGLECALENDAR_EVENTS_LIST": "Check Google Calendar event result",
+    "GOOGLECALENDAR_EVENTS_LIST": "List Google Calendar events",
     "LINEAR_GET_LINEAR_ISSUE": "Read Linear issue",
     "NOTION_RETRIEVE_PAGE": "Read Notion page metadata",
     "NOTION_GET_PAGE_MARKDOWN": "Read Notion page content",
@@ -117,6 +123,15 @@ class ExecutionReceipt:
     data: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ConnectedContextResult:
+    context: dict[str, Any]
+    external_revision: str
+    provider_log_ids: list[str]
+    truncated: bool
+    content_sha256: str | None
+
+
 def _plain(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
@@ -136,6 +151,82 @@ def _bounded(value: Any, limit: int = MAX_SAFE_RESULT_CHARS) -> dict[str, Any]:
 def _revision_hash(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _response_data(data: dict[str, Any]) -> dict[str, Any]:
+    nested = data.get("response_data")
+    return nested if isinstance(nested, dict) else data
+
+
+def _safe_event(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    attendees = value.get("attendees")
+    safe_attendees = []
+    if isinstance(attendees, list):
+        for attendee in attendees[:50]:
+            if isinstance(attendee, dict):
+                safe_attendees.append(
+                    {
+                        key: attendee.get(key)
+                        for key in ("email", "displayName", "responseStatus", "self")
+                    }
+                )
+    return {
+        key: value.get(key)
+        for key in (
+            "id",
+            "status",
+            "summary",
+            "description",
+            "location",
+            "start",
+            "end",
+            "organizer",
+            "htmlLink",
+            "updated",
+            "etag",
+            "recurrence",
+        )
+    } | {"attendees": safe_attendees}
+
+
+def _fit_context(value: dict[str, Any]) -> tuple[dict[str, Any], bool, str | None]:
+    encoded = json.dumps(value, default=str, ensure_ascii=False)
+    if len(encoded.encode()) <= MAX_CONTEXT_RESULT_CHARS:
+        return value, False, None
+    digest = hashlib.sha256(encoded.encode()).hexdigest()
+    if isinstance(value.get("events"), list):
+        clipped = dict(value)
+        events = list(value["events"])
+        clipped["events"] = events
+        omitted = 0
+        while events and len(json.dumps(clipped, default=str, ensure_ascii=False).encode()) > (
+            MAX_CONTEXT_RESULT_CHARS
+        ):
+            events.pop()
+            omitted += 1
+            clipped.update(
+                next_page_token=None,
+                local_omitted_count=omitted,
+                continuation_note=(
+                    "Some matching events were omitted locally; retry with a smaller time window."
+                ),
+            )
+        return clipped, True, digest
+    if isinstance(value.get("markdown"), str):
+        clipped = dict(value)
+        markdown = value["markdown"]
+        clipped["markdown"] = markdown
+        while markdown and len(json.dumps(clipped, default=str, ensure_ascii=False).encode()) > (
+            MAX_CONTEXT_RESULT_CHARS
+        ):
+            markdown = markdown[: len(markdown) // 2]
+            clipped["markdown"] = markdown
+        if markdown:
+            return clipped, True, digest
+    preview = encoded[: MAX_CONTEXT_RESULT_CHARS // 2]
+    return {"json_preview": preview}, True, digest
 
 
 def _sub_operation(operation_id: UUID, label: str) -> UUID:
@@ -359,6 +450,160 @@ class ComposioActionClient:
             "result_size_estimate": data.get("resultSizeEstimate"),
             "log_id": result.get("log_id"),
         }
+
+    def read_context(
+        self,
+        query: ConnectedContextQuery,
+        *,
+        account: AccountMetadata,
+        user_id: str,
+        charge: ChargeContext,
+        reserve_budget: ReserveBudget,
+    ) -> ConnectedContextResult:
+        results: list[dict[str, Any]] = []
+        context: dict[str, Any]
+        revision: str
+        if isinstance(query, CalendarEventsQuery):
+            arguments: dict[str, Any] = {
+                "calendarId": query.calendar_id,
+                "timeMin": query.time_min.isoformat(),
+                "timeMax": query.time_max.isoformat(),
+                "maxResults": query.max_results,
+                "singleEvents": True,
+                "orderBy": "startTime",
+            }
+            if query.page_token is not None:
+                arguments["pageToken"] = query.page_token
+            result = self._execute(
+                "GOOGLECALENDAR_EVENTS_LIST",
+                arguments,
+                account=account,
+                user_id=user_id,
+                charge=charge,
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            results.append(result)
+            data = _response_data(result["data"])
+            items = data.get("items")
+            if not isinstance(items, list):
+                raise ProviderFailure("Provider calendar response did not include an event list")
+            events = [event for item in items[: query.max_results] if (event := _safe_event(item))]
+            context = {
+                "calendar_id": query.calendar_id,
+                "events": events,
+                "next_page_token": data.get("nextPageToken") or None,
+                "time_zone": data.get("timeZone") or None,
+            }
+            revision = str(data.get("etag") or _revision_hash(context))
+        elif isinstance(query, CalendarEventQuery):
+            result = self._execute(
+                "GOOGLECALENDAR_EVENTS_GET",
+                {"calendar_id": query.calendar_id, "event_id": query.event_id},
+                account=account,
+                user_id=user_id,
+                charge=charge,
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            results.append(result)
+            data = _response_data(result["data"])
+            if not data.get("id"):
+                raise ProviderFailure("Provider calendar response did not identify the event")
+            event = _safe_event(data)
+            if event is None:
+                raise ProviderFailure("Provider returned an invalid calendar event")
+            context = {"calendar_id": query.calendar_id, "event": event}
+            revision = str(data.get("etag") or data.get("updated") or _revision_hash(context))
+        elif isinstance(query, LinearIssueQuery):
+            result = self._execute(
+                "LINEAR_GET_LINEAR_ISSUE",
+                {"issue_id": query.issue_id},
+                account=account,
+                user_id=user_id,
+                charge=charge,
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            results.append(result)
+            data = _response_data(result["data"])
+            issue_value = data.get("issue")
+            issue: dict[str, Any] = issue_value if isinstance(issue_value, dict) else data
+            if not issue.get("id") and not issue.get("identifier"):
+                raise ProviderFailure("Provider Linear response did not identify the issue")
+            context = {
+                "issue": {
+                    key: issue.get(key)
+                    for key in (
+                        "id",
+                        "identifier",
+                        "url",
+                        "title",
+                        "description",
+                        "priority",
+                        "dueDate",
+                        "updatedAt",
+                        "state",
+                        "assignee",
+                        "labels",
+                    )
+                }
+            }
+            revision = str(issue.get("updatedAt") or _revision_hash(context))
+        elif isinstance(query, NotionPageQuery):
+            page_result = self._execute(
+                "NOTION_RETRIEVE_PAGE",
+                {"page_id": query.page_id},
+                account=account,
+                user_id=user_id,
+                charge=charge,
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            markdown_result = self._execute(
+                "NOTION_GET_PAGE_MARKDOWN",
+                {"page_id": query.page_id, "include_transcript": False},
+                account=account,
+                user_id=user_id,
+                charge=ChargeContext(_sub_operation(charge.operation_id, "notion-markdown")),
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            results.extend((page_result, markdown_result))
+            page = _response_data(page_result["data"])
+            content = _response_data(markdown_result["data"])
+            if not page.get("id"):
+                raise ProviderFailure("Provider Notion response did not identify the page")
+            if not isinstance(content.get("markdown"), str):
+                raise ProviderFailure("Provider Notion response did not include page markdown")
+            context = {
+                "page": {
+                    key: page.get(key)
+                    for key in (
+                        "id",
+                        "url",
+                        "parent",
+                        "properties",
+                        "created_time",
+                        "last_edited_time",
+                        "archived",
+                        "icon",
+                        "cover",
+                    )
+                },
+                "markdown": str(content.get("markdown", "")),
+            }
+            revision = str(page.get("last_edited_time") or _revision_hash(context))
+        else:  # pragma: no cover - the discriminated union is exhaustive
+            raise ValueError("Unknown connected context query")
+        fitted, truncated, content_sha256 = _fit_context(context)
+        return ConnectedContextResult(
+            context=fitted,
+            external_revision=revision[:500],
+            provider_log_ids=[str(item["log_id"])[:500] for item in results if item.get("log_id")],
+            truncated=truncated,
+            content_sha256=content_sha256,
+        )
 
     def observe_target(
         self,

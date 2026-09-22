@@ -62,6 +62,7 @@ ActionState = Literal[
 ]
 ReviewDecision = Literal["approved", "rejected", "revoked"]
 ReviewState = Literal["proposed", "approved", "rejected", "revoked"]
+ConnectedContextKind = Literal["calendar_events", "calendar_event", "linear_issue", "notion_page"]
 
 TOOLKIT_FOR_KIND: dict[str, str] = {
     "gmail_send": "gmail",
@@ -100,6 +101,57 @@ CONDITIONAL_UPDATE_NOTICE = (
     "The provider tool does not expose a conditional revision header. Command Center checks the "
     "target immediately before execution, but a remote edit can still race with the write."
 )
+CONTEXT_TOOLKIT_FOR_KIND: dict[str, str] = {
+    "calendar_events": "googlecalendar",
+    "calendar_event": "googlecalendar",
+    "linear_issue": "linear",
+    "notion_page": "notion",
+}
+
+
+class ContextQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    kind: ConnectedContextKind
+
+
+class CalendarEventsQuery(ContextQuery):
+    kind: Literal["calendar_events"]
+    calendar_id: str = Field(default="primary", min_length=1, max_length=300)
+    time_min: AwareDatetime
+    time_max: AwareDatetime
+    max_results: int = Field(default=20, ge=1, le=50)
+    page_token: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def bounded_window(self) -> "CalendarEventsQuery":
+        if self.time_max <= self.time_min:
+            raise ValueError("Calendar context end must follow its start")
+        if self.time_max - self.time_min > timedelta(days=31):
+            raise ValueError("Calendar context is limited to 31 days")
+        return self
+
+
+class CalendarEventQuery(ContextQuery):
+    kind: Literal["calendar_event"]
+    calendar_id: str = Field(default="primary", min_length=1, max_length=300)
+    event_id: str = Field(min_length=1, max_length=500)
+
+
+class LinearIssueQuery(ContextQuery):
+    kind: Literal["linear_issue"]
+    issue_id: str = Field(min_length=1, max_length=100)
+
+
+class NotionPageQuery(ContextQuery):
+    kind: Literal["notion_page"]
+    page_id: str = Field(min_length=1, max_length=100)
+
+
+ConnectedContextQuery = Annotated[
+    CalendarEventsQuery | CalendarEventQuery | LinearIssueQuery | NotionPageQuery,
+    Field(discriminator="kind"),
+]
+CONNECTED_CONTEXT_QUERY: TypeAdapter[ConnectedContextQuery] = TypeAdapter(ConnectedContextQuery)
 
 
 class Payload(BaseModel):
@@ -281,6 +333,12 @@ class ExternalAccount(OwnedRecord, Base):
     provider_updated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     identity_verified_at: Mapped[datetime] = mapped_column(UTCDateTime)
     selected_purpose: Mapped[str | None] = mapped_column(String(50))
+
+    def require_context_query(self, query: ConnectedContextQuery) -> None:
+        if self.connection_status != "ACTIVE" or self.archived_at is not None:
+            raise ValueError("Choose an active connected account")
+        if self.toolkit != CONTEXT_TOOLKIT_FOR_KIND[query.kind]:
+            raise ValueError("Connected account does not match this context query")
 
     @classmethod
     def sync(
@@ -1000,7 +1058,9 @@ class ProviderObservation(Base):
     __tablename__ = "provider_observations"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('gmail_search','calendar_event','linear_issue','notion_page')", name="kind"
+            "kind IN ('gmail_search','calendar_events','calendar_event','linear_issue',"
+            "'notion_page')",
+            name="kind",
         ),
         CheckConstraint("length(request_hash) = 64", name="request_hash"),
         Index("ix_provider_observations_owner_kind", "owner_id", "kind", "observed_at"),
@@ -1045,6 +1105,47 @@ class ProviderObservation(Base):
             result=result,
             external_revision=external_revision,
         )
+
+    @classmethod
+    def capture_context(
+        cls,
+        session: Session,
+        *,
+        request_id: UUID,
+        record_id: UUID,
+        owner_id: UUID,
+        account_id: UUID,
+        task_id: UUID | None,
+        opportunity_id: UUID | None,
+        kind: ConnectedContextKind,
+        request: dict[str, Any],
+        result: dict[str, Any],
+        external_revision: str,
+    ) -> "ProviderObservation":
+        observation = cls.capture(
+            record_id=record_id,
+            owner_id=owner_id,
+            account_id=account_id,
+            task_id=task_id,
+            opportunity_id=opportunity_id,
+            kind=kind,
+            request=request,
+            result=result,
+            external_revision=external_revision,
+        )
+        session.add(observation)
+        session.flush()
+        record_event(
+            session,
+            owner_id,
+            request_id,
+            "connected_context.observed",
+            cls.__tablename__,
+            observation.id,
+            account_id=str(account_id),
+            kind=kind,
+        )
+        return observation
 
 
 class ConnectedRequest(Base):

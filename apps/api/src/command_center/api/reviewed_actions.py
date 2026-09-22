@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -26,6 +26,8 @@ from command_center.db.reviewed_actions import (
     CONDITIONAL_UPDATE_NOTICE,
     ActionAttempt,
     ActionPayload,
+    ConnectedContextKind,
+    ConnectedContextQuery,
     ConnectedRequest,
     ExternalAccount,
     ProviderObservation,
@@ -74,6 +76,23 @@ class GmailSearchRead(s.ResponseContract):
     messages: list[dict[str, Any]]
     next_page_token: str | None
     result_size_estimate: int | None
+
+
+class ConnectedContextCreate(s.Contract):
+    account_id: UUID
+    query: ConnectedContextQuery
+
+
+class ConnectedContextRead(s.ResponseContract):
+    observation_id: UUID
+    account_id: UUID
+    kind: ConnectedContextKind
+    observed_at: datetime
+    external_revision: str
+    provider_log_ids: list[Annotated[str, Field(max_length=500)]] = Field(max_length=4)
+    context: dict[str, Any]
+    truncated: bool
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class ActionFields(s.Contract):
@@ -402,10 +421,28 @@ def _claim_connected(
         if claim.state == "completed" and claim.response is not None:
             return claim.id, claim.response
         if claim.state == "running":
-            raise HTTPException(409, "This connected request is already running")
+            raise HTTPException(
+                409,
+                {
+                    "code": "connected_request_running",
+                    "message": "This connected request is already running",
+                },
+            )
         if claim.state == "outcome_unknown":
-            raise HTTPException(409, "The connected provider outcome is unknown; do not replay it")
-        raise HTTPException(409, "This connected request already failed and was not replayed")
+            raise HTTPException(
+                409,
+                {
+                    "code": "connected_request_outcome_unknown",
+                    "message": "The connected provider outcome is unknown; do not replay it",
+                },
+            )
+        raise HTTPException(
+            409,
+            {
+                "code": "connected_request_failed",
+                "message": "This connected request already failed and was not replayed",
+            },
+        )
 
 
 def _fail_connected(request: Request, claim_id: UUID, code: str, *, unknown: bool) -> None:
@@ -712,6 +749,117 @@ def search_gmail(
             messages=result["messages"],
             next_page_token=result["next_page_token"],
             result_size_estimate=result["result_size_estimate"],
+        ).model_dump(mode="json")
+
+    return _finalize_connected(
+        request,
+        claim_id=claim_id,
+        actor_id=identity.id,
+        key=key,
+        operation=operation,
+        payload=payload,
+        change=change,
+    )
+
+
+@router.post("/integrations/composio/context", response_model=ConnectedContextRead)
+def connected_context(
+    body: ConnectedContextCreate,
+    request: Request,
+    identity: CurrentIdentity,
+    key: WriteKey,
+) -> dict[str, Any]:
+    operation = "POST:/api/v1/integrations/composio/context"
+    payload = body.model_dump(mode="json")
+    with Session(request.app.state.engine) as db:
+        task_id, opportunity_id = _scope(db, identity)
+        account = _owned_account(db, body.account_id, identity.id)
+        account.require_context_query(body.query)
+        account_input = _metadata(account)
+        stored_identity = dict(account.provider_identity)
+        if identity.run_id is not None:
+            fence_agent_write(request, db)
+    adapter = _adapter(request)
+    claim_id, replay = _claim_connected(
+        request, actor_id=identity.id, key=key, operation=operation, payload=payload
+    )
+    if replay is not None:
+        return replay
+    budget = _budget(request, identity.id, task_id, opportunity_id, claim_id)
+    try:
+        metadata = adapter.account_metadata(
+            connected_account_id=account_input.connected_account_id,
+            expected_toolkit=account_input.toolkit,
+            expected_auth_config_id=account_input.auth_config_id,
+            user_id=str(identity.id),
+            operation_id=uuid5(claim_id, "account"),
+            reserve_budget=budget,
+        )
+        verified = adapter.verify_identity(
+            metadata,
+            user_id=str(identity.id),
+            charge=ChargeContext(uuid5(claim_id, "identity")),
+            reserve_budget=budget,
+        )
+        if verified.identity != stored_identity:
+            raise ProviderFailure("Connected account identity changed")
+        result = adapter.read_context(
+            body.query,
+            account=metadata,
+            user_id=str(identity.id),
+            charge=ChargeContext(uuid5(claim_id, "context")),
+            reserve_budget=budget,
+        )
+    except SpendingDenied as exc:
+        _deny_connected(request, claim_id, exc)
+    except (ProviderFailure, ProviderOutcomeUnknown) as exc:
+        unknown = isinstance(exc, ProviderOutcomeUnknown)
+        _fail_connected(request, claim_id, "connected_context_provider_failed", unknown=unknown)
+        raise HTTPException(503, "Connected context is temporarily unavailable") from exc
+    except Exception:
+        _fail_connected(request, claim_id, "connected_context_failed", unknown=False)
+        raise
+
+    def change(db: Session, record_id: UUID) -> dict[str, Any]:
+        if identity.run_id is not None:
+            fence_agent_write(request, db)
+        current = _owned_account(db, body.account_id, identity.id, lock=True)
+        current.require_context_query(body.query)
+        if (
+            current.composio_connected_account_id != metadata.connected_account_id
+            or current.composio_auth_config_id != metadata.auth_config_id
+            or current.provider_identity != verified.identity
+        ):
+            raise ValueError("Connected account changed during context retrieval")
+        stored_result = {
+            "context": result.context,
+            "provider_log_ids": result.provider_log_ids,
+            "truncated": result.truncated,
+            "content_sha256": result.content_sha256,
+        }
+        observation = ProviderObservation.capture_context(
+            db,
+            request_id=UUID(request.state.request_id),
+            record_id=record_id,
+            owner_id=identity.id,
+            account_id=current.id,
+            task_id=task_id,
+            opportunity_id=opportunity_id,
+            kind=body.query.kind,
+            request=payload,
+            result=stored_result,
+            external_revision=result.external_revision,
+        )
+        return ConnectedContextRead(
+            observation_id=observation.id,
+            account_id=current.id,
+            kind=body.query.kind,
+            observed_at=observation.observed_at,
+            external_revision=result.external_revision,
+            provider_log_ids=result.provider_log_ids,
+            context=result.context,
+            truncated=result.truncated,
+            content_sha256=result.content_sha256,
         ).model_dump(mode="json")
 
     return _finalize_connected(

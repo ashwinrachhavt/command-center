@@ -1586,6 +1586,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/composio/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connected Context */
+        post: operations["connected_context_api_v1_integrations_composio_context_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reviewed-actions": {
         parameters: {
             query?: never;
@@ -2434,6 +2451,51 @@ export interface components {
              */
             create_meeting_room: boolean;
         };
+        /** CalendarEventQuery */
+        CalendarEventQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "calendar_event";
+            /**
+             * Calendar Id
+             * @default primary
+             */
+            calendar_id: string;
+            /** Event Id */
+            event_id: string;
+        };
+        /** CalendarEventsQuery */
+        CalendarEventsQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "calendar_events";
+            /**
+             * Calendar Id
+             * @default primary
+             */
+            calendar_id: string;
+            /**
+             * Time Min
+             * Format: date-time
+             */
+            time_min: string;
+            /**
+             * Time Max
+             * Format: date-time
+             */
+            time_max: string;
+            /**
+             * Max Results
+             * @default 20
+             */
+            max_results: number;
+            /** Page Token */
+            page_token?: string | null;
+        };
         /** CalendarUpdatePayload */
         CalendarUpdatePayload: {
             /**
@@ -2565,6 +2627,51 @@ export interface components {
         ConnectRequest: {
             /** Toolkit */
             toolkit: string;
+        };
+        /** ConnectedContextCreate */
+        ConnectedContextCreate: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Query */
+            query: components["schemas"]["CalendarEventsQuery"] | components["schemas"]["CalendarEventQuery"] | components["schemas"]["LinearIssueQuery"] | components["schemas"]["NotionPageQuery"];
+        };
+        /** ConnectedContextRead */
+        ConnectedContextRead: {
+            /**
+             * Observation Id
+             * Format: uuid
+             */
+            observation_id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "calendar_events" | "calendar_event" | "linear_issue" | "notion_page";
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** External Revision */
+            external_revision: string;
+            /** Provider Log Ids */
+            provider_log_ids: string[];
+            /** Context */
+            context: {
+                [key: string]: unknown;
+            };
+            /** Truncated */
+            truncated: boolean;
+            /** Content Sha256 */
+            content_sha256?: string | null;
         };
         /**
          * ConnectionState
@@ -3233,6 +3340,16 @@ export interface components {
             /** Label Ids */
             label_ids?: string[];
         };
+        /** LinearIssueQuery */
+        LinearIssueQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linear_issue";
+            /** Issue Id */
+            issue_id: string;
+        };
         /** LinearUpdatePayload */
         LinearUpdatePayload: {
             /**
@@ -3480,6 +3597,16 @@ export interface components {
             output_per_million_micros: number;
             /** Fixed Micros */
             fixed_micros: number;
+        };
+        /** NotionPageQuery */
+        NotionPageQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "notion_page";
+            /** Page Id */
+            page_id: string;
         };
         /** NotionPublishPayload */
         NotionPublishPayload: {
@@ -8792,6 +8919,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GmailSearchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connected_context_api_v1_integrations_composio_context_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectedContextCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectedContextRead"];
                 };
             };
             /** @description Validation Error */
