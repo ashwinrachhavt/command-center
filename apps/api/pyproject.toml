@@ -15,12 +15,22 @@ dependencies = [
   "email-validator>=2.2,<3",
   "langgraph>=1,<2",
   "langchain-openai>=1,<2",
-  "composio>=0.11,<1",
+  "composio==0.21.1",
+  "composio-client==1.43.0",
   "celery[redis]>=5.5,<6",
   "jsonschema>=4,<5",
   "mcp>=1.26,<2",
   "langchain-mcp-adapters>=0.2,<1",
+  "deepagents==0.7.16",
+  "langgraph-checkpoint-postgres==3.1.2",
+  "python-multipart>=0.0.22,<1",
+  "langchain-google-genai>=4,<5",
+  "langchain-mistralai>=1,<2",
+  "langchain-cohere>=0.5,<1",
 ]
+
+[project.optional-dependencies]
+executor = ["docker>=7.2,<8"]
 
 [dependency-groups]
 dev = [

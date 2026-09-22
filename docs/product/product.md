@@ -1,10 +1,10 @@
 # product.md — Direction and scope
 
-**Parent:** [Product Spec](../product-spec.md). **Revision:** 2026-09-21-r4. **Purpose:** strategy and decision rationale, not a second requirement list.
+**Parent:** [Product Spec](product-spec.md). **Revision:** 2026-09-21-r4. **Purpose:** strategy and decision rationale, not a second requirement list.
 
 ## Product thesis
 
-The user expanded the direction on 2026-09-21: Command Center should become a configurable agent workspace for operating a one-person company, starting with the existing job/research/application workflow. The implemented runtime uses custom LangGraph/OpenAI. After reopening the comparison with custom LangGraph and Codex, the user selected Deep Agents on LangGraph for the new architecture. Composio is now the integration priority. A browser extension/client connects the running server to the user's signed-in local browser to inspect and fill forms seamlessly, without exporting browser cookies or profiles. The named AISpot/Youspot reference was uncertain inspiration, not a selected product dependency.
+The user expanded the direction on 2026-09-21: Command Center should become a configurable agent workspace for operating a one-person company, starting with the existing job/research/application workflow. The implemented runtime uses Deep Agents on LangGraph/OpenAI with Celery and persistent task/opportunity conversations. After reopening the comparison with custom LangGraph and Codex, the user selected Deep Agents on LangGraph for the new architecture. Composio is now the integration priority. A browser extension/client connects the running server to the user's signed-in local browser to inspect and fill forms seamlessly, without exporting browser cookies or profiles. The named AISpot/Youspot reference was uncertain inspiration, not a selected product dependency.
 
 Job search is fragmented across job boards, relationships, inboxes, documents and portals. Command Center should turn a search intent into high-quality applications and deliberate follow-ups, while retaining the evidence and exact work used. Agents should do the repetitive browser work without requiring the user to supervise every field.
 
@@ -23,9 +23,9 @@ Implementation direction confirmed 2026-09-21: start the scaffold with FastAPI, 
 | Autonomous discovery, qualification, tailored answers and submission | Round-1 answer; a drafts-only outcome is insufficient |
 | Start with Notion leads and discover more | Round-1 answer; Hunter/Apollo/Firecrawl/free sources form the desired strategy |
 | Jobs, outreach and applications now; relationship/SaaS prospecting later | Round-1 answer; no generic business-platform release yet |
-| One Product Spec and one Tech Spec | Latest organization decision; absorb planning/context and remove redundant active docs |
+| Product, Tech and Design specs | Canonical outcome, architecture and UX contracts; absorb duplicate planning/context notes |
 
-Latest agent-interview decisions refine the first delivery: one lead with visible specialists on Deep Agents; Copilot-style browser assistance with the user reviewing/clicking Next/submitting; outreach approved for sending inside Command Center; and isolated scripts producing interview-prep/company-research documents. The backend targets always-on operation while the authenticated application stays in Chrome. A reviewed Command Center profile backed by selected documents is authoritative; missing application answers are collected together. Composio initially targets Gmail, Google Calendar, Linear and Notion, with external changes reviewed and Slack next. Automatic application submission remains a later goal. [Product Spec](../product-spec.md#first-agent-release--confirmed-interview-direction) owns this current release boundary and the unresolved product choices.
+Latest agent-interview decisions refine the first delivery: one lead with visible specialists on Deep Agents; Copilot-style browser assistance with the user reviewing/clicking Next/submitting; outreach approved for sending inside Command Center; and isolated scripts producing interview-prep/company-research documents. The backend targets always-on operation while the authenticated application stays in Chrome. A reviewed Command Center profile backed by selected documents is authoritative; missing application answers are collected together. Composio initially targets Gmail, Google Calendar, Linear and Notion, with external changes reviewed and Slack next. Automatic application submission remains a later goal. [Product Spec](product-spec.md#first-agent-release--confirmed-interview-direction) owns this current release boundary and the unresolved product choices.
 
 ## Scope tradeoffs
 
@@ -48,4 +48,6 @@ The supplied Comp AI analysis contributes durable-worker, evidence, versioned-sk
 
 ## Planning ownership
 
-Product Spec owns capabilities, user journeys, acceptance and open product questions. Tech Spec owns architecture, model, states, runtime authority, integrations and sources. Its [engineering.md](../tech/engineering.md) owns work sequencing/tests; [design.md](../tech/design.md) owns the user experience. The home page is a navigation index. Existing operational leads remain unchanged and are linked, not duplicated here.
+Product Spec owns capabilities, user journeys, acceptance and open product questions. Tech Spec owns architecture, model, states, runtime authority, integrations and sources. Its [engineering.md](../tech/engineering.md) owns work sequencing/tests; [Design Spec](../design/design-spec.md) owns the user experience. The home page is a navigation index. Existing operational leads remain unchanged and are linked, not duplicated here.
+
+The latest navigation clarification treats Overview as one section: sidebar choices open full pages, while suitable body actions open dialogs or contextual side panels. The user selected pytest/pytest-mock for tests and mocking, and DeepEval for agent evals. These decisions are specified in [Product Spec](product-spec.md) and [Tech Spec](../tech/tech-spec.md); [Design Spec](../design/design-spec.md) owns interaction acceptance. The user subsequently authorized autonomous implementation; the Deep Agents runtime/conversation slice is implemented, while the broader workflows remain in progress.

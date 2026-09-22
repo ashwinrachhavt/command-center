@@ -1,4 +1,4 @@
-"""Authentication, scoped MCP discovery, leases and a mocked ReAct loop."""
+"""Authentication, scoped MCP discovery, leases and synthetic Deep Agents execution."""
 
 from datetime import timedelta
 from types import SimpleNamespace
@@ -8,11 +8,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from sqlalchemy.orm import Session
 
 from command_center.agents.config import AgentProfile, load_profiles
-from command_center.agents.runtime import ToolRegistry, run_graph
+from command_center.agents.tools import ToolRegistry
 from command_center.core.capabilities import issue_run_token
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
@@ -76,13 +76,13 @@ def test_clerk_invalid_session_rejected(clerk_client, changes):
 
 
 @pytest.fixture
-def running(settings, engine):
+def running(settings, engine, request):
     profile = AgentProfile(
         name="Synthetic",
         description="Test",
         model="synthetic",
         instructions="Use only test tools",
-        tools=["create_task", "memory_read"],
+        tools=getattr(request, "param", ["create_task", "memory_read"]),
     )
     with Session(engine, expire_on_commit=False) as db, db.begin():
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic agent owner")
@@ -112,7 +112,8 @@ def test_agent_api_capability_replay_and_cancel(settings, engine, running):
         "Idempotency-Key": str(uuid4()),
     }
     with TestClient(create_app(settings)) as client:
-        assert client.get("/api/v1/memories", headers=headers).status_code == 200
+        assert client.get("/api/v1/memories/retrieve", headers=headers).status_code == 200
+        assert client.get("/api/v1/memories", headers=headers).status_code == 403
         assert client.get("/api/v1/companies", headers=headers).status_code == 403
         first = client.post(
             "/api/v1/tasks", json={"title": "Synthetic agent task"}, headers=headers
@@ -126,7 +127,7 @@ def test_agent_api_capability_replay_and_cancel(settings, engine, running):
         )
         with Session(engine) as db, db.begin():
             db.get(AgentRun, run_id).finish("cancelled")
-        assert client.get("/api/v1/memories", headers=headers).status_code == 401
+        assert client.get("/api/v1/memories/retrieve", headers=headers).status_code == 401
 
 
 def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
@@ -139,7 +140,7 @@ def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
         "Accept": "application/json, text/event-stream",
     }
     with TestClient(create_app(settings)) as client:
-        assert client.get("/api/v1/memories", headers=mcp_headers).status_code == 401
+        assert client.get("/api/v1/memories/retrieve", headers=mcp_headers).status_code == 401
         result = client.post(
             "/mcp/", headers=mcp_headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
         )
@@ -190,6 +191,46 @@ def test_mcp_discovery_is_scoped_and_token_audiences_are_separate(
         )
 
 
+@pytest.mark.parametrize("running", [["connected_context"]], indirect=True)
+def test_connected_context_grant_does_not_grant_mail_or_external_changes(settings, engine, running):
+    run_id, lease_id = running
+    mcp_headers = {
+        "Authorization": "Bearer "
+        + issue_run_token(settings, run_id, lease_id, audience="command-center-mcp"),
+        "Accept": "application/json, text/event-stream",
+    }
+    api_headers = {
+        "Authorization": "Bearer " + issue_run_token(settings, run_id, lease_id),
+        "Idempotency-Key": str(uuid4()),
+    }
+    with TestClient(create_app(settings)) as client:
+        discovered = client.post(
+            "/mcp/", headers=mcp_headers, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        )
+        assert discovered.status_code == 200, discovered.text
+        tools = discovered.json()["result"]["tools"]
+        assert [tool["name"] for tool in tools] == ["connected_context"]
+        assert tools[0]["annotations"]["readOnlyHint"] is True
+        assert tools[0]["annotations"]["openWorldHint"] is True
+        for path in (
+            "gmail/search",
+            "integrations/composio/accounts/sync",
+            "reviewed-actions",
+        ):
+            denied = client.post(f"/api/v1/{path}", headers=api_headers, json={})
+            assert denied.status_code == 403, denied.text
+        unscoped = client.post(
+            "/api/v1/integrations/composio/context",
+            headers=api_headers,
+            json={
+                "account_id": str(uuid4()),
+                "query": {"kind": "notion_page", "page_id": str(uuid4())},
+            },
+        )
+        assert unscoped.status_code == 403, unscoped.text
+        assert unscoped.json() == {"detail": "Agent run has no owned work scope"}
+
+
 def test_duplicate_delivery_and_expired_lease_do_not_restart(engine, running):
     run_id, _ = running
     with Session(engine) as db, db.begin():
@@ -202,58 +243,31 @@ def test_duplicate_delivery_and_expired_lease_do_not_restart(engine, running):
         assert AgentRun.claim(db, run_id) is None
 
 
-def test_react_loop_uses_skills_and_preserves_tool_call_id(settings, mocker):
+def test_profiles_pin_skills_separately_from_directives():
     profiles, revision = load_profiles("agents/profiles.toml")
     profile = profiles["research"]
-    assert revision and "Skill: research" in profile.instructions
-    registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-credential")
-    execute = mocker.patch.object(registry, "execute", return_value='{"items": []}')
-    model = mocker.Mock()
-    model.bind_tools.return_value = model
-    model.invoke.side_effect = [
-        AIMessage(
-            content="",
-            tool_calls=[
-                {"name": "memory_read", "args": {"query": "preference"}, "id": "call_stable"}
-            ],
-        ),
-        AIMessage(content="No remembered preference found."),
-    ]
-    states = []
-    result = run_graph(profile, "Find my preference", registry, states.append, model=model)
-    assert result == "No remembered preference found."
-    execute.assert_called_once_with("memory_read", {"query": "preference"}, "call_stable")
-    assert any(isinstance(message, ToolMessage) for message in model.invoke.call_args.args[0])
-    assert states[-1]["steps"] == 2
-    assert "synthetic-credential" not in str(states)
+    assert revision and profile.skill_files["research"]
+    assert profile.skill_files["research"] not in profile.instructions
+    assert profiles["lead"].specialists["research"] == profile
 
 
-def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(settings, engine, mocker):
-    """The only mock is the paid model; MCP, HTTP auth and SQL writes are real."""
-    import socket
-    import threading
-    import time
-
-    import uvicorn
-    from pydantic import SecretStr
+def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
+    agent_server,
+    engine,
+    mocker,
+    scripted_model,
+):
+    """Only paid generation is mocked; MCP, HTTP authorization and SQL writes are real."""
+    from sqlalchemy import select
 
     from command_center.agents.worker import perform_next
     from command_center.db.models import Task
+    from command_center.db.spending import SpendingPolicy, SpendingRateCard
 
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    port = listener.getsockname()[1]
-    config = settings.model_copy(
-        update={
-            "internal_api_url": f"http://127.0.0.1:{port}",
-            "allowed_hosts": ["127.0.0.1"],
-            "openai_api_key": SecretStr("synthetic-model-key"),
-        }
-    )
     profile = AgentProfile(
         name="Test",
         description="Test",
-        model="synthetic",
+        model="gpt-5-mini",
         instructions="Synthetic test only",
         tools=["create_task"],
         max_steps=3,
@@ -261,6 +275,36 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(settings, engi
     with Session(engine, expire_on_commit=False) as db, db.begin():
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic worker owner")
         db.add(actor)
+        db.flush()
+        card = SpendingRateCard.create(
+            db,
+            owner_id=actor.id,
+            name="Synthetic worker rates",
+            source_label="Synthetic test fixture",
+            rates={
+                "models": [
+                    {
+                        "provider": profile.provider,
+                        "model": profile.model,
+                        "input_per_million_micros": 0,
+                        "output_per_million_micros": 0,
+                        "fixed_micros": 1,
+                    }
+                ],
+                "tools": [],
+            },
+            request_id=uuid4(),
+        )
+        SpendingPolicy.configure(
+            db,
+            owner_id=actor.id,
+            rate_card_id=card.id,
+            monthly_limit_micros=1_000_000,
+            default_work_limit_micros=1_000_000,
+            active=True,
+            request_id=uuid4(),
+            expected_version=None,
+        )
         db.flush()
         run = AgentRun.enqueue(
             db,
@@ -274,45 +318,30 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(settings, engi
         )
         db.flush()
         run_id, actor_id = run.id, actor.id
-    model = mocker.Mock()
-    model.bind_tools.return_value = model
-    model.invoke.side_effect = [
-        AIMessage(
-            content="",
-            tool_calls=[
-                {
-                    "name": "create_task",
-                    "args": {"title": "MCP integration task"},
-                    "id": "call_mcp_test",
-                }
-            ],
-        ),
-        AIMessage(content="Created the task."),
-    ]
-    mocker.patch("command_center.agents.worker.openai_model", return_value=model)
-    server = uvicorn.Server(uvicorn.Config(create_app(config), log_level="error", access_log=False))
-    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-    thread.start()
-    try:
-        for _ in range(500):
-            if server.started:
-                break
-            time.sleep(0.01)
-        assert server.started
-        assert perform_next(engine, config, run_id)
-        with Session(engine) as db:
-            completed = db.get(AgentRun, run_id)
-            assert completed.state == "completed", completed.error_code
-            assert completed.output == "Created the task."
-            assert completed.tool_steps()[0]["state"] == "output-available"
-            from sqlalchemy import select
-
-            assert (
-                db.scalar(select(Task).where(Task.owner_id == actor_id)).title
-                == "MCP integration task"
-            )
-        assert not perform_next(engine, config, run_id)
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-        listener.close()
+    model = scripted_model(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "create_task",
+                        "args": {"title": "MCP integration task"},
+                        "id": "call_mcp_test",
+                    }
+                ],
+            ),
+            AIMessage(content="Created the task."),
+        ]
+    )
+    mocker.patch("command_center.agents.worker.create_chat_model", return_value=model)
+    assert perform_next(engine, agent_server, run_id)
+    with Session(engine) as db:
+        completed = db.get(AgentRun, run_id)
+        assert completed.state == "completed", completed.error_code
+        assert completed.output == "Created the task."
+        assert completed.tool_steps()[0]["state"] == "output-available"
+        assert completed.tool_steps()[0]["id"] == "call_mcp_test"
+        assert (
+            db.scalar(select(Task).where(Task.owner_id == actor_id)).title == "MCP integration task"
+        )
+    assert not perform_next(engine, agent_server, run_id)

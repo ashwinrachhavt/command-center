@@ -1,7 +1,7 @@
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import func, select
 
 from command_center.api import schemas as s
@@ -21,6 +21,7 @@ from command_center.api.workspace import (
 from command_center.core.identity import CurrentIdentity
 from command_center.db.artifacts import (
     Artifact,
+    ArtifactDerivation,
     ArtifactReview,
     ArtifactVersion,
     Document,
@@ -42,6 +43,19 @@ def artifact_data(db: Database, artifact: Artifact) -> dict[str, Any]:
     )
     facet = db.get(Document, artifact.id)
     data["document_type_id"] = str(facet.document_type_id) if facet else None
+    return data
+
+
+def version_data(db: Database, version: ArtifactVersion) -> dict[str, Any]:
+    data = serialize(version)
+    data["input_version_ids"] = [
+        str(input_id)
+        for input_id in db.scalars(
+            select(ArtifactDerivation.input_version_id)
+            .where(ArtifactDerivation.output_version_id == version.id)
+            .order_by(ArtifactDerivation.input_version_id)
+        )
+    ]
     return data
 
 
@@ -142,11 +156,12 @@ def archive_artifact(
 @router.get("/artifacts/{record_id}/versions", response_model=list[s.VersionRead])
 def versions(record_id: UUID, identity: CurrentIdentity, db: Database) -> Any:
     owned(db, Artifact, record_id, identity.id)
-    return db.scalars(
+    rows = db.scalars(
         select(ArtifactVersion)
         .where(ArtifactVersion.artifact_id == record_id)
         .order_by(ArtifactVersion.version.desc())
     ).all()
+    return [version_data(db, version) for version in rows]
 
 
 @router.post("/artifacts/{record_id}/versions", response_model=s.VersionRead, status_code=201)
@@ -161,11 +176,14 @@ def append_version(
     def change(version_id: UUID) -> dict[str, Any]:
         artifact = owned(db, Artifact, record_id, identity.id, lock=True)
         check_version(artifact, body.expected_version)
-        version = artifact.append_text(
-            body.text, version_id=version_id, request_id=UUID(request.state.request_id)
+        version = artifact.revise_text(
+            body.text,
+            based_on_version_id=body.based_on_version_id,
+            version_id=version_id,
+            request_id=UUID(request.state.request_id),
         )
         db.flush()
-        return serialize(version)
+        return version_data(db, version)
 
     return write(db, identity.id, key, f"POST:versions:{record_id}", body, change)
 
@@ -212,3 +230,66 @@ def review_version(
         return serialize(review)
 
     return write(db, identity.id, key, f"POST:reviews:{version_id}", body, change)
+
+
+@router.get("/versions/{version_id}/lineage", response_model=list[s.VersionLineageRead])
+def version_lineage(
+    version_id: UUID,
+    identity: CurrentIdentity,
+    db: Database,
+    direction: Annotated[Literal["inputs", "outputs"], Query()] = "inputs",
+) -> list[dict[str, Any]]:
+    """Return bounded transitive lineage without exposing another owner's graph."""
+    owned_version(db, version_id, identity.id)
+    frontier = {version_id}
+    seen = {version_id}
+    result: list[dict[str, Any]] = []
+    for depth in range(1, 9):
+        if not frontier or len(result) >= 100:
+            break
+        if direction == "inputs":
+            rows = db.execute(
+                select(ArtifactVersion, Artifact, ArtifactDerivation.method)
+                .join(
+                    ArtifactDerivation,
+                    ArtifactDerivation.input_version_id == ArtifactVersion.id,
+                )
+                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                .where(
+                    ArtifactDerivation.output_version_id.in_(frontier),
+                    Artifact.owner_id == identity.id,
+                )
+            ).all()
+        else:
+            rows = db.execute(
+                select(ArtifactVersion, Artifact, ArtifactDerivation.method)
+                .join(
+                    ArtifactDerivation,
+                    ArtifactDerivation.output_version_id == ArtifactVersion.id,
+                )
+                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                .where(
+                    ArtifactDerivation.input_version_id.in_(frontier),
+                    Artifact.owner_id == identity.id,
+                )
+            ).all()
+        frontier = set()
+        for version, artifact, method in rows:
+            if version.id in seen:
+                continue
+            seen.add(version.id)
+            frontier.add(version.id)
+            result.append(
+                s.VersionLineageRead(
+                    artifact_id=artifact.id,
+                    artifact_title=artifact.title,
+                    artifact_kind=artifact.kind,
+                    version_id=version.id,
+                    version=version.version,
+                    content_sha256=version.content_sha256,
+                    media_type=version.media_type,
+                    method=method,
+                    depth=depth,
+                ).model_dump(mode="json")
+            )
+    return result[:100]

@@ -1,0 +1,23 @@
+# Agent quality evaluations
+
+DeepEval 4.2.3 is pinned in an optional evaluation project with its own lockfile. It is excluded from API/worker images and runs in `.local/evals-venv`, separate from the ordinary development environment. Its dependency constraints cannot downgrade the application's packages. Pytest remains the runner; no application runtime or generic service layer is added.
+
+The versioned synthetic dataset has seven cases: application-answer quality on Greenhouse, Lever, Ashby, Workday and iCIMS, one selected-thread outreach draft, and one cited research brief. These are semantic output evaluations. The companion browser regressions establish supported control behavior; these fixtures do not establish live ATS or authenticated-provider coverage.
+
+`make eval-check` checks fixture completeness, revision binding, real DeepEval adapter integration, individual score/error classification, unknown usage, concurrent budget reservations and immutable reports without network access. It is included in `make check`. Reference outputs and the fake judge are adapter fixtures, never evidence of real model quality.
+
+`make eval-plan` writes a fresh private proposal under `.local/evals/plans/`. The current proposal has 21 judge calls, at most 32,768 conservative input-token units and 2,048 output tokens per call. At the [documented GPT-5.4 Mini prices](https://developers.openai.com/api/docs/models/gpt-5.4-mini), verified 2026-09-22, the judge bound is USD 0.709632. The model snapshot, price source/date and proposed thresholds are explicit. **The execution allowance remains zero.** Prices older than 30 days require re-verification. This is a local reservation bound, not a guarantee about a provider invoice. Prior generation costs are outside this judge-only proposal.
+
+After the benchmark plan and spending allowance are reviewed, retain actual synthetic model outputs in a private JSON file matching `Captures` in `contracts.py`. Each output binds its case input digest, exact fixture digest, provider/model, prompt and tool-schema digests, source/harness revisions, elapsed time and reported tokens. `reference_captures(load_suite())` documents the format but deliberately has origin `reference_fixture`; paid evaluation rejects it. Actual captures must use `recorded_model`, cover every case exactly once and preserve their original output. Never relabel reference text as a real model result. Keep all captures and reports untracked; do not use real resumes, contacts, email or private employer data in this suite.
+
+The explicitly paid command is:
+
+```sh
+make eval-paid plan=.local/evals/plans/REVIEWED.json captures=.local/evals/MODEL-CAPTURES.json
+```
+
+The plan must specify a positive reviewed allowance covering the conservative bound and a configured judge provider key. OpenAI, Gemini, Mistral and Cohere use the existing model factory, with an explicit model and output limit. The runner first executes `make check`; any deterministic failure prevents judge creation. Owner isolation, exact approvals, preserved user edits and duplicate-effect prevention stay hard application gates and cannot be offset by a favorable quality average. Do not run against the shared test PostgreSQL instance concurrently with another backend suite.
+
+Every case is scored separately for grounding, relevance and completion using fixed [G-Eval steps](https://deepeval.com/docs/metrics-llm-evals). There is no aggregate pass that hides a failed case, automatic retry, default judge, cached favorable result or error-to-zero conversion. Evaluator/provider errors and low-quality answers have distinct report states. Claiming an upload, send or saved artifact in generated text is never execution evidence; quality scores do not replace the domain/browser tests or inspection of real run records.
+
+The custom judge reserves integer micro-USD before I/O, records usage/latency and retains the reservation when billing is unknown. A reported input/output bound violation blocks subsequent calls. Each attempt receives a new private report directory with configuration, inputs, outputs and individual results. DeepEval telemetry, dotenv/legacy-key discovery, Confident uploads, retries and cache reuse are disabled using its [documented settings](https://deepeval.com/docs/environment-variables). No paid evaluation has been performed as part of implementation; signed-in QA remains deferred to the user.

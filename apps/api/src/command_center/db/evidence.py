@@ -1,10 +1,10 @@
 """Source observations and claims are evidence, not automatically approved facts."""
 
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from command_center.db.base import Base, UTCDateTime, utc_now
 
@@ -13,6 +13,7 @@ class SourceRecord(Base):
     __tablename__ = "source_records"
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    opportunity_id: Mapped[UUID | None] = mapped_column(ForeignKey("opportunities.id"), index=True)
     artifact_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("artifact_versions.id"), index=True
     )
@@ -22,6 +23,68 @@ class SourceRecord(Base):
     observed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     extraction_method: Mapped[str] = mapped_column(String(100))
+
+    @classmethod
+    def capture_for_opportunity(
+        cls,
+        session: Session,
+        *,
+        record_id: UUID,
+        opportunity_id: UUID,
+        owner_id: UUID,
+        title: str,
+        url: str,
+        text: str,
+        provider: str,
+        extraction_method: str,
+        request_id: UUID,
+    ) -> "SourceRecord":
+        """Persist one immutable public-source acquisition and its exact content."""
+        from command_center.db.artifacts import Artifact
+        from command_center.db.crm import record_event
+
+        if (
+            not title.strip()
+            or not url.strip()
+            or not provider.strip()
+            or not extraction_method.strip()
+        ):
+            raise ValueError("Source provenance fields cannot be blank")
+        artifact_id = uuid5(record_id, "artifact")
+        artifact = Artifact.draft(
+            session,
+            record_id=artifact_id,
+            owner_id=owner_id,
+            title=title,
+            kind="source",
+            sensitivity="public",
+            text=text,
+            document_type_id=None,
+            request_id=request_id,
+        )
+        source = cls(
+            id=record_id,
+            opportunity_id=opportunity_id,
+            artifact_version_id=uuid5(artifact.id, "version:1"),
+            provider=provider,
+            account_scope="public",
+            locator=url,
+            extraction_method=extraction_method,
+        )
+        session.add(source)
+        record_event(
+            session,
+            owner_id,
+            request_id,
+            "opportunity.source_captured",
+            "opportunities",
+            opportunity_id,
+            source_record_id=str(record_id),
+            artifact_id=str(artifact_id),
+            provider=provider,
+        )
+        session.flush()
+        return source
 
 
 class EvidenceClaim(Base):

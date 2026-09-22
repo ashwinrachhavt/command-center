@@ -28,3 +28,8 @@ htmlcov/
 # Browser verification artifacts
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Local agent notes and publishing metadata
+/docs/HANDOFF.md
+/docs/notion-map.json
+/.serena/

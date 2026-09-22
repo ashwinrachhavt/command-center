@@ -14,8 +14,8 @@ from starlette.responses import JSONResponse
 from starlette.types import Receive, Scope, Send
 
 from command_center.agents.config import AgentProfile
-from command_center.agents.runtime import ToolRegistry
-from command_center.core.capabilities import authenticate_run, issue_run_token
+from command_center.agents.tools import ToolRegistry
+from command_center.core.capabilities import authenticate_run, issue_run_token, role_profile
 from command_center.core.config import Settings
 from command_center.db.agents import AgentRun
 
@@ -47,7 +47,18 @@ class AgentMCP:
                     inputSchema=t["function"]["parameters"],
                     annotations=types.ToolAnnotations(
                         readOnlyHint=t["function"]["name"]
-                        not in {"create_task", "draft_artifact", "memory_append"},
+                        not in {
+                            "create_task",
+                            "draft_artifact",
+                            "memory_append",
+                            "capture_lead",
+                            "enrich_lead",
+                            "propose_profile_fact",
+                            "suggest_application_answers",
+                            "propose_connected_action",
+                            "capture_research_source",
+                            "run_research_script",
+                        },
                         destructiveHint=False,
                         openWorldHint=t["function"]["name"]
                         not in {
@@ -56,6 +67,18 @@ class AgentMCP:
                             "draft_artifact",
                             "memory_read",
                             "memory_append",
+                            "document_read",
+                            "propose_profile_fact",
+                            "approved_profile",
+                            "application_context",
+                            "suggest_application_answers",
+                            "lead_evidence",
+                            "capture_lead",
+                            "connected_accounts",
+                            "propose_connected_action",
+                            "reviewed_action",
+                            "run_research_script",
+                            "research_execution",
                         },
                     ),
                 )
@@ -86,8 +109,9 @@ class AgentMCP:
         with Session(request.app.state.engine) as db:
             run = db.get(AgentRun, run_id)
             assert run and run.lease_id
-            profile = AgentProfile.model_validate(run.config_snapshot["profile"])
-            api_token = issue_run_token(request.app.state.settings, run_id, run.lease_id)
+            role = request.state.agent_role
+            profile = AgentProfile.model_validate(role_profile(run.config_snapshot, role))
+            api_token = issue_run_token(request.app.state.settings, run_id, run.lease_id, role=role)
         return ToolRegistry(request.app.state.settings, profile, actor_id, run_id, api_token)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

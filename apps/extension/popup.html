@@ -53,19 +53,32 @@
           </button>
         </div>
         <h1>Make the next step<br />a little easier.</h1>
-        <p>
-          Share the current form’s labels and options. Prepare answers in your
-          workspace, then review them here.
-        </p>
-        <button id="share" type="button">Share this form <span>↗</span></button
-        ><button id="refresh" type="button" class="secondary">
-          Check fill proposals
-        </button>
+        <p>Share labels and choices, review local drafts, then apply them without advancing the page.</p>
+        <button id="share" type="button">Share this form <span>↗</span></button>
+        <section id="preparation" hidden>
+          <div class="section-heading">
+            <h2>Prepare and review</h2>
+            <button id="discard-draft" type="button" class="text-button">Discard</button>
+          </div>
+          <label for="resume">Exact resume version</label>
+          <select id="resume"><option value="">No resume selected</option></select>
+          <button id="prepare" type="button" class="secondary">Prepare answers</button>
+          <div id="fields"></div>
+          <div id="prepared-actions" hidden>
+            <button id="generate" type="button" class="secondary">Generate grounded drafts</button>
+            <p id="generation-status" class="generation-status" role="status" aria-live="polite"></p>
+            <a id="conversation" class="workspace-link" href="http://localhost:3001/work" target="_blank" rel="noopener" hidden>Open generation workspace ↗</a>
+            <button id="reload-preparation" type="button" class="text-button">Refresh generated drafts</button>
+            <button id="propose" type="button">Save review and propose fill <span>→</span></button>
+          </div>
+        </section>
+        <button id="refresh" type="button" class="secondary">Check fill proposals</button>
         <div id="proposals"></div>
       </section>
       <p id="message" role="status" aria-live="polite"></p>
       <footer>Cookies stay in Chrome. You stay in control.</footer>
     </main>
+    <script src="contracts.js"></script>
     <script src="popup.js" type="module"></script>
   </body>
 </html>

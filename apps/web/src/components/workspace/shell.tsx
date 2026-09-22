@@ -12,6 +12,7 @@ import {
   CheckCheck,
   Command,
   Files,
+  FileCheck,
   LayoutDashboard,
   Puzzle,
   Search,
@@ -55,6 +56,7 @@ export const navigation = [
   { path: "/jobs", name: "Roles", icon: Search },
   { path: "/tasks", name: "Tasks", icon: CheckCheck },
   { path: "/artifacts", name: "Artifacts", icon: Files },
+  { path: "/actions", name: "Reviewed actions", icon: FileCheck },
   { path: "/agents", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
   { path: "/memory", name: "Memory", icon: BookOpen },
@@ -64,7 +66,6 @@ export const navigation = [
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
-  const context = useWorkspaceContext();
   const profile = useQuery({
     queryKey: ["me"],
     queryFn: () => api<Profile>("me"),
@@ -100,33 +101,24 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
       >
         {navigation.map((item, i) => (
           <div key={item.path}>
-            {(i === 0 || i === 7 || i === 10) && (
+            {(item.path === "/" ||
+              item.path === "/agents" ||
+              item.path === "/activity") && (
               <p
                 className={cn(
                   "px-3 pb-2 text-[10px] font-medium tracking-[0.08em] text-muted-foreground",
                   i > 0 && "mt-6",
                 )}
               >
-                {i === 0 ? "WORKSPACE" : i === 7 ? "ASSISTANTS" : "MANAGE"}
+                {i === 0
+                  ? "WORKSPACE"
+                  : item.path === "/agents"
+                    ? "ASSISTANTS"
+                    : "MANAGE"}
               </p>
             )}
             <Link
-              onClick={(event) => {
-                const resource = item.path.slice(1);
-                if (
-                  context &&
-                  isResource(resource) &&
-                  !event.metaKey &&
-                  !event.ctrlKey &&
-                  !event.shiftKey &&
-                  !event.altKey
-                ) {
-                  event.preventDefault();
-                  if (path === item.path) context.close();
-                  else context.open(resource);
-                }
-                onNavigate?.();
-              }}
+              onClick={onNavigate}
               href={item.path}
               aria-current={path === item.path ? "page" : undefined}
               className={cn(

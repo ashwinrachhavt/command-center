@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Grouped controls synthetic application</title>
+  </head>
+  <body>
+    <h1>Grouped controls</h1>
+    <form id="application">
+      <fieldset>
+        <legend>Preferred work arrangement</legend>
+        <label><input type="radio" name="work_mode" value="remote" /> Remote</label>
+        <label><input type="radio" name="work_mode" value="hybrid" /> Hybrid</label>
+        <label><input type="radio" name="work_mode" value="onsite" /> On-site</label>
+      </fieldset>
+      <label>
+        <input id="relocate" type="checkbox" name="relocate" /> Open to relocation
+      </label>
+      <button type="submit">Next</button>
+    </form>
+    <p id="outcome">Not advanced</p>
+    <script>
+      document.getElementById("application").addEventListener("submit", (event) => {
+        event.preventDefault();
+        document.getElementById("outcome").textContent = "Advanced";
+      });
+    </script>
+  </body>
+</html>

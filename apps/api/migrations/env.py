@@ -2,14 +2,24 @@ from alembic import context
 
 from command_center.core.config import Settings
 from command_center.db import (  # noqa: F401
+    agent_events,
+    agent_questions,
     agents,
+    application_preparations,
     artifacts,
     browser,
+    conversations,
     crm,
+    document_imports,
     evidence,
     idempotency,
     memory,
     models,
+    pdf_exports,
+    profile_facts,
+    research_executions,
+    reviewed_actions,
+    spending,
 )
 from command_center.db.base import Base, UTCDateTime
 from command_center.db.session import create_database_engine

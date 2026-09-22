@@ -1,12 +1,14 @@
 UV = uv run --project apps/api
 ALEMBIC = $(UV) alembic -c apps/api/alembic.ini
+EVAL_UV = env UV_PROJECT_ENVIRONMENT=$(CURDIR)/.local/evals-venv PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project apps/api/evals
 
-.PHONY: setup up down db migrate migration schema-check api web worker beat auth-check auth-sync contracts test test-db lint format check smoke
+.PHONY: setup up down db migrate migration schema-check api web worker beat env-sync env-check agent-ready contracts-check test-browser auth-check auth-sync contracts test test-db lint format check smoke eval-check eval-plan eval-paid
 
 setup:
 	python3 scripts/bootstrap.py
 	uv sync --project apps/api --frozen
 	npm ci --prefix apps/web
+	$(MAKE) env-sync
 
 up: auth-sync
 	docker compose up -d --build --wait
@@ -30,24 +32,44 @@ schema-check:
 api:
 	$(UV) uvicorn command_center.main:create_app --factory --reload --reload-dir apps/api/src --host 127.0.0.1 --port 8000 --no-access-log
 
-web:
+web: env-sync
 	npm run dev --prefix apps/web
 
-auth-check:
+env-sync:
+	$(UV) python scripts/sync_env.py
+
+env-check:
+	$(UV) python scripts/sync_env.py --check
+
+auth-check: env-sync
 	node scripts/check-auth.mjs
 
-auth-sync:
+auth-sync: env-sync
 	node scripts/check-auth.mjs --sync
 
-worker:
-	$(UV) celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=2
+agent-ready:
+	$(UV) python -m command_center.agents.readiness
 
-beat:
+worker: agent-ready
+	$(UV) celery -A command_center.agents.queue:celery worker --loglevel=WARNING --concurrency=4 --queues=agents,control,actions,documents
+
+beat: agent-ready
+	mkdir -p .local
 	$(UV) celery -A command_center.agents.queue:celery beat --loglevel=WARNING --schedule=.local/celerybeat-schedule
 
 contracts:
 	$(UV) python scripts/export_openapi.py
 	npx --prefix apps/web openapi-typescript .local/openapi.json -o apps/web/src/lib/api-types.ts
+	node scripts/build_extension_contracts.mjs
+
+contracts-check:
+	$(UV) python scripts/export_openapi.py
+	npx --prefix apps/web openapi-typescript .local/openapi.json -o .local/api-types.ts
+	cmp apps/web/src/lib/api-types.ts .local/api-types.ts
+	node scripts/build_extension_contracts.mjs --check
+
+test-browser:
+	npm run test:browser --prefix apps/web
 
 test-db:
 	docker compose --profile test up -d --wait db-test
@@ -66,9 +88,19 @@ lint:
 format:
 	$(UV) ruff check apps/api scripts --fix
 	$(UV) ruff format apps/api scripts
-	npx --prefix apps/web prettier --write 'apps/web/src/**/*.{ts,tsx,css}' 'apps/extension/*.{js,html,css,json}'
+	npx --prefix apps/web prettier --write 'apps/web/src/**/*.{ts,tsx,css}' 'apps/extension/{content,popup}.js' 'apps/extension/*.{html,css,json}'
 
-check: lint test
+eval-check:
+	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_contracts.py -q
+
+eval-plan:
+	$(UV) python scripts/evaluation_plan.py
+
+eval-paid:
+	@test -n "$(plan)" -a -n "$(captures)" || (echo 'Use: make eval-paid plan=REVIEWED_PLAN captures=MODEL_CAPTURES'; exit 1)
+	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_quality.py --eval-plan "$(plan)" --eval-captures "$(captures)" --allow-paid -q
+
+check: env-check contracts-check lint test test-browser eval-check
 	npm run build --prefix apps/web
 
 smoke:

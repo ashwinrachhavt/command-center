@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lever-shaped location application</title>
+  </head>
+  <body>
+    <h1>Synthetic Lever application</h1>
+    <form id="application">
+      <label for="location-input">Current location</label>
+      <input
+        class="location-input"
+        data-qa="location-input"
+        id="location-input"
+        maxlength="100"
+        name="location"
+        type="text"
+      />
+      <input id="selected-location" name="selectedLocation" type="hidden" />
+      <button type="submit">Submit application</button>
+    </form>
+    <p id="outcome">Not submitted</p>
+    <script>
+      document
+        .getElementById("application")
+        .addEventListener("submit", (event) => {
+          event.preventDefault();
+          document.getElementById("outcome").textContent = "Submitted";
+        });
+    </script>
+  </body>
+</html>

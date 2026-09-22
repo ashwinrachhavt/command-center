@@ -1,14 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
-import { Suspense } from "react";
-import { Records } from "@/components/workspace/records";
-import { Agents } from "@/components/workspace/agents";
-import { Settings } from "@/components/workspace/settings";
-import { MemoryPage } from "@/components/workspace/memory";
-import { BrowserPage } from "@/components/workspace/browser";
-import { ActivityPage } from "@/components/workspace/activity";
-import { LoadingRows } from "@/components/workspace/primitives";
-import type { Resource } from "@/lib/api";
+import {
+  SectionView,
+  type WorkspaceSection,
+} from "@/components/workspace/section-view";
 
 export default async function SectionPage({
   params,
@@ -18,24 +13,21 @@ export default async function SectionPage({
   await auth.protect();
   const { section } = await params;
   if (
-    [
+    ![
       "companies",
       "contacts",
       "jobs",
       "opportunities",
       "tasks",
       "artifacts",
+      "agents",
+      "settings",
+      "memory",
+      "browser",
+      "activity",
+      "actions",
     ].includes(section)
   )
-    return (
-      <Suspense fallback={<LoadingRows />}>
-        <Records key={section} resource={section as Resource} />
-      </Suspense>
-    );
-  if (section === "agents") return <Agents />;
-  if (section === "settings") return <Settings />;
-  if (section === "memory") return <MemoryPage />;
-  if (section === "browser") return <BrowserPage />;
-  if (section === "activity") return <ActivityPage />;
-  notFound();
+    notFound();
+  return <SectionView section={section as WorkspaceSection} />;
 }

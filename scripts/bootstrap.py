@@ -29,25 +29,6 @@ def main() -> None:
     else:
         print("Preserved existing .env.")
 
-    web_env = ROOT / "apps/web/.env.local"
-    if not web_env.exists():
-        # Keep host development configuration server-only; never use NEXT_PUBLIC_ for secrets.
-        values = dict(
-            line.split("=", 1)
-            for line in env_path.read_text().splitlines()
-            if "=" in line and not line.startswith("#")
-        )
-        write_private(
-            web_env,
-            f"CC_API_URL=http://127.0.0.1:{values.get('API_PORT', '8000')}\n",
-        )
-        print("Created apps/web/.env.local (mode 0600).")
-
-    clerk_env = ROOT / "apps/web/.env"
-    if not clerk_env.exists():
-        write_private(clerk_env, (ROOT / "apps/web/.env.example").read_text())
-        print("Created apps/web/.env. Add Clerk keys, then run make auth-sync.")
-
 
 if __name__ == "__main__":
     main()
