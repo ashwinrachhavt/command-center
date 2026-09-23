@@ -566,10 +566,7 @@ export function Agents() {
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
               <Select
                 value={profile?.id ?? profileId}
-                disabled={
-                  !!run &&
-                  ["queued", "running", "waiting_for_user"].includes(run.state)
-                }
+                disabled={!!run && activeRunStates.has(run.state)}
                 onValueChange={(id) => {
                   setProfileId(id);
                   setProfileScope(conversationScope);
@@ -593,6 +590,7 @@ export function Agents() {
               </Select>
               {profile && (
                 <ModelSwitcher
+                  disabled={!!run && activeRunStates.has(run.state)}
                   provider={activeProvider}
                   model={activeModel}
                   onSelect={(p, m) => {

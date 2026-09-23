@@ -100,6 +100,11 @@ export function RunActivity({
       showOutput &&
       !run.output);
 
+  const liveToolIds = new Set(
+    showLiveActivity ? stream.tools.map((tool) => tool.id) : [],
+  );
+  const savedSteps = steps.data?.filter((step) => !liveToolIds.has(step.id));
+
   return (
     <section
       aria-label={`${run.title} activity`}
@@ -249,9 +254,9 @@ export function RunActivity({
             <p className="mt-4 text-xs text-muted-foreground" role="status">
               Loading saved steps…
             </p>
-          ) : steps.data?.length ? (
+          ) : savedSteps?.length ? (
             <div className="mt-4 space-y-2">
-              {steps.data.map((step) => {
+              {savedSteps.map((step) => {
                 const specialist = step.specialist
                   ? `${label(step.specialist)} specialist`
                   : step.role === "assistant"
@@ -297,7 +302,7 @@ export function RunActivity({
                 );
               })}
             </div>
-          ) : steps.data ? (
+          ) : steps.data && liveToolIds.size === 0 ? (
             <p className="mt-4 text-xs text-muted-foreground">
               No saved steps for this run.
             </p>
