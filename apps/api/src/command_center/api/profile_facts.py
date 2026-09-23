@@ -173,7 +173,7 @@ def create_fact(
             source_version_id=body.source_version_id,
             source_excerpt=body.source_excerpt,
             valid_until=body.valid_until,
-            agent_proposal=identity.run_id is not None,
+            agent_proposal=not identity.is_human,
             request_id=request_id,
         )
         db.flush()
@@ -273,7 +273,7 @@ def create_fact_version(
             source_version_id=body.source_version_id,
             source_excerpt=body.source_excerpt,
             valid_until=body.valid_until,
-            agent_proposal=identity.run_id is not None,
+            agent_proposal=not identity.is_human,
             request_id=request_id,
         )
         db.flush()
@@ -320,7 +320,7 @@ def review_fact(
     key: WriteKey,
     request: Request,
 ) -> dict[str, Any]:
-    if identity.run_id is not None:
+    if not identity.is_human:
         raise HTTPException(403, "Only a human can review candidate facts")
     request_id = UUID(request.state.request_id)
 

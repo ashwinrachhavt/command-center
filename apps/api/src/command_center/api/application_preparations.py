@@ -20,7 +20,7 @@ from command_center.api.browser_contracts import (
 )
 from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.capabilities import fence_agent_write
-from command_center.core.identity import CurrentIdentity, Identity
+from command_center.core.identity import CurrentIdentity, Identity, require_workspace_tool
 from command_center.db.agents import AgentRun
 from command_center.db.application_preparations import ApplicationPreparation
 from command_center.db.applications import ApplicationTrack
@@ -142,13 +142,17 @@ def preparation_request_payload(body: s.Contract) -> dict[str, Any]:
 
 
 def human_only(identity: Identity) -> None:
-    if identity.run_id is not None:
+    if not identity.is_human:
         raise HTTPException(403, "Application review and generation require the human owner")
 
 
 @router.get("/snapshots/{snapshot_id}")
 def snapshot_detail(snapshot_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(
+        identity,
+        "cc_application_preparations_snapshot_detail",
+        "cc_application_preparations_snapshot_preparation",
+    )
     snapshot = db.scalar(
         select(BrowserSnapshot).where(
             BrowserSnapshot.id == snapshot_id,
@@ -332,7 +336,7 @@ def device_prepare(
 def preparation_detail(
     record_id: UUID, identity: CurrentIdentity, db: Database
 ) -> ApplicationPreparationRead:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_application_preparations_preparation_detail")
     return preparation_read(owned_preparation(db, record_id, identity.id))
 
 
@@ -579,7 +583,7 @@ def generation_status(db: Database, preparation: ApplicationPreparation) -> dict
 
 @router.get("/preparations/{record_id}/generation", response_model=PreparationGenerationStatus)
 def generation_detail(record_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_application_preparations_generation_detail")
     return generation_status(db, owned_preparation(db, record_id, identity.id))
 
 

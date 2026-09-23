@@ -17,6 +17,14 @@ def clear_question_fixtures(engine: Engine) -> None:
     """The shared synthetic suite may leave durable waiting runs before round-trip tests."""
     with engine.begin() as connection:
         # Only synthetic state is normalized for the full schema round-trip.
+        columns = {
+            table: {column["name"] for column in inspect(connection).get_columns(table)}
+            for table in ("agent_sessions", "agent_messages")
+        }
+        if "context_summary" in columns["agent_sessions"]:
+            connection.execute(text("UPDATE agent_sessions SET context_summary=NULL"))
+        if "answer_cache" in columns["agent_messages"]:
+            connection.execute(text("UPDATE agent_messages SET answer_cache=NULL"))
         connection.execute(text("DELETE FROM application_materials"))
         connection.execute(text("DELETE FROM application_tracks"))
         connection.execute(text("DELETE FROM application_preparations"))

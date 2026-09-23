@@ -27,6 +27,7 @@ from command_center.api import (
     document_text,
     documents,
     leads,
+    mcp_clients,
     memory,
     pdf_exports,
     profile_facts,
@@ -104,7 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     apollo_key=config.apollo_api_key.get_secret_value(),
                     hunter_key=config.hunter_api_key.get_secret_value(),
                 )
-                async with mcp.manager.run():
+                async with mcp.http_app.lifespan(mcp.http_app):
                     yield
         finally:
             if action_client is not None:
@@ -167,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    app.include_router(mcp_clients.router)
     app.include_router(health_router)
     app.include_router(api_router)
     app.include_router(workspace.router)
@@ -193,5 +195,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(research_executions.router)
     app.include_router(pdf_exports.router)
     app.include_router(spending.router)
+    mcp.openapi = app.openapi()
     app.mount("/mcp", mcp)
     return app

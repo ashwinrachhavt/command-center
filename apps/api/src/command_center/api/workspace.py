@@ -33,6 +33,14 @@ router = APIRouter(prefix="/api/v1", tags=["workspace"])
 def transaction(request: Request) -> Iterator[Session]:
     with Session(request.app.state.engine) as session, session.begin():
         session.info["agent_run_id"] = getattr(request.state, "agent_run_id", None)
+        session.info["mcp_client_id"] = getattr(request.state, "mcp_client_id", None)
+        if session.info["mcp_client_id"] and request.method not in {"GET", "HEAD"}:
+            from command_center.db.mcp_clients import MCPClientCredential
+
+            try:
+                MCPClientCredential.active(session, session.info["mcp_client_id"], lock=True)
+            except ValueError as exc:
+                raise HTTPException(401, "Local MCP credential expired or revoked") from exc
         yield session
 
 

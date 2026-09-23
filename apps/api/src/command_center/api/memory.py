@@ -12,7 +12,7 @@ from sqlalchemy import func, or_, select
 from command_center.api import schemas as s
 from command_center.api.workspace import Database, Limit, Offset, Search, WriteKey, check_version
 from command_center.core.capabilities import fence_agent_write
-from command_center.core.identity import CurrentIdentity, Identity
+from command_center.core.identity import CurrentIdentity, Identity, require_workspace_tool
 from command_center.db.agents import AgentRun
 from command_center.db.conversations import AgentSession
 from command_center.db.idempotency import RequestReceipt
@@ -96,7 +96,7 @@ class RetrievedMemoryRead(MemoryRevisionRead):
 
 
 def human_only(identity: Identity) -> None:
-    if identity.run_id is not None:
+    if not identity.is_human:
         raise HTTPException(403, "Reusable memory review requires the human owner")
 
 
@@ -259,7 +259,7 @@ def memories(
     limit: Limit = 30,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_memory_memories")
     statement = (
         select(MemoryItem)
         .join(MemoryRevision, MemoryRevision.id == MemoryItem.current_revision_id)
@@ -290,13 +290,13 @@ def remember(
     key: WriteKey,
     request: Request,
 ) -> dict[str, Any]:
-    if identity.run_id is not None and body.confirm:
+    if not identity.is_human and body.confirm:
         raise HTTPException(403, "Agents can only propose reusable memory")
     request_id = UUID(request.state.request_id)
 
     def change(record_id: UUID) -> dict[str, Any]:
         fence_agent_write(request, db)
-        source: Literal["human", "agent"] = "agent" if identity.run_id else "human"
+        source: Literal["human", "agent"] = "human" if identity.is_human else "agent"
         scope_type, scope_id = write_scope(db, identity, body.scope_type, body.scope_id)
         item = MemoryItem.propose(
             db,
@@ -346,7 +346,7 @@ def edit_memory(
     key: WriteKey,
     request: Request,
 ) -> dict[str, Any]:
-    if identity.run_id is not None and body.confirm:
+    if not identity.is_human and body.confirm:
         raise HTTPException(403, "Agents can only propose reusable memory")
     request_id = UUID(request.state.request_id)
 
@@ -354,7 +354,7 @@ def edit_memory(
         fence_agent_write(request, db)
         item = owned_memory(db, memory_id, identity.id, lock=True)
         check_version(item, body.expected_version)
-        source: Literal["human", "agent"] = "agent" if identity.run_id else "human"
+        source: Literal["human", "agent"] = "human" if identity.is_human else "agent"
         scope_type, scope_id = write_scope(db, identity, body.scope_type, body.scope_id)
         revision = item.append_revision(
             title=body.title,
@@ -399,7 +399,7 @@ def memory_versions(
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_memory_memory_versions")
     owned_memory(db, memory_id, identity.id)
     statement = select(MemoryRevision).where(MemoryRevision.memory_id == memory_id)
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0

@@ -27,6 +27,7 @@ dependencies = [
   "langchain-google-genai>=4,<5",
   "langchain-mistralai>=1,<2",
   "langchain-cohere>=0.5,<1",
+  "fastmcp>=3.2.4,<4",
 ]
 
 [project.optional-dependencies]

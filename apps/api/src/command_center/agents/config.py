@@ -28,37 +28,7 @@ class AgentProfile(BaseModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$",
     )
     instructions: str = Field(max_length=20000)
-    tools: list[
-        Literal[
-            "workspace_summary",
-            "research_search",
-            "capture_lead",
-            "enrich_lead",
-            "lead_evidence",
-            "document_read",
-            "propose_profile_fact",
-            "approved_profile",
-            "application_context",
-            "application_material_context",
-            "save_application_material",
-            "suggest_application_answers",
-            "create_task",
-            "draft_artifact",
-            "record_work_context",
-            "save_record_work",
-            "memory_read",
-            "memory_append",
-            "connected_accounts",
-            "connected_context",
-            "gmail_search",
-            "propose_connected_action",
-            "reviewed_action",
-            "capture_research_source",
-            "run_research_script",
-            "research_execution",
-            "ask_user",
-        ]
-    ] = []
+    tools: list[str] = []
     skills: list[str] = Field(default_factory=list, max_length=10)
     skill_files: dict[str, str] = Field(default_factory=dict, max_length=10)
     composio_tools: list[ComposioTool] = []
@@ -75,6 +45,11 @@ class AgentProfile(BaseModel):
 
     @model_validator(mode="after")
     def unique_tools(self) -> "AgentProfile":
+        from command_center.agents.mcp_policy import catalog_tool_names
+        from command_center.core.capabilities import CAPABILITIES
+
+        if set(self.tools) - (set(CAPABILITIES) | catalog_tool_names() | {"ask_user"}):
+            raise ValueError("Unknown tool grant")
         if any(
             name not in self.tools or not 1 <= limit <= 128
             for name, limit in self.tool_call_limits.items()
