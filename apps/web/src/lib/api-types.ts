@@ -409,6 +409,40 @@ export interface paths {
         patch: operations["update_task_api_v1_tasks__record_id__patch"];
         trace?: never;
     };
+    "/api/v1/dashboard/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Work */
+        get: operations["work_api_v1_dashboard_work_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dashboard/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tasks */
+        get: operations["tasks_api_v1_dashboard_tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types": {
         parameters: {
             query?: never;
@@ -3768,6 +3802,83 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** DailyTaskCounts */
+        DailyTaskCounts: {
+            /** Today */
+            today: number;
+            /** Upcoming */
+            upcoming: number;
+            /** Unscheduled */
+            unscheduled: number;
+            /** Snoozed */
+            snoozed: number;
+        };
+        /** DailyTaskRead */
+        DailyTaskRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Row Version */
+            row_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Title */
+            title: string;
+            /** Opportunity Id */
+            opportunity_id?: string | null;
+            /**
+             * Priority
+             * @default 1
+             */
+            priority: number;
+            /** Rationale */
+            rationale?: string | null;
+            /** Due Date */
+            due_date?: string | null;
+            /** Due At */
+            due_at?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "in_progress" | "snoozed" | "done" | "cancelled";
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Due Status
+             * @enum {string}
+             */
+            due_status: "overdue" | "today" | "upcoming" | "unscheduled";
+        };
+        /** DailyTasksRead */
+        DailyTasksRead: {
+            /** Items */
+            items: components["schemas"]["DailyTaskRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Timezone */
+            timezone: string;
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
+            counts: components["schemas"]["DailyTaskCounts"];
+        };
         /** DiscoveredModel */
         DiscoveredModel: {
             /** Id */
@@ -5421,6 +5532,17 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** Page[WorkQueueItem] */
+        Page_WorkQueueItem_: {
+            /** Items */
+            items: components["schemas"]["WorkQueueItem"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** PairCreate */
         PairCreate: {
             /**
@@ -6840,6 +6962,42 @@ export interface components {
             /** Source Version Ids */
             source_version_ids?: string[];
         };
+        /** WorkQueueItem */
+        WorkQueueItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "question" | "run" | "action" | "browser" | "artifact";
+            /** Title */
+            title: string;
+            /** State */
+            state: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Task Id */
+            task_id: string | null;
+            /** Opportunity Id */
+            opportunity_id: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /** Artifact Id */
+            artifact_id: string | null;
+            /** Version Id */
+            version_id: string | null;
+            /** Detail */
+            detail: string;
+            /** Action Kind */
+            action_kind: string | null;
+        };
         /** WorkRead */
         WorkRead: {
             /**
@@ -7977,6 +8135,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    work_api_v1_dashboard_work_get: {
+        parameters: {
+            query?: {
+                lane?: "attention" | "running" | "outputs";
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkQueueItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tasks_api_v1_dashboard_tasks_get: {
+        parameters: {
+            query?: {
+                view?: "today" | "upcoming" | "unscheduled" | "snoozed";
+                timezone?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyTasksRead"];
                 };
             };
             /** @description Validation Error */

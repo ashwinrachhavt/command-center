@@ -1178,6 +1178,46 @@ function ActionReview({
   );
 }
 
+export function ReviewedActionDialog({
+  actionId,
+  close,
+}: {
+  actionId: string;
+  close: () => void;
+}) {
+  const action = useQuery({
+    queryKey: ["reviewed-actions", actionId],
+    queryFn: ({ signal }) =>
+      api<Action>(`reviewed-actions/${actionId}`, { signal }),
+  });
+
+  if (action.data)
+    return <ActionReview key={actionId} initial={action.data} close={close} />;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Review action</DialogTitle>
+          <DialogDescription>
+            Open the saved proposal and its exact review requirements.
+          </DialogDescription>
+        </DialogHeader>
+        {action.error ? (
+          <ErrorState error={action.error} retry={() => action.refetch()} />
+        ) : (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <Spinner /> Loading reviewed action…
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ReviewedActions() {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Action | null>(null);

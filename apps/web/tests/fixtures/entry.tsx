@@ -2029,6 +2029,51 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       stages: { researching: 1, interviewing: 1 },
       tasks,
     };
+  if (route === "dashboard/tasks") {
+    const today = "2026-09-24";
+    const view = url.searchParams.get("view") || "today";
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const limit = Number(url.searchParams.get("limit") || 6);
+    const active = tasks.filter((task) =>
+      ["open", "in_progress"].includes(task.state),
+    );
+    const groups = {
+      today: active.filter((task) => task.due_date && task.due_date <= today),
+      upcoming: active.filter((task) => task.due_date && task.due_date > today),
+      unscheduled: active.filter((task) => !task.due_date),
+      snoozed: tasks.filter((task) => task.state === "snoozed"),
+    };
+    const matches = groups[view as keyof typeof groups] || [];
+    payload = {
+      items: matches
+        .slice(offset, offset + limit)
+        .map((task) => ({
+          ...task,
+          due_status: !task.due_date
+            ? "unscheduled"
+            : task.due_date < today
+              ? "overdue"
+              : task.due_date === today
+                ? "today"
+                : "upcoming",
+        })),
+      total: matches.length,
+      limit,
+      offset,
+      today,
+      timezone: url.searchParams.get("timezone") || "UTC",
+      counts: Object.fromEntries(
+        Object.entries(groups).map(([key, rows]) => [key, rows.length]),
+      ),
+    };
+  }
+  if (route === "dashboard/work")
+    payload = {
+      items: [],
+      total: 0,
+      limit: 6,
+      offset: Number(url.searchParams.get("offset") || 0),
+    };
   if (route === "agents/models")
     payload = [
       {

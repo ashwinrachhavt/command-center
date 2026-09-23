@@ -61,6 +61,7 @@ import { DocumentUploadDialog } from "./document-intake";
 import { DocumentTasks, TaskDocuments } from "./document-tasks";
 import { DocumentOriginal } from "./document-original";
 import { PdfExportControl } from "./pdf-export";
+import { TaskActionHub } from "./task-action-hub";
 
 const RichAgentResponse = deferView<{ children: string }>(
   () =>
@@ -727,6 +728,9 @@ export function RecordDetail({
             ...(resource === "opportunities" || resource === "tasks"
               ? ["stage", "state"]
               : []),
+            ...(resource === "tasks"
+              ? ["priority", "rationale", "due_date", "due_at"]
+              : []),
           ].includes(key) &&
           value !== null &&
           value !== "",
@@ -814,22 +818,20 @@ export function RecordDetail({
         )}
         {record && (
           <>
-            {(resource === "opportunities" || resource === "tasks") && (
+            {resource === "opportunities" && (
               <Field className="mt-4 w-fit">
                 <FieldLabel htmlFor={stateFieldId} className="sr-only">
-                  {resource === "tasks" ? "Status" : "Stage"}
+                  Stage
                 </FieldLabel>
                 <Select
                   value={String(
-                    (record as unknown as Record<string, unknown>)[
-                      resource === "tasks" ? "state" : "stage"
-                    ],
+                    (record as unknown as Record<string, unknown>)["stage"],
                   )}
                   disabled={mutation.isPending}
                   onValueChange={(v) =>
                     mutation.mutate({
                       expected_version: record.row_version,
-                      [resource === "tasks" ? "state" : "stage"]: v,
+                      stage: v,
                     })
                   }
                 >
@@ -838,29 +840,7 @@ export function RecordDetail({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {(resource === "tasks"
-                        ? ["done", "cancelled"].includes(
-                            String(
-                              (record as unknown as Record<string, unknown>)
-                                .state,
-                            ),
-                          )
-                          ? [
-                              String(
-                                (record as unknown as Record<string, unknown>)
-                                  .state,
-                              ),
-                              "open",
-                            ]
-                          : [
-                              "open",
-                              "in_progress",
-                              "snoozed",
-                              "done",
-                              "cancelled",
-                            ]
-                        : stages
-                      ).map((v) => (
+                      {stages.map((v) => (
                         <SelectItem key={v} value={v}>
                           {label(v)}
                         </SelectItem>
@@ -903,7 +883,22 @@ export function RecordDetail({
             </TabsList>
           </div>
           <TabsContent value="overview" className="px-6 py-6">
-            {resource === "tasks" && <TaskDocuments taskId={id} />}
+            {resource === "tasks" && (
+              <div className="mb-6 flex flex-col gap-6">
+                <TaskActionHub
+                  record={record}
+                  isPending={mutation.isPending}
+                  onStatusChange={(state) =>
+                    mutation.mutate({
+                      expected_version: record.row_version,
+                      state,
+                    })
+                  }
+                  onOpenConversation={() => setActiveTab("conversation")}
+                />
+                <TaskDocuments taskId={id} />
+              </div>
+            )}
             {resource === "companies" && (
               <div className="mb-6">
                 <DeferredRecordWork resource="companies" id={record.id} />

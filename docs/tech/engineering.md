@@ -1,6 +1,6 @@
 # engineering.md — Delivery and verification
 
-**Parent:** [Tech Spec](tech-spec.md). **Revision:** 2026-09-22-r32. **State:** connected workspace, importer, persistent conversations, application assistance, reviewed actions, scoped connected context, research/PDF jobs and spending/recovery controls are implemented locally. Workspace state, retry and loading remedies are implemented; authenticated provider QA remains deferred to the user. OpenAI, Gemini, Mistral and Cohere are selectable per profile. This file owns delivery work, not an additional specification.
+**Parent:** [Tech Spec](tech-spec.md). **Revision:** 2026-09-22-r33. **State:** connected workspace, importer, persistent conversations, application assistance, reviewed actions, scoped connected context, research/PDF jobs and spending/recovery controls are implemented locally. Workspace state, retry and loading remedies are implemented; authenticated provider QA remains deferred to the user. OpenAI, Gemini, Mistral and Cohere are selectable per profile. This file owns delivery work, not an additional specification.
 
 ## Build objective
 
@@ -305,7 +305,13 @@ Creating a task from a document atomically writes the canonical Task, TaskArtifa
 
 Validation: `make check` passed with 309 PostgreSQL tests, 76 UI unit tests, 21 companion checks, 15 offline eval contracts and the production Next build. The focused notebook tests cover creation, draft recovery across selection/reload, slow checkpoint/new typing, rename/checkpoint, linked task/source navigation, content/type search and mobile focus. Existing document/navigation regressions pass. Final frontend lint/types pass; the pre-existing unused Badge warning remains. Eighteen focused notebook/document browser cases pass in aggregate, plus the existing navigation checks. Settled desktop/mobile axe reports zero violations and no overflow; the desktop incomplete item is the synthetic account stub (a span label), not production Clerk UI. Desktop/mobile visual review uses synthetic data only. API/web and all four application workers were rebuilt and are running with port 3001 health and API readiness verified; no actual mail, provider purchases or application submissions were exercised.
 
-Still active: the consolidated daily-task experience, application-preparation automation, true email reply targeting and broader frontend/provider verification. General routine scheduling and final autonomous submission policy remain unresolved.
+Still active: integration of the isolated daily-task experience, application-preparation automation, true email reply targeting and broader frontend/provider verification. General routine scheduling and final autonomous submission policy remain unresolved.
+
+### Daily workspace — isolated implementation
+
+Branch `daily-workspace`, based on `819454b`, adds owned SQL work queues and timezone-aware daily tasks, an Overview organized around these records, and honest task-state controls wired into the task inspector. Exact action reviews, ongoing task/opportunity conversations and saved artifact versions remain the only authority-bearing paths. Standalone run inspection reuses RunActivity; browser attention is a saved summary with a Browser link. The new GET routes neither mutate recovery state nor call providers. No schema migration is needed.
+
+Validation completed: 471 PostgreSQL/backend tests and 213 React/jsdom unit tests pass, including eight new backend cases and the task/queue/detail interaction regressions. Ruff/format, mypy, frontend lint/typecheck, generated-contract checks, diff checks and the production Next.js webpack build pass. The two backend warnings are existing Starlette and SQLAlchemy warnings. Raw logs remain in ignored `.local/daily-*.log`. Browser QA is skipped at the user’s request. The running root branch `frontend-redesign` remains at pushed commit `2ad39e7`, with extension `0.4.3`; this work is local and not deployed. No actual mail, model/provider requests, application submission or running-service change was exercised.
 
 ## Implementation Tasks
 

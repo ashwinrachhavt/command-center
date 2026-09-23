@@ -1,6 +1,6 @@
 # Command Center — Product Spec
 
-**Revision:** 2026-09-22-r29. **Status:** product contract; implemented scope is distinguished below from the personal work OS revamp and later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
+**Revision:** 2026-09-22-r30. **Status:** product contract; implemented scope is distinguished below from the personal work OS revamp and later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
 
 This is the single source for product behavior and acceptance. [product.md](product.md) owns product direction and scope rationale. [Tech Spec](../tech/tech-spec.md) owns architecture and execution contracts. The former Planning Doc, duplicated requirements, lead-planning notes, and interview material are absorbed here or in Tech Spec; superseded copies are historical only.
 
@@ -81,6 +81,8 @@ The personal workspace includes CRM records, profile, tasks, artifacts and immut
 Application preparations support grounded editable answers, exact resume uploads, explicit replacement choices and per-field outcomes. Native controls, numeric constraints, visible same-origin frames, React state updates and bounded Greenhouse-style selections have synthetic regression coverage. Existing values and edits made during generation are preserved. Public token/tool activity streams into each conversation with reconnectable history. Reusable memory proposals require review of exact revisions and retrieve only within approved scope. Reviewed Gmail/Calendar/Linear/Notion actions, isolated research scripts, PDF derivatives and explicit monthly/work spending reservations are implemented locally. Exact approvals, receipt reconciliation and cleanup-before-retry preserve external-effect boundaries. The user will perform hands-on QA, including authenticated platform/provider verification. Search-dependent or unknown widgets remain manual; these implementations do not establish paid-model quality or live employer acceptance.
 
 ### Navigation and contextual work — confirmed clarification
+
+The daily Overview is implemented on isolated `daily-workspace`, pending integration into the smoke-test build. It combines Today (including overdue), Upcoming, Unscheduled and Snoozed tasks with separate attention, running-work and recent-output queues. Dates use the saved profile timezone; snoozing means a task stays paused until explicitly resumed, not a scheduled reminder. Task-state buttons name the state change; Open conversation is a separate action. Opening Overview reads saved records only. Questions open the existing conversation, action proposals open the exact existing review, and document outputs pin the saved version. General routines remain deferred.
 
 Sidebar navigation opens the selected section as a full page in the workspace. Overview is one destination, not a permanent background or a required return point. This applies equally to Contacts, Companies, Opportunities, Roles, Tasks, Notes, Library and the other top-level sections; ordinary clicks must not substitute an inspector for route navigation.
 
