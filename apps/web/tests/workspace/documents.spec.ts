@@ -1,5 +1,64 @@
 import { expect, test } from "@playwright/test";
 
+test("long version history loads summaries first and only reads the chosen bodies", async ({
+  page,
+}) => {
+  await page.goto("/artifacts?record=artifact-1&long-history=1");
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await expect(
+    page.getByText("History checkpoint 30", { exact: true }),
+  ).toBeVisible();
+  const reads = () =>
+    page.evaluate(
+      async () =>
+        (await fetch("/api/backend/test/version-reads")).json() as Promise<
+          string[]
+        >,
+    );
+  expect((await reads()).filter((path) => path.includes("/versions/"))).toEqual(
+    ["artifacts/artifact-1/versions/long-version-30"],
+  );
+  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Load older", exact: true }),
+  ).toHaveCount(0);
+  expect(
+    (await reads()).filter((path) => path.includes("/versions/")),
+  ).toHaveLength(1);
+  await page.getByLabel("Artifact version").click();
+  await page.getByRole("option", { name: /^Version 1 ·/ }).click();
+  await expect(
+    page.getByText("History checkpoint 1", { exact: true }),
+  ).toBeVisible();
+  expect((await reads()).filter((path) => path.includes("/versions/"))).toEqual(
+    [
+      "artifacts/artifact-1/versions/long-version-30",
+      "artifacts/artifact-1/versions/long-version-1",
+    ],
+  );
+});
+
+test("all imported career proposals remain reachable beyond the first hundred facts", async ({
+  page,
+}) => {
+  await page.goto("/settings?many-facts=1");
+  await expect(page.getByText("Showing 20 of 105 facts")).toBeVisible();
+  for (let loaded = 40; loaded <= 100; loaded += 20) {
+    await page.getByRole("button", { name: "Load more facts" }).click();
+    await expect(
+      page.getByText(`Showing ${loaded} of 105 facts`),
+    ).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Load more facts" }).click();
+  await expect(
+    page.getByText("Synthetic imported skill 105", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Showing 105 of 105 facts")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Load more facts" }),
+  ).toHaveCount(0);
+});
+
 test("document intake uploads originals and retries conversion with one request key", async ({
   page,
 }) => {
@@ -165,7 +224,72 @@ test("human edits pin their base version and retain its reviewed metadata", asyn
   await page.getByLabel("Artifact version").click();
   await page.getByRole("option", { name: /Version 2/ }).click();
   await page.getByRole("button", { name: "New version" }).click();
-  await page.getByLabel("New version content").fill("Human-reviewed edit.");
+  await expect(page.getByLabel("Artifact version")).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "New version" }),
+  ).toBeDisabled();
+  await page
+    .getByRole("textbox", { name: "New version content", exact: true })
+    .fill("Human-reviewed edit.");
   await page.getByRole("button", { name: "Save version" }).click();
   await expect(page.getByText("Human-reviewed edit.")).toBeVisible();
+});
+
+test("an original file stays available and opens its extracted text without a blank edit", async ({
+  page,
+}) => {
+  await page.goto("/artifacts?record=artifact-resume");
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await expect(page.getByText("This version is empty.")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "New version" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: /Download original/ }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Open extracted text" }).click();
+  await expect(page).toHaveURL(/inspect=artifacts/);
+  await expect(
+    page.getByText("Product engineer with accessible systems experience.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("document drafts recover through refresh with their original editing base", async ({
+  page,
+}) => {
+  await page.goto("/artifacts?record=artifact-1");
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await page.getByLabel("Artifact version").click();
+  await page.getByRole("option", { name: /^Version 2/ }).click();
+  await page.getByRole("button", { name: "New version", exact: true }).click();
+  const writer = page.getByRole("textbox", {
+    name: "New version content",
+    exact: true,
+  });
+  await writer.fill("A working note that should survive refresh.");
+  await expect(page.getByTestId("draft-status")).toContainText("Draft saved");
+  const before = await page.evaluate(async () =>
+    (await fetch("/api/backend/artifacts/artifact-1/version-history")).json(),
+  );
+  expect(before.total).toBe(2);
+  await page.reload();
+  await page.getByRole("tab", { name: "Content & versions" }).click();
+  await page.getByRole("button", { name: "New version", exact: true }).click();
+  await expect(writer).toContainText(
+    "A working note that should survive refresh.",
+  );
+  await expect(page.getByText(/Editing from version 2\./)).toBeVisible();
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(writer).toHaveCount(0);
+  await expect(
+    page.getByText("A working note that should survive refresh.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const after = await page.evaluate(async () =>
+    (await fetch("/api/backend/artifacts/artifact-1/version-history")).json(),
+  );
+  expect(after.total).toBe(3);
 });

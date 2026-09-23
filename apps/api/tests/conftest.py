@@ -22,6 +22,7 @@ from command_center.db import (  # noqa: F401
     research_executions,
     reviewed_actions,
     spending,
+    writing,
 )
 from command_center.db.session import create_database_engine
 

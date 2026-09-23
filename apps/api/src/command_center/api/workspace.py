@@ -17,6 +17,7 @@ from command_center.db.crm import (
     CandidateProfile,
     Company,
     Contact,
+    ContactObservation,
     Job,
     Opportunity,
     OwnedRecord,
@@ -24,6 +25,7 @@ from command_center.db.crm import (
 )
 from command_center.db.idempotency import RequestReceipt
 from command_center.db.models import AuditEvent, Task
+from command_center.db.record_work import RecordWork
 
 router = APIRouter(prefix="/api/v1", tags=["workspace"])
 
@@ -437,12 +439,22 @@ def demo(
 def list_companies(
     identity: CurrentIdentity, db: Database, q: Search = "", limit: Limit = 30, offset: Offset = 0
 ) -> dict[str, Any]:
-    return listing(Company, db, identity.id, q, limit, offset)
+    page = listing(Company, db, identity.id, q, limit, offset)
+    briefs = RecordWork.latest_company_briefs(
+        db, owner_id=identity.id, company_ids=[UUID(row["id"]) for row in page["items"]]
+    )
+    for row in page["items"]:
+        row["latest_research"] = briefs.get(UUID(row["id"]))
+    return page
 
 
 @router.get("/companies/{record_id}", response_model=s.CompanyRead)
-def get_company(record_id: UUID, identity: CurrentIdentity, db: Database) -> Company:
-    return owned(db, Company, record_id, identity.id)
+def get_company(record_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
+    row = serialize(owned(db, Company, record_id, identity.id))
+    row["latest_research"] = RecordWork.latest_company_briefs(
+        db, owner_id=identity.id, company_ids=[record_id]
+    ).get(record_id)
+    return row
 
 
 @router.post("/companies", response_model=s.CompanyRead, status_code=201)
@@ -502,6 +514,30 @@ def create_contact(
     body: s.ContactCreate, identity: CurrentIdentity, db: Database, key: WriteKey, request: Request
 ) -> dict[str, Any]:
     return create_record(Contact, body, db, identity.id, key, UUID(request.state.request_id))
+
+
+@router.get("/contacts/{record_id}/observations", response_model=s.Page[s.ContactObservationRead])
+def contact_observations(
+    record_id: UUID,
+    identity: CurrentIdentity,
+    db: Database,
+    limit: Limit = 30,
+    offset: Offset = 0,
+) -> dict[str, Any]:
+    owned(db, Contact, record_id, identity.id)
+    scope = (ContactObservation.owner_id == identity.id, ContactObservation.contact_id == record_id)
+    total = db.scalar(select(func.count()).select_from(ContactObservation).where(*scope))
+    items = db.scalars(
+        select(ContactObservation)
+        .where(*scope)
+        .order_by(
+            ContactObservation.imported_at.desc(),
+            ContactObservation.id,
+        )
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.patch("/contacts/{record_id}", response_model=s.ContactRead)

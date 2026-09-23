@@ -1,14 +1,22 @@
 # product.md — Direction and scope
 
-**Parent:** [Product Spec](product-spec.md). **Revision:** 2026-09-21-r4. **Purpose:** strategy and decision rationale, not a second requirement list.
+**Parent:** [Product Spec](product-spec.md). **Revision:** 2026-09-22-r7. **Purpose:** strategy and decision rationale, not a second requirement list.
 
 ## Product thesis
 
-The user expanded the direction on 2026-09-21: Command Center should become a configurable agent workspace for operating a one-person company, starting with the existing job/research/application workflow. The implemented runtime uses Deep Agents on LangGraph/OpenAI with Celery and persistent task/opportunity conversations. After reopening the comparison with custom LangGraph and Codex, the user selected Deep Agents on LangGraph for the new architecture. Composio is now the integration priority. A browser extension/client connects the running server to the user's signed-in local browser to inspect and fill forms seamlessly, without exporting browser cookies or profiles. The named AISpot/Youspot reference was uncertain inspiration, not a selected product dependency.
+The user expanded the direction on 2026-09-21 to a configurable agent workspace for operating a one-person company, then clarified it on 2026-09-22 as an all-in-one personal workspace for knowledge work and automation. Email, relationships, reading, connected ideas, writing, interviews, outreach and follow-through should feel like one coherent product. The original revamp order was **email/relationships/follow-up → routines/automation → Library/writing/linked tasks**. The latest D5 direction is to build connections now and defer routines; the broader roadmap does not make routine decisions a prerequisite. [Product Spec](product-spec.md#personal-work-os-revamp--confirmed-2026-09-22) owns the accepted delivery direction and unresolved behavior.
+
+The implemented runtime uses Deep Agents on LangGraph with Celery and persistent task/opportunity conversations. After reopening the comparison with custom LangGraph and Codex, the user selected Deep Agents on LangGraph for the new architecture. Composio is the integration priority. A browser extension/client connects the running server to the user's signed-in local browser to inspect and fill forms seamlessly, without exporting browser cookies or profiles. The named AISpot/Youspot reference was uncertain inspiration, not a selected product dependency.
 
 Job search is fragmented across job boards, relationships, inboxes, documents and portals. Command Center should turn a search intent into high-quality applications and deliberate follow-ups, while retaining the evidence and exact work used. Agents should do the repetitive browser work without requiring the user to supervise every field.
 
-The durable foundation is relationships, evidence, artifacts/documents, tasks, actor identity and execution history. Job search is the first full workflow. Later, the same relationship and discovery capabilities can support selling the user's AI SaaS products; that possibility informs the model without expanding the current release into a sales platform.
+The durable foundation is relationships, evidence, artifacts/documents, tasks, actor identity and execution history. The user's 2026-09-22 clarification makes shared Tiptap writing and linked tasks prerequisites of email/follow-up, not a separate third-phase build. Deliver the shared capabilities needed by the current connections work; routines and the expanded Library can reuse them later. Job search supplied the initial full workflow; the current revamp prioritizes connections. The same relationship and discovery capabilities may support selling the user's AI SaaS products, without implying a separate sales-platform build.
+
+The user explicitly keeps Gmail for inbox management. Command Center retrieves email only on an explicit request to pull it, then helps turn that context into writing, decisions and follow-through. Its all-in-one value is connected work and knowledge, rather than background replication of every connected application. Routine design must preserve this boundary.
+
+The user also narrowed the LinkedIn import to contacts and professional profile in revamp D4. Complete that mapping without bringing historical message bodies into the workspace. The product connects the information selected for work; it does not need to archive every conversation to be useful.
+
+For the immediate build, the user clarified that “connections” means connected external apps. App setup and account management come first, using the supplied mockups and current Composio integration. People/LinkedIn, shared writing and Library work remain in the broader roadmap; routines are deferred. The user wants the current slice running quickly, with ordinary implementation decisions handled without further interview rounds.
 
 ## Decisions already made
 

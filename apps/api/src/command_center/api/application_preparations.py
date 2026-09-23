@@ -12,29 +12,51 @@ from command_center.api import schemas as s
 from command_center.api.agents import available_profile
 from command_center.api.browser import Device
 from command_center.api.browser_contracts import FieldId, FieldValue, ResumeFile
-from command_center.api.workspace import Database, WriteKey, write
+from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity, Identity
 from command_center.db.agents import AgentRun
 from command_center.db.application_preparations import ApplicationPreparation
+from command_center.db.applications import ApplicationTrack
+from command_center.db.artifacts import ArtifactVersion
 from command_center.db.browser import BrowserSnapshot
 from command_center.db.conversations import AgentSession
+from command_center.db.idempotency import RequestReceipt
 
 router = APIRouter(prefix="/api/v1/browser", tags=["application-preparation"])
 
 
+class JobContextCreate(s.Contract):
+    job_title: str = Field(default="", max_length=300)
+    company_name: str = Field(default="", max_length=200)
+    text: str = Field(min_length=1, max_length=30000)
+    extraction_method: Literal["json_ld", "semantic_dom", "manual"]
+    truncated: bool = False
+
+
 class PreparationCreate(s.Contract):
+    cover_letter_version_id: UUID | None = None
     opportunity_id: UUID | None = None
     resume_version_id: UUID | None = None
+    continue_preparation_id: UUID | None = None
+    job_context: JobContextCreate | None = None
 
 
 class PreparationRevision(s.Contract):
+    cover_letter_version_id: UUID | None = None
+    cover_letter_upload_fields: list[FieldId] = Field(default_factory=list, max_length=10)
     expected_version_id: UUID
     fields: dict[FieldId, FieldValue] = Field(default_factory=dict, max_length=100)
     resume_version_id: UUID | None
     replace_fields: list[FieldId] = Field(default_factory=list, max_length=100)
     upload_fields: list[FieldId] = Field(default_factory=list, max_length=10)
     remember_fields: list[FieldId] = Field(default_factory=list, max_length=100)
+
+
+class AutofillRequest(s.Contract):
+    expected_version_id: UUID
+    attach_resume: bool = True
+    attach_cover_letter: bool = False
 
 
 class PreparationAnswer(s.Contract):
@@ -74,6 +96,8 @@ class ApplicationPreparationRead(s.Contract):
     version_id: UUID
     version: int
     resume: ResumeFile | None
+    cover_letter: ResumeFile | None = None
+    cover_letter_upload_fields: list[str] = Field(default_factory=list)
     replace_fields: list[str]
     upload_fields: list[str]
     fields: list[PreparedFieldRead]
@@ -92,13 +116,60 @@ class PreparationGenerationStatus(s.Contract):
     error_code: str | None
 
 
+def preparation_request_payload(body: s.Contract) -> dict[str, Any]:
+    """Keep pre-cover-letter receipt hashes stable when no new choice is made."""
+    payload = body.model_dump(mode="json")
+    for name in ("cover_letter_version_id", "cover_letter_upload_fields", "attach_cover_letter"):
+        if not payload.get(name):
+            payload.pop(name, None)
+    return payload
+
+
 def human_only(identity: Identity) -> None:
     if identity.run_id is not None:
         raise HTTPException(403, "Application review and generation require the human owner")
 
 
-def preparation_read(preparation: ApplicationPreparation) -> ApplicationPreparationRead:
-    version = preparation.current_version()
+@router.get("/snapshots/{snapshot_id}")
+def snapshot_detail(snapshot_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
+    human_only(identity)
+    snapshot = db.scalar(
+        select(BrowserSnapshot).where(
+            BrowserSnapshot.id == snapshot_id,
+            BrowserSnapshot.owner_id == identity.id,
+        )
+    )
+    if snapshot is None:
+        raise HTTPException(404, "Form snapshot not found")
+    return serialize(snapshot)
+
+
+@router.get(
+    "/snapshots/{snapshot_id}/preparation", response_model=ApplicationPreparationRead | None
+)
+def snapshot_preparation(
+    snapshot_id: UUID,
+    identity: CurrentIdentity,
+    db: Database,
+) -> ApplicationPreparationRead | None:
+    snapshot_detail(snapshot_id, identity, db)
+    preparation = db.scalar(
+        select(ApplicationPreparation)
+        .where(
+            ApplicationPreparation.snapshot_id == snapshot_id,
+            ApplicationPreparation.owner_id == identity.id,
+        )
+        .order_by(ApplicationPreparation.created_at.desc(), ApplicationPreparation.id.desc())
+        .limit(1)
+    )
+    return preparation_read(preparation) if preparation else None
+
+
+def preparation_read(
+    preparation: ApplicationPreparation,
+    version: ArtifactVersion | None = None,
+) -> ApplicationPreparationRead:
+    version = version or preparation.current_version()
     payload: dict[str, Any] | None = version.payload
     assert payload is not None
     return ApplicationPreparationRead.model_validate(
@@ -111,6 +182,8 @@ def preparation_read(preparation: ApplicationPreparation) -> ApplicationPreparat
             "version_id": version.id,
             "version": version.version,
             "resume": payload["resume"],
+            "cover_letter": payload.get("cover_letter"),
+            "cover_letter_upload_fields": payload.get("cover_letter_upload_fields", []),
             "replace_fields": payload["replace_fields"],
             "upload_fields": payload["upload_fields"],
             "fields": [
@@ -179,21 +252,26 @@ def create_preparation(
             snapshot=snapshot,
             opportunity_id=body.opportunity_id,
             resume_version_id=body.resume_version_id,
+            cover_letter_version_id=body.cover_letter_version_id,
             use_default_resume="resume_version_id" not in body.model_fields_set,
             request_id=UUID(request.state.request_id),
+            continue_preparation_id=body.continue_preparation_id,
+            job_context=body.job_context.model_dump() if body.job_context else None,
         )
         db.flush()
         return preparation_read(preparation).model_dump(mode="json")
 
     # Omitted resume selection differs from an explicitly empty selection.
     selection_mode = "explicit" if "resume_version_id" in body.model_fields_set else "default"
-    return write(
+    return RequestReceipt.execute(
         db,
-        owner_id,
-        key,
-        f"POST:application-preparation:{snapshot_id}:{device_id or 'human'}:{selection_mode}",
-        body,
-        change,
+        actor_id=owner_id,
+        key=key,
+        operation=(
+            f"POST:application-preparation:{snapshot_id}:{device_id or 'human'}:{selection_mode}"
+        ),
+        payload=preparation_request_payload(body),
+        change=change,
     )
 
 
@@ -260,8 +338,10 @@ def revise_preparation(
             expected_version_id=body.expected_version_id,
             fields=body.fields,
             resume_version_id=body.resume_version_id,
+            cover_letter_version_id=body.cover_letter_version_id,
             replace_fields=body.replace_fields,
             upload_fields=body.upload_fields,
+            cover_letter_upload_fields=body.cover_letter_upload_fields,
             remember_fields=body.remember_fields,
             version_id=version_id,
             request_id=UUID(request.state.request_id),
@@ -269,13 +349,13 @@ def revise_preparation(
         db.flush()
         return preparation_read(preparation).model_dump(mode="json")
 
-    return write(
+    return RequestReceipt.execute(
         db,
-        owner_id,
-        key,
-        f"POST:application-revision:{record_id}:{device_id or 'human'}",
-        body,
-        change,
+        actor_id=owner_id,
+        key=key,
+        operation=f"POST:application-revision:{record_id}:{device_id or 'human'}",
+        payload=preparation_request_payload(body),
+        change=change,
     )
 
 
@@ -310,6 +390,41 @@ def device_revise(
     request: Request,
 ) -> dict[str, Any]:
     return revise_preparation(record_id, body, device.owner_id, db, key, request, device.id)
+
+
+@router.post(
+    "/device/preparations/{record_id}/autofill",
+    response_model=ApplicationPreparationRead,
+    status_code=201,
+)
+def device_autofill(
+    record_id: UUID,
+    body: AutofillRequest,
+    device: Device,
+    db: Database,
+    key: WriteKey,
+    request: Request,
+) -> dict[str, Any]:
+    def change(version_id: UUID) -> dict[str, Any]:
+        preparation = owned_preparation(db, record_id, device.owner_id, device_id=device.id)
+        preparation.autofill(
+            expected_version_id=body.expected_version_id,
+            attach_resume=body.attach_resume,
+            attach_cover_letter=body.attach_cover_letter,
+            version_id=version_id,
+            request_id=UUID(request.state.request_id),
+        )
+        db.flush()
+        return preparation_read(preparation).model_dump(mode="json")
+
+    return RequestReceipt.execute(
+        db,
+        actor_id=device.owner_id,
+        key=key,
+        operation=f"POST:application-autofill:{record_id}:{device.id}",
+        payload=preparation_request_payload(body),
+        change=change,
+    )
 
 
 def generate_answers(
@@ -374,6 +489,9 @@ def context(
     assert snapshot is not None
     version = preparation.current_version()
     payload: dict[str, Any] = version.payload or {}
+    application = db.get(ApplicationTrack, preparation.task_id)
+    job_version = application.current_context_version(db) if application else None
+    job_payload = (job_version.payload or {}) if job_version else {}
     answers = {field["field_id"]: field for field in payload["fields"]}
     items = []
     for field in snapshot.fields[offset : offset + limit]:
@@ -402,6 +520,17 @@ def context(
         "opportunity_id": str(preparation.opportunity_id) if preparation.opportunity_id else None,
         "page_url": snapshot.page_url,
         "title": snapshot.title,
+        "job_context": {
+            "artifact_id": str(job_version.artifact_id),
+            "version_id": str(job_version.id),
+            "version": job_version.version,
+            "job_title": job_payload["job_title"],
+            "company_name": job_payload["company_name"],
+            "text_length": len(str(job_payload["text"])),
+            "truncated": job_payload["truncated"],
+        }
+        if job_version
+        else None,
         "items": items,
         "offset": offset,
         "limit": limit,

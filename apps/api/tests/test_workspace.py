@@ -34,6 +34,228 @@ def patch(client, path, body):
     return client.patch("/api/v1/" + path, json=body, headers={"Idempotency-Key": str(uuid4())})
 
 
+def test_library_searches_current_owned_content_and_document_types(client, engine):
+    from command_center.db.artifacts import Artifact
+
+    types = client.get("/api/v1/document-types").json()
+    notes = next(row["id"] for row in types if row["slug"] == "notes")
+    resume = next(row["id"] for row in types if row["slug"] == "resume")
+    note = post(
+        client,
+        "artifacts",
+        {
+            "title": "A conversation",
+            "document_type_id": notes,
+            "text": "Rare needle 100%_value",
+        },
+    ).json()
+    post(
+        client,
+        "artifacts",
+        {
+            "title": "Z resume",
+            "document_type_id": resume,
+            "text": "Synthetic skills",
+        },
+    )
+    post(client, "artifacts", {"title": "Hidden snapshot", "kind": "source", "text": "Rare needle"})
+    post(client, "artifacts", {"title": "Hidden email", "kind": "message", "text": "Rare needle"})
+    with Session(engine) as db, db.begin():
+        owner = Actor(id=uuid4(), kind="human", display_name="Another synthetic owner")
+        db.add(owner)
+        db.flush()
+        Artifact.draft(
+            db,
+            record_id=uuid4(),
+            owner_id=owner.id,
+            request_id=uuid4(),
+            title="Private note",
+            kind="document",
+            document_type_id=notes,
+            sensitivity="private",
+            text="Rare needle",
+        )
+    base = "/api/v1/artifacts"
+    found = client.get(base, params={"collection": "library", "q": "rare NEEDLE"}).json()
+    assert found["total"] == 1 and found["items"][0]["id"] == note["id"]
+    assert "payload" not in found["items"][0]
+    assert (
+        client.get(base, params={"collection": "library", "q": "100%_value"}).json()["total"] == 1
+    )
+    assert (
+        client.get(base, params={"collection": "library", "q": "100%Zvalue"}).json()["total"] == 0
+    )
+    assert (
+        client.get(base, params={"collection": "library", "document_type_id": resume}).json()[
+            "total"
+        ]
+        == 1
+    )
+    assert client.get("/api/v1/artifacts?collection=notes").json()["total"] == 1
+    first = client.get(base, params={"collection": "library", "sort": "title", "limit": 1}).json()
+    assert first["total"] == 2 and first["items"][0]["id"] == note["id"]
+    version_id = client.get(f"/api/v1/artifacts/{note['id']}/version-history").json()["items"][0][
+        "id"
+    ]
+    appended = post(
+        client,
+        f"artifacts/{note['id']}/versions",
+        {
+            "text": "Current body",
+            "expected_version": note["row_version"],
+            "based_on_version_id": version_id,
+        },
+    )
+    assert appended.status_code == 201, appended.text
+    assert (
+        client.get(base, params={"collection": "library", "q": "Rare needle"}).json()["total"] == 0
+    )
+    assert (
+        client.get(base, params={"collection": "library", "q": "Current body"}).json()["total"] == 1
+    )
+    post(client, f"artifacts/{note['id']}/archive", {"expected_version": note["row_version"] + 1})
+    assert (
+        client.get(base, params={"collection": "library", "q": "Current body"}).json()["total"] == 0
+    )
+
+
+def test_document_task_is_atomic_replayable_and_owned(client, engine):
+    from command_center.db.artifacts import TaskArtifact
+    from command_center.db.models import Task
+
+    document = post(
+        client, "artifacts", {"title": "Interview takeaways", "kind": "research"}
+    ).json()
+    path = f"artifacts/{document['id']}/tasks"
+    key = uuid4()
+    body = {"title": "Ask about team ownership", "rationale": "Clarify the interview notes"}
+    result = post(client, path, body, key)
+    assert result.status_code == 201, result.text
+    task = result.json()
+    assert post(client, path, body, key).json() == task
+    assert client.get(f"/api/v1/{path}").json()["items"][0]["id"] == task["id"]
+    sources = client.get("/api/v1/artifacts", params={"task_id": task["id"]}).json()
+    assert sources["items"][0]["id"] == document["id"]
+    with Session(engine) as db, db.begin():
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(TaskArtifact)
+                .where(TaskArtifact.artifact_id == document["id"])
+            )
+            == 1
+        )
+        outsider = Actor(id=uuid4(), kind="human", display_name="Other task owner")
+        db.add(outsider)
+        db.flush()
+        other_task = Task(id=uuid4(), owner_id=outsider.id, title="Private task")
+        db.add(other_task)
+        other_id = str(other_task.id)
+    assert client.get("/api/v1/artifacts", params={"task_id": other_id}).status_code == 404
+    assert post(client, f"artifacts/{uuid4()}/tasks", body).status_code == 404
+    post(
+        client, f"artifacts/{document['id']}/archive", {"expected_version": document["row_version"]}
+    )
+    assert post(client, path, body).status_code == 422
+
+
+def test_version_history_is_bounded_with_separate_owned_bodies(client, engine):
+    from command_center.db.artifacts import Artifact
+
+    artifact = post(
+        client,
+        "artifacts",
+        {
+            "title": "Synthetic long-lived note",
+            "kind": "research",
+            "text": "  First line\n\n",
+        },
+    ).json()
+    with Session(engine) as db, db.begin():
+        record = db.get(Artifact, artifact["id"])
+        for number in range(2, 26):
+            record.append_text(f"Checkpoint {number}", version_id=uuid4(), request_id=uuid4())
+    path = f"/api/v1/artifacts/{artifact['id']}"
+    first = client.get(f"{path}/version-history").json()
+    assert first["total"] == 25 and len(first["items"]) == 20
+    assert [item["version"] for item in first["items"]] == list(range(25, 5, -1))
+    assert "payload" not in first["items"][0]
+    assert first["items"][0]["is_text"] and not first["items"][0]["has_file"]
+    with Session(engine) as db, db.begin():
+        record = db.get(Artifact, artifact["id"])
+        record.append_text("Newer concurrent checkpoint", version_id=uuid4(), request_id=uuid4())
+    second = client.get(f"{path}/version-history?before={first['next_before']}&limit=20").json()
+    assert second["total"] == 26 and len(second["items"]) == 5
+    oldest = second["items"][-1]
+    assert oldest["version"] == 1
+    body = client.get(f"{path}/versions/{oldest['id']}")
+    assert body.status_code == 200
+    assert body.json()["payload"]["text"] == "  First line\n\n"
+    assert len(client.get(f"{path}/versions").json()) == 20
+    assert client.get(f"{path}/version-history?limit=101").status_code == 422
+    assert client.get(f"/api/v1/artifacts/{uuid4()}/versions/{oldest['id']}").status_code == 404
+    another = post(client, "artifacts", {"title": "Another note", "kind": "research"}).json()
+    assert (
+        client.get(f"/api/v1/artifacts/{another['id']}/versions/{oldest['id']}").status_code == 404
+    )
+    revision = post(
+        client,
+        f"artifacts/{artifact['id']}/versions",
+        {
+            "based_on_version_id": oldest["id"],
+            "expected_version": client.get(path).json()["row_version"],
+            "text": "  Keep this indentation\n\n",
+        },
+    )
+    assert revision.status_code == 201, revision.text
+    assert revision.json()["payload"]["text"] == "  Keep this indentation\n\n"
+
+
+def test_contact_import_history_is_paginated_and_owned(client, engine):
+    from uuid import uuid5
+
+    from command_center.db.artifacts import Artifact
+    from command_center.db.crm import Contact, ContactObservation
+
+    contact = post(client, "contacts", {"name": "Synthetic exported contact"}).json()
+    with Session(engine) as db, db.begin():
+        source = Artifact.draft(
+            db,
+            record_id=uuid4(),
+            owner_id=client.actor_id,
+            title="Synthetic export",
+            kind="source",
+            sensitivity="private",
+            text="First Name: Alex",
+            document_type_id=None,
+            request_id=uuid4(),
+        )
+        row = db.get(Contact, contact["id"])
+        observation = ContactObservation.capture_linkedin(
+            db,
+            contact=row,
+            source_version_id=uuid5(source.id, "version:1"),
+            source_row=1,
+            row={"First Name": "Alex", "Connected On": "2025"},
+            request_id=uuid4(),
+        )
+        observation_id = str(observation.id)
+    response = client.get(f"/api/v1/contacts/{contact['id']}/observations?limit=1&offset=0")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["id"] == observation_id
+    assert response.json()["items"][0]["connected_on"] == "2025"
+    assert "owner_id" not in response.json()["items"][0]
+    assert (
+        client.get(f"/api/v1/contacts/{contact['id']}/observations?limit=1&offset=1").json()[
+            "items"
+        ]
+        == []
+    )
+    client.app.dependency_overrides[authenticate] = lambda: Identity(uuid4(), "other-synthetic")
+    assert client.get(f"/api/v1/contacts/{contact['id']}/observations").status_code == 404
+
+
 def test_idempotent_create_rejects_key_reuse_and_stale_edits(client, engine):
     key = uuid4()
     first = post(client, "companies", {"name": "Synthetic Orbit"}, key)

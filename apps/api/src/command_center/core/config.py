@@ -52,6 +52,12 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         validation_alias=AliasChoices("COMPOSIO_API_KEY", "CC_COMPOSIO_API_KEY"),
     )
+    apollo_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("APOLLO_API_KEY", "CC_APOLLO_API_KEY")
+    )
+    hunter_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("HUNTER_API_KEY", "CC_HUNTER_API_KEY")
+    )
     composio_auth_configs: dict[str, str] = {}
     composio_action_timeout_seconds: float = Field(default=30, gt=0, le=60)
     redis_url: str = Field(default="redis://127.0.0.1:56379/0", repr=False)

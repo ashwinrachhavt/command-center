@@ -44,6 +44,15 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "Alex Morgan" }),
     ).toBeVisible();
+    const history = page.getByRole("region", {
+      name: "Imported contact history",
+    });
+    await expect(
+      history.getByText("01 Jan 2025", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      history.getByText("Source row 1", { exact: false }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Close related workspace" }).click();
     await expect(
       page.getByRole("heading", { name: "Staff Product Engineer" }),

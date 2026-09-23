@@ -14,6 +14,7 @@ from command_center.api.workspace import Database, Limit, Offset, WriteKey, chec
 from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity
 from command_center.db.base import utc_now
+from command_center.db.career import CareerEntry, decode_career, linkedin_career_suggestion
 from command_center.db.idempotency import RequestReceipt
 from command_center.db.profile_facts import (
     FactField,
@@ -65,6 +66,8 @@ class FactRevisionRead(s.ResponseContract):
     valid_until: datetime | None
     review_state: ReviewState
     created_at: datetime
+    career: CareerEntry | None = None
+    career_suggestion: CareerEntry | None = None
 
 
 class FactRead(s.ResponseContract):
@@ -92,7 +95,9 @@ def owned_fact(db: Database, fact_id: UUID, owner_id: UUID, *, lock: bool = Fals
     return fact
 
 
-def revision_read(db: Database, revision: ProfileFactRevision) -> FactRevisionRead:
+def revision_read(
+    db: Database, revision: ProfileFactRevision, field: str | None = None
+) -> FactRevisionRead:
     return FactRevisionRead(
         id=revision.id,
         version=revision.version,
@@ -104,6 +109,10 @@ def revision_read(db: Database, revision: ProfileFactRevision) -> FactRevisionRe
         valid_until=revision.valid_until,
         review_state=revision.review_state(db),
         created_at=revision.created_at,
+        career=decode_career(revision.value),
+        career_suggestion=(
+            linkedin_career_suggestion(field, revision.value, revision.context) if field else None
+        ),
     )
 
 
@@ -118,8 +127,8 @@ def fact_read(db: Database, fact: ProfileFact) -> FactRead:
         id=fact.id,
         row_version=fact.row_version,
         field=fact.field,
-        current=revision_read(db, current),
-        active=revision_read(db, active) if active else None,
+        current=revision_read(db, current, fact.field),
+        active=revision_read(db, active, fact.field) if active else None,
     )
 
 
@@ -204,7 +213,7 @@ def approved_facts(
     ).all()
     items = []
     for fact, revision in rows:
-        read = revision_read(db, revision)
+        read = revision_read(db, revision, fact.field)
         if read.review_state != "approved":
             continue
         items.append(

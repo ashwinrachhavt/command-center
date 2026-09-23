@@ -12,13 +12,14 @@ from pydantic import (
     EmailStr,
     Field,
     HttpUrl,
+    StringConstraints,
     field_validator,
     model_validator,
 )
 
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 Title = Annotated[str, Field(min_length=1, max_length=300)]
-Notes = Annotated[str, Field(max_length=20000)]
+Notes = Annotated[str, StringConstraints(strip_whitespace=False), Field(max_length=20000)]
 Stage = Literal["researching", "preparing", "applied", "interviewing", "offer", "closed"]
 TaskState = Literal["open", "in_progress", "snoozed", "done", "cancelled"]
 Relationship = Literal["new", "connected", "warm", "advocate"]
@@ -63,6 +64,23 @@ class ContactCreate(Contract):
     linkedin_url: HttpUrl | None = None
     relationship: Relationship = "new"
     notes: Notes | None = None
+
+
+class ContactObservationRead(ResponseContract):
+    id: UUID
+    contact_id: UUID
+    source_artifact_id: UUID
+    source_version_id: UUID
+    source_row: int
+    mapping_version: str
+    first_name: str
+    last_name: str
+    linkedin_url: str
+    email: str
+    company: str
+    position: str
+    connected_on: str
+    imported_at: datetime
 
 
 class ContactUpdate(Revision):
@@ -150,8 +168,17 @@ class RecordRead(ResponseContract):
     updated_at: datetime
 
 
+class CompanyResearchRead(ResponseContract):
+    task_id: UUID
+    artifact_id: UUID
+    version_id: UUID
+    summary: str
+    created_at: datetime
+
+
 class CompanyRead(CompanyCreate, RecordRead):
     archived_at: datetime | None
+    latest_research: CompanyResearchRead | None = None
 
 
 class CompanyLabel(ResponseContract):
@@ -191,7 +218,9 @@ class ArtifactCreate(Contract):
     kind: Literal["document", "message", "research", "package", "source"] = "document"
     sensitivity: Literal["public", "private", "restricted"] = "private"
     document_type_id: UUID | None = None
-    text: str = Field(default="", max_length=100000)
+    text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(
+        default="", max_length=100000
+    )
     source_version_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
@@ -211,7 +240,7 @@ class ArtifactRead(RecordRead):
 
 class VersionCreate(Revision):
     based_on_version_id: UUID
-    text: str = Field(max_length=100000)
+    text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(max_length=100000)
 
 
 class VersionRead(ResponseContract):
@@ -222,6 +251,22 @@ class VersionRead(ResponseContract):
     content_sha256: str
     created_at: datetime
     input_version_ids: list[UUID]
+
+
+class VersionSummary(ResponseContract):
+    id: UUID
+    artifact_id: UUID
+    version: int
+    content_sha256: str
+    created_at: datetime
+    is_text: bool
+    has_file: bool
+
+
+class VersionHistoryRead(ResponseContract):
+    items: list[VersionSummary]
+    total: int
+    next_before: int | None
 
 
 class VersionLineageRead(ResponseContract):

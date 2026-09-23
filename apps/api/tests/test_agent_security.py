@@ -231,6 +231,23 @@ def test_connected_context_grant_does_not_grant_mail_or_external_changes(setting
         assert unscoped.json() == {"detail": "Agent run has no owned work scope"}
 
 
+@pytest.mark.parametrize("running", [["gmail_search"]], indirect=True)
+def test_even_a_legacy_mail_tool_grant_requires_an_explicit_human_pull(settings, running):
+    run_id, lease_id = running
+    headers = {
+        "Authorization": "Bearer " + issue_run_token(settings, run_id, lease_id),
+        "Idempotency-Key": str(uuid4()),
+    }
+    with TestClient(create_app(settings)) as client:
+        denied = client.post(
+            "/api/v1/gmail/search",
+            headers=headers,
+            json={"query": "from:synthetic@example.test", "max_results": 1},
+        )
+    assert denied.status_code == 403, denied.text
+    assert "Pull email explicitly" in denied.json()["detail"]
+
+
 def test_duplicate_delivery_and_expired_lease_do_not_restart(engine, running):
     run_id, _ = running
     with Session(engine) as db, db.begin():

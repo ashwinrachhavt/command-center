@@ -18,9 +18,16 @@
     String(value ?? "")
       .trim()
       .slice(0, maximum);
+  const labelText = (element) => {
+    const copy = element.cloneNode(true);
+    copy
+      .querySelectorAll("input,select,textarea,[contenteditable]")
+      .forEach((control) => control.remove());
+    return copy.textContent;
+  };
   const labelsFor = (element) =>
     Array.from(element.labels ?? [])
-      .map((label) => trim(label.textContent, 500))
+      .map((label) => trim(labelText(label), 500))
       .filter(Boolean);
 
   function readableLabel(element) {
@@ -536,6 +543,46 @@
           numeric_constraints: numericConstraints(element),
         }),
       };
+    if (["date", "month"].includes(element.type)) {
+      const valid = (value) => {
+        const copy = element.ownerDocument.createElement("input");
+        copy.type = element.type;
+        copy.value = value;
+        return /^\d{4}-\d{2}(?:-\d{2})?$/.test(value) && copy.value === value;
+      };
+      const minimum = valid(element.min) ? element.min : null;
+      const maximum = valid(element.max) ? element.max : null;
+      const step =
+        element.step === "any"
+          ? "any"
+          : finiteNumber(element.step) && Number(element.step) > 0
+            ? element.step
+            : "1";
+      if (
+        (minimum && maximum && minimum > maximum) ||
+        (!minimum &&
+          step !== "any" &&
+          Number(step) !== 1 &&
+          valid(element.getAttribute("value") || ""))
+      )
+        return unsupportedEntry(
+          element,
+          "This calendar uses a conflicting range or a private default as its step base. Complete it on the page.",
+        );
+      return {
+        key: element,
+        elements: [element],
+        description: basicDescription(element, element.type, {
+          temporal_constraints: {
+            minimum,
+            maximum,
+            step,
+            step_base:
+              minimum || (element.type === "month" ? "1970-01" : "1970-01-01"),
+          },
+        }),
+      };
+    }
     if (supportedTextTypes.has(element.type))
       return {
         key: element,
@@ -548,6 +595,179 @@
     );
   }
 
+  const historyControls =
+    'input,textarea,select,[role="combobox"],[contenteditable="true"]';
+  const normalized = (text) =>
+    String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  function sectionLabel(node) {
+    const heading = node.querySelector(
+      ':scope > legend,:scope > h2,:scope > h3,:scope > h4,[data-automation-id="panelSetHeading"]',
+    );
+    return trim(
+      node.getAttribute("aria-label") ||
+        (node.getAttribute("aria-labelledby") || "")
+          .split(/\s+/)
+          .map((id) => node.ownerDocument.getElementById(id)?.textContent || "")
+          .join(" ") ||
+        (heading && labelText(heading)),
+      200,
+    );
+  }
+  function historySection(element) {
+    for (
+      let node = element.parentElement;
+      node && node !== element.ownerDocument.body;
+      node = node.parentElement
+    ) {
+      if (
+        !node.matches(
+          'fieldset,section,[role="group"],[data-automation-id="workExperience"],[data-automation-id="education"]',
+        )
+      )
+        continue;
+      const label = sectionLabel(node);
+      const text = normalized(label);
+      const kind =
+        /^(?:work experience|work history|employment(?: history| experience)?|professional experience)(?: \d+)?(?: newest first| oldest first)?$/.test(
+          text,
+        )
+          ? "experience"
+          : /^(?:education|education history|educational history)(?: \d+)?(?: newest first| oldest first)?$/.test(
+                text,
+              )
+            ? "education"
+            : null;
+      if (kind)
+        return {
+          node,
+          kind,
+          label,
+          order: text.includes("oldest first")
+            ? "oldest_first"
+            : "newest_first",
+          ordinal: text.match(/\b(\d+)\b/)?.[1],
+        };
+    }
+    return null;
+  }
+  function historyComponent(element, group, fieldLabel) {
+    let label = normalized(fieldLabel || readableLabel(element));
+    if (["month", "year"].includes(label)) {
+      for (
+        let parent = element.parentElement;
+        parent && parent !== group.node;
+        parent = parent.parentElement
+      ) {
+        const title = normalized(sectionLabel(parent));
+        if (/^(start|end|from|to)( date)?$/.test(title)) {
+          label = `${/^(start|from)/.test(title) ? "start" : "end"} ${label}`;
+          break;
+        }
+      }
+    }
+    const components = {
+      organization:
+        group.kind === "experience"
+          ? [
+              "company",
+              "company name",
+              "employer",
+              "employer name",
+              "organization",
+            ]
+          : [
+              "school",
+              "school name",
+              "institution",
+              "university",
+              "college university",
+            ],
+      role: ["job title", "title", "position", "role"],
+      degree: ["degree", "degree name"],
+      field_of_study: ["field of study", "major", "discipline"],
+      location: ["location", "city"],
+      description: [
+        "description",
+        "responsibilities",
+        "responsibilities and achievements",
+        "education notes",
+      ],
+      start_year: ["start year", "from year"],
+      end_year: ["end year", "to year", "graduation year"],
+      start_month: ["start month", "from month"],
+      end_month: ["end month", "to month", "graduation month"],
+      start_date: ["start date", "from", "date started"],
+      end_date: ["end date", "to", "date ended", "graduation date"],
+      current:
+        group.kind === "experience"
+          ? [
+              "i currently work here",
+              "currently working here",
+              "current employer",
+              "current position",
+            ]
+          : [
+              "i currently study here",
+              "currently studying here",
+              "currently attending",
+            ],
+    };
+    return (
+      Object.entries(components).find(([, labels]) =>
+        labels.includes(label),
+      )?.[0] || "unknown"
+    );
+  }
+  function addHistory(entry, group) {
+    const element = entry.elements[0];
+    const format = String(element.getAttribute("placeholder") || "")
+      .trim()
+      .toLowerCase();
+    entry.description.history = {
+      group_id: group.id,
+      kind: group.kind,
+      position: group.position,
+      label: group.label,
+      order: group.order,
+      component: historyComponent(element, group, entry.description.label),
+      date_format: [
+        "yyyy",
+        "yyyy-mm",
+        "yyyy-mm-dd",
+        "mm/yyyy",
+        "mm/dd/yyyy",
+        "dd/mm/yyyy",
+      ].includes(format)
+        ? format
+        : null,
+    };
+    entry.historyGroup = group;
+  }
+  function visibleGroupControls(group) {
+    return Array.from(group.node.querySelectorAll(historyControls)).filter(
+      (node) => isVisible(node) && !isSensitive(node, readableLabel(node)),
+    );
+  }
+  function validHistoryStructure() {
+    const previous = new Map();
+    for (const group of snapshot.historyGroups.values()) {
+      const prior = previous.get(group.node.ownerDocument);
+      if (prior && !(prior.compareDocumentPosition(group.node) & 4))
+        return false;
+      previous.set(group.node.ownerDocument, group.node);
+      const current = visibleGroupControls(group);
+      if (
+        current.length !== group.controls.length ||
+        current.some((node, index) => node !== group.controls[index])
+      )
+        return false;
+    }
+    return true;
+  }
+
   async function inspectPage() {
     const seen = new Set();
     const entries = [];
@@ -557,6 +777,7 @@
       page_url: pageUrl(),
       full_url: location.href,
       entries,
+      historyGroups: new Map(),
     };
     for (const context of formDocuments()) {
       watchDocument(context.document);
@@ -569,6 +790,26 @@
         if (!entry || seen.has(entry.key)) continue;
         seen.add(entry.key);
         entry.context = context;
+        const section = historySection(element);
+        if (section) {
+          let group = snapshot.historyGroups.get(section.node);
+          if (!group) {
+            const position = section.ordinal
+              ? Number(section.ordinal) - 1
+              : Array.from(snapshot.historyGroups.values()).filter(
+                  (item) => item.kind === section.kind,
+                ).length;
+            if (position >= 0 && position < 100) {
+              group = {
+                ...section,
+                id: `h${snapshot.historyGroups.size}`,
+                position,
+              };
+              snapshot.historyGroups.set(section.node, group);
+            }
+          }
+          if (group) addHistory(entry, group);
+        }
         entry.capturedValues = localValues(entry);
         entry.edited = false;
         entries.push(entry);
@@ -580,6 +821,8 @@
       focused.focus({ preventScroll: true });
     if (!currentPage())
       throw new Error("The page changed while sharing. Try again.");
+    for (const group of snapshot.historyGroups.values())
+      group.controls = visibleGroupControls(group);
     return {
       id: snapshot.id,
       protocol_version: 2,
@@ -599,7 +842,13 @@
 
   function refreshEntry(entry) {
     const first = entry.elements[0];
-    return first?.isConnected ? describeElement(first) : null;
+    const current = first?.isConnected ? describeElement(first) : null;
+    if (current && entry.historyGroup) {
+      const group = historySection(first);
+      if (!group || group.node !== entry.historyGroup.node) return null;
+      addHistory(current, { ...entry.historyGroup, ...group });
+    } else if (current && historySection(first)) return null;
+    return current;
   }
 
   function requestedEntries(command) {
@@ -650,6 +899,8 @@
   }
 
   function preservationReason(entry, replace) {
+    if (historyEdited(entry))
+      return "This history entry changed after sharing. Share and review the entire entry again.";
     const current = localValues(entry);
     if (
       entry.edited ||
@@ -660,6 +911,19 @@
     if (valuePresent(entry) && !replace)
       return "Existing local value preserved.";
     return null;
+  }
+
+  function historyEdited(entry) {
+    if (!entry.historyGroup) return false;
+    return snapshot.entries.some((member) => {
+      if (member.historyGroup !== entry.historyGroup) return false;
+      const values = localValues(member);
+      return (
+        member.edited ||
+        values.length !== member.capturedValues.length ||
+        values.some((value, index) => value !== member.capturedValues[index])
+      );
+    });
   }
 
   // Exact values stay in this document. An edit followed by a clear is still an
@@ -729,6 +993,16 @@
         return {
           status: "rejected",
           detail: "Use a number within this field's allowed range and step.",
+        };
+    }
+    if (["date", "month"].includes(entry.description.type)) {
+      const candidate = element.cloneNode(false);
+      candidate.value = value;
+      if (!value || candidate.value !== value || !candidate.validity.valid)
+        return {
+          status: "rejected",
+          detail:
+            "Use a complete calendar value within this control's range and step.",
         };
     }
     if (entry.description.type === "select") {
@@ -925,6 +1199,7 @@
       snapshot.id !== command.snapshot_id ||
       snapshot.page_url !== command.page_url ||
       !currentPage() ||
+      !validHistoryStructure() ||
       requested.some(({ entry }) => !entry);
     if (stale) {
       snapshot = undefined;
@@ -974,7 +1249,7 @@
     const fieldResults = {};
     try {
       for (const { id, entry } of requested) {
-        if (!currentPage()) {
+        if (!currentPage() || !validHistoryStructure()) {
           fieldResults[id] = {
             status: "outcome_unknown",
             detail: "The page changed during apply.",
@@ -988,6 +1263,12 @@
             status: "outcome_unknown",
             detail:
               "This control changed after validation. Review it manually.",
+          };
+        } else if (historyEdited(entry)) {
+          fieldResults[id] = {
+            status: "preserved",
+            detail:
+              "This history entry changed after sharing. Share and review the entire entry again.",
           };
         } else if (preservationReason(entry, replacements.has(id))) {
           fieldResults[id] = {
@@ -1017,6 +1298,10 @@
           fieldResults[id] = fillChoice(entry, command.fields[id]);
         } else {
           fieldResults[id] = fillText(entry, command.fields[id]);
+        }
+        if (["filled", "uploaded"].includes(fieldResults[id].status)) {
+          entry.capturedValues = localValues(entry);
+          entry.edited = false;
         }
       }
     } catch {

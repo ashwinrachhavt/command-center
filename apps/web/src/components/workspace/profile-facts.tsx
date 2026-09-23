@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowUpRight,
   Check,
@@ -33,8 +39,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DraftStatus } from "@/components/writing/draft-status";
+import { useWorkingDraft } from "@/components/writing/use-working-draft";
 import {
   api,
+  ApiError,
   label,
   type DocumentImport,
   type FactRevision,
@@ -47,9 +56,20 @@ import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 import { sizeLabel } from "./document-intake";
 import { useWorkspaceContext } from "./context";
+import { CareerFields, careerSummary, type CareerEntry } from "./career-fields";
 
 const factFields: ProfileFact["field"][] = [
   "full_name",
+  "first_name",
+  "last_name",
+  "address_line1",
+  "address_line2",
+  "city",
+  "region",
+  "postal_code",
+  "country",
+  "github",
+
   "email",
   "phone",
   "location",
@@ -60,6 +80,12 @@ const factFields: ProfileFact["field"][] = [
   "skill",
   "experience",
   "education",
+  "certification",
+  "project",
+  "course",
+  "language",
+  "publication",
+  "recommendation",
   "answer",
 ];
 
@@ -204,6 +230,11 @@ type FactDraft = {
   value: string;
   context: string;
   valid_until: string;
+  career: CareerEntry | null;
+  factId: string | null;
+  expectedVersion: number | null;
+  sourceVersionId: string | null;
+  sourceExcerpt: string | null;
 };
 
 const emptyDraft: FactDraft = {
@@ -211,6 +242,11 @@ const emptyDraft: FactDraft = {
   value: "",
   context: "",
   valid_until: "",
+  career: null,
+  factId: null,
+  expectedVersion: null,
+  sourceVersionId: null,
+  sourceExcerpt: null,
 };
 
 function FactEditor({
@@ -222,68 +258,142 @@ function FactEditor({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { userId } = useAuth();
+  return open && userId ? (
+    <FactEditorDraft
+      key={`${userId}:${fact?.id ?? "new"}`}
+      actor={userId}
+      fact={fact}
+      onOpenChange={onOpenChange}
+    />
+  ) : null;
+}
+
+function FactEditorDraft({
+  actor,
+  fact,
+  onOpenChange,
+}: {
+  actor: string;
+  fact?: ProfileFact;
+  onOpenChange: (open: boolean) => void;
+}) {
   const client = useQueryClient();
-  const [draft, setDraft] = useState<FactDraft>(() =>
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const writing = useWorkingDraft<FactDraft>(
+    actor,
+    `profile-fact-${fact?.id ?? "new"}`,
     fact
       ? {
           field: fact.field,
           value: fact.current.value,
           context: fact.current.context ?? "",
           valid_until: fact.current.valid_until?.slice(0, 16) ?? "",
+          career: fact.current.career ?? null,
+          factId: fact.id,
+          expectedVersion: fact.row_version,
+          sourceVersionId: fact.current.source_version_id,
+          sourceExcerpt: fact.current.source_excerpt,
         }
       : emptyDraft,
   );
-  const [intent] = useState(() => new RetainedRequestIntent());
+  const draft = writing.data;
   const [error, setError] = useState("");
   const change = (next: Partial<FactDraft>) => {
-    setDraft((current) => ({ ...current, ...next }));
+    writing.draft.edit((current) => ({ ...current, ...next }));
     setError("");
   };
   const save = useMutation({
-    mutationFn: () => {
-      const evidence = fact?.current;
+    mutationFn: async () => {
+      const snapshot = writing.draft.getSnapshot().data;
       const body = {
-        value: draft.value.trim(),
-        context: draft.context.trim() || undefined,
-        valid_until: draft.valid_until
-          ? new Date(draft.valid_until).toISOString()
+        value: snapshot.career
+          ? JSON.stringify(snapshot.career)
+          : snapshot.value.trim(),
+        context: snapshot.career
+          ? undefined
+          : snapshot.context.trim() || undefined,
+        valid_until: snapshot.valid_until
+          ? new Date(snapshot.valid_until).toISOString()
           : undefined,
-        ...(fact
+        source_version_id: snapshot.sourceVersionId ?? undefined,
+        source_excerpt: snapshot.sourceExcerpt ?? undefined,
+        ...(snapshot.factId
           ? {
-              expected_version: fact.row_version,
-              source_version_id: evidence?.source_version_id ?? undefined,
-              source_excerpt: evidence?.source_excerpt ?? undefined,
+              expected_version: snapshot.expectedVersion,
             }
-          : { field: draft.field }),
+          : { field: snapshot.field }),
       };
-      const target = fact
-        ? `profile/facts/${fact.id}/versions`
+      const target = snapshot.factId
+        ? `profile/facts/${snapshot.factId}/versions`
         : "profile/facts";
-      const request = intent.forRequest("POST", target, body);
-      return api(target, {
+      await writing.draft.flush();
+      const request = writing.draft.request("POST", target, body, snapshot);
+      const saved = await api<ProfileFact>(request.target, {
         method: "POST",
-        body,
+        body: request.body,
         key: request.key,
-      }).then((result) => ({ result, target, body }));
+      });
+      return { saved, snapshot: request.snapshot };
     },
-    onSuccess: ({ target, body }) => {
-      intent.confirmRequest("POST", target, body);
-      client.invalidateQueries({ queryKey: ["profile-facts"] });
+    onSuccess: async ({ saved, snapshot }) => {
+      writing.draft.resetIntent();
+      let cleared = false;
+      try {
+        cleared = await writing.draft.clearIfUnchanged(snapshot);
+      } catch {
+        setError(
+          "The proposal was saved. Your working draft could not be cleared; it is still here.",
+        );
+      }
+      if (cleared) onOpenChange(false);
+      else
+        writing.draft.edit((current) => ({
+          ...current,
+          factId: saved.id,
+          expectedVersion: saved.row_version,
+        }));
+      void client.invalidateQueries({ queryKey: ["profile-facts"] });
       toast.success(
-        fact ? "New fact revision proposed" : "Fact proposed for review",
+        cleared
+          ? "Fact proposed for review"
+          : "Fact proposed; newer writing kept in your draft",
       );
-      onOpenChange(false);
     },
-    onError: (nextError) => setError(nextError.message),
+    onError: (nextError) => {
+      if (
+        nextError instanceof ApiError &&
+        [400, 403, 404, 409, 413, 422].includes(nextError.status)
+      )
+        writing.draft.resetIntent();
+      setError(nextError.message);
+      void client.invalidateQueries({ queryKey: ["profile-facts"] });
+    },
   });
+  const value = draft.career
+    ? JSON.stringify(draft.career)
+    : draft.value.trim();
   const valid =
-    !!draft.value.trim() &&
-    draft.value.trim().length <= 4000 &&
+    !!value &&
+    value.length <= 4000 &&
+    (!draft.career ||
+      (!!draft.career.organization.trim() &&
+        (draft.career.description?.length ?? 0) <= 2000)) &&
     draft.context.length <= 1000 &&
     (draft.field !== "answer" || !!draft.context.trim());
+  const busy = save.isPending || writing.draft.hasCheckpoint;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+        onOpenAutoFocus={() => {
+          returnFocus.current = document.activeElement as HTMLElement;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          returnFocus.current?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {fact ? "Propose an updated fact" : "Propose a profile fact"}
@@ -293,14 +403,36 @@ function FactEditor({
             agents until you approve that exact revision.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <DraftStatus
+          draft={writing.draft}
+          state={writing}
+          preview={(copy) =>
+            copy.career ? careerSummary(copy.career) : copy.value
+          }
+          disabled={busy}
+        />
+        <fieldset
+          className="min-w-0 space-y-4"
+          disabled={save.isPending || writing.status === "loading"}
+        >
           <Field>
             <FieldLabel htmlFor="fact-field">Field</FieldLabel>
             <Select
               value={draft.field}
-              disabled={!!fact}
+              disabled={!!draft.factId || busy || writing.status === "loading"}
               onValueChange={(value) =>
-                change({ field: value as ProfileFact["field"] })
+                change({
+                  field: value as ProfileFact["field"],
+                  career:
+                    value === "experience" || value === "education"
+                      ? {
+                          schema_key: "career.v1",
+                          kind: value,
+                          organization: "",
+                          description: "",
+                        }
+                      : null,
+                })
               }
             >
               <SelectTrigger id="fact-field">
@@ -317,33 +449,68 @@ function FactEditor({
               </SelectContent>
             </Select>
           </Field>
-          <Field>
-            <FieldLabel htmlFor="fact-value">Value</FieldLabel>
-            <Textarea
-              id="fact-value"
-              rows={4}
-              maxLength={4000}
-              value={draft.value}
-              onChange={(event) => change({ value: event.target.value })}
+          {draft.career ? (
+            <CareerFields
+              entry={draft.career}
+              revision={writing.editorRevision}
+              onChange={(career) => change({ career })}
             />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="fact-context">
-              Context {draft.field === "answer" ? "(required)" : "(optional)"}
-            </FieldLabel>
-            <Textarea
-              id="fact-context"
-              rows={2}
-              maxLength={1000}
-              value={draft.context}
-              onChange={(event) => change({ context: event.target.value })}
-              placeholder={
-                draft.field === "answer"
-                  ? "The exact question or situation this answer applies to"
-                  : "Where or when this fact applies"
-              }
-            />
-          </Field>
+          ) : (
+            <Field>
+              <FieldLabel htmlFor="fact-value">Value</FieldLabel>
+              <Textarea
+                id="fact-value"
+                rows={4}
+                maxLength={4000}
+                value={draft.value}
+                onChange={(event) => change({ value: event.target.value })}
+              />
+            </Field>
+          )}
+          {!draft.career &&
+            (draft.field === "experience" || draft.field === "education") && (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    change({
+                      career: fact?.current.career_suggestion ?? {
+                        schema_key: "career.v1",
+                        kind: draft.field as "experience" | "education",
+                        organization: "",
+                        description: draft.value,
+                      },
+                    })
+                  }
+                >
+                  Map {draft.field} fields
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Review company or school and dates before saving. Approval
+                  makes the mapped entry reusable across applications; its
+                  original source stays attached.
+                </p>
+              </div>
+            )}
+          {!draft.career && (
+            <Field>
+              <FieldLabel htmlFor="fact-context">
+                Context {draft.field === "answer" ? "(required)" : "(optional)"}
+              </FieldLabel>
+              <Textarea
+                id="fact-context"
+                rows={2}
+                maxLength={1000}
+                value={draft.context}
+                onChange={(event) => change({ context: event.target.value })}
+                placeholder={
+                  draft.field === "answer"
+                    ? "The exact question or situation this answer applies to"
+                    : "Where or when this fact applies"
+                }
+              />
+            </Field>
+          )}
           <Field>
             <FieldLabel htmlFor="fact-valid-until">
               Valid until (optional)
@@ -355,29 +522,51 @@ function FactEditor({
               onChange={(event) => change({ valid_until: event.target.value })}
             />
           </Field>
-          {fact?.current.source_excerpt ? (
-            <p className="rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
-              Evidence remains pinned to the current source version: “
-              {fact.current.source_excerpt}”
+          {draft.sourceExcerpt ? (
+            <p className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
+              Pinned source evidence: “{draft.sourceExcerpt}”
             </p>
           ) : null}
           {error ? (
             <p role="alert" className="text-xs text-destructive">
-              {error} Your draft is still here; refresh the facts if another
-              review changed it.
+              {error} Your draft is still here.
             </p>
           ) : null}
-        </div>
+          {fact &&
+            draft.expectedVersion !== fact.row_version &&
+            !writing.draft.hasCheckpoint && (
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p>
+                  This fact changed after you started writing. Review the latest
+                  fact before saving your proposal.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => change({ expectedVersion: fact.row_version })}
+                >
+                  Use latest revision as base
+                </Button>
+              </div>
+            )}
+        </fieldset>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Keep draft
           </Button>
           <Button
-            disabled={!valid || save.isPending}
+            disabled={
+              (!valid && !writing.draft.hasCheckpoint) ||
+              save.isPending ||
+              ["loading", "conflict"].includes(writing.status)
+            }
             onClick={() => save.mutate()}
           >
             {save.isPending ? <Spinner /> : <Plus />}{" "}
-            {error ? "Retry proposal" : "Save proposal"}
+            {writing.draft.hasCheckpoint
+              ? "Recover saved proposal"
+              : error
+                ? "Retry proposal"
+                : "Save proposal"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -463,7 +652,9 @@ function FactCard({ fact }: { fact: ProfileFact }) {
           {fact.active ? (
             <>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                {fact.active.value}
+                {fact.active.career
+                  ? careerSummary(fact.active.career)
+                  : fact.active.value}
               </p>
               {fact.active.context ? (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -498,7 +689,9 @@ function FactCard({ fact }: { fact: ProfileFact }) {
             {pending ? "Current proposal" : "Current revision"}
           </p>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-            {fact.current.value}
+            {fact.current.career
+              ? careerSummary(fact.current.career)
+              : fact.current.value}
           </p>
           {fact.current.context ? (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -589,9 +782,15 @@ function FactCard({ fact }: { fact: ProfileFact }) {
 
 export function ProfileFacts() {
   const [creating, setCreating] = useState(false);
-  const facts = useQuery({
+  const facts = useInfiniteQuery({
     queryKey: ["profile-facts"],
-    queryFn: () => api<Page<ProfileFact>>("profile/facts?limit=100&offset=0"),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api<Page<ProfileFact>>(`profile/facts?limit=20&offset=${pageParam}`),
+    getNextPageParam: (page) =>
+      page.offset + page.items.length < page.total
+        ? page.offset + page.items.length
+        : undefined,
   });
   const resume = useQuery({
     queryKey: ["default-resume"],
@@ -628,11 +827,32 @@ export function ProfileFacts() {
           <ErrorState error={facts.error} retry={() => facts.refetch()} />
         ) : facts.isPending ? (
           <LoadingRows />
-        ) : facts.data.items.length ? (
+        ) : facts.data.pages[0].items.length ? (
           <div className="mt-5 space-y-4">
-            {facts.data.items.map((fact) => (
-              <FactCard key={`${fact.id}:${fact.row_version}`} fact={fact} />
-            ))}
+            {facts.data.pages
+              .flatMap((page) => page.items)
+              .map((fact) => (
+                <FactCard key={fact.id} fact={fact} />
+              ))}
+            <p className="text-xs text-muted-foreground">
+              Showing{" "}
+              {facts.data.pages.reduce(
+                (count, page) => count + page.items.length,
+                0,
+              )}{" "}
+              of {facts.data.pages[0].total} facts
+            </p>
+            {facts.hasNextPage && (
+              <Button
+                variant="outline"
+                disabled={facts.isFetchingNextPage}
+                onClick={() => void facts.fetchNextPage()}
+              >
+                {facts.isFetchingNextPage
+                  ? "Loading facts…"
+                  : "Load more facts"}
+              </Button>
+            )}
           </div>
         ) : (
           <p className="mt-5 text-sm text-muted-foreground">

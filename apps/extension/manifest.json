@@ -1,9 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Command Center Companion",
-  "description": "Prepare, review, and apply exact application answers and resume files without submitting.",
-  "version": "0.3.0",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "description": "Prepare, review, and apply exact application answers, résumés and cover letters without submitting.",
+  "version": "0.4.2",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "nativeMessaging",
+    "sidePanel"
+  ],
   "host_permissions": ["http://localhost:8000/*", "http://127.0.0.1:8000/*"],
-  "action": { "default_popup": "popup.html", "default_title": "Command Center" }
+  "action": {
+    "default_title": "Open Command Center Copilot"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5ROXca2u7MUQ1L+AGCpDPRaFDrLShbrbGq9TE7a8FaL5ETvYTk3Fi4kp9pdfLJ5t9jJbPVMQY/Wu3A5SgwD+y/rhZBXMnWPi1e9ZBA+OoRwpAyZUbGFfyHz+ddGmXMwtdmLG0v8vy/aKXtOJkWCeJjnIiksuMbPMeslJKSkTL8urStmpbd5pB3OBdMN5kxGOjaExHHFKnnpqK8RCwI+p3HLB8sd27mhFC+e1sE1ifwlAzvVDLFEelu5z7bId35r11pKKN08MIsNJh4qy8UTi9jNBR+kTz0QNxUjmCv52nekUN9aFVRcFcLvhGN6DTXIpPEOiqKJab8I/bagFxJm20wIDAQAB",
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
 }

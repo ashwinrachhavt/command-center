@@ -5,20 +5,24 @@ import { cn } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
-    initial="smooth"
-    resize="smooth"
-    role="log"
-    {...props}
-  />
-);
+export const Conversation = ({ className, ...props }: ConversationProps) => {
+  const reducedMotion = useReducedMotion();
+  return (
+    <StickToBottom
+      className={cn("relative flex-1 overflow-y-hidden", className)}
+      initial="instant"
+      resize={reducedMotion ? "instant" : "smooth"}
+      role="log"
+      {...props}
+    />
+  );
+};
 
 export type ConversationContentProps = ComponentProps<
   typeof StickToBottom.Content
@@ -26,13 +30,37 @@ export type ConversationContentProps = ComponentProps<
 
 export const ConversationContent = ({
   className,
+  scrollClassName,
   ...props
-}: ConversationContentProps) => (
-  <StickToBottom.Content
-    className={cn("flex flex-col gap-8 p-4", className)}
-    {...props}
-  />
-);
+}: ConversationContentProps) => {
+  const { scrollRef, stopScroll } = useStickToBottomContext();
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    scroller.tabIndex = 0;
+    scroller.setAttribute("role", "region");
+    scroller.setAttribute("aria-label", "Conversation messages");
+    const readEarlier = (event: KeyboardEvent) => {
+      if (
+        event.target === scroller &&
+        ["Home", "PageUp", "ArrowUp"].includes(event.key)
+      )
+        stopScroll();
+    };
+    scroller.addEventListener("keydown", readEarlier);
+    return () => scroller.removeEventListener("keydown", readEarlier);
+  }, [scrollRef, stopScroll]);
+  return (
+    <StickToBottom.Content
+      className={cn("flex flex-col gap-8 p-4", className)}
+      scrollClassName={cn(
+        "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+        scrollClassName,
+      )}
+      {...props}
+    />
+  );
+};
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;
@@ -90,6 +118,7 @@ export const ConversationScrollButton = ({
         )}
         onClick={handleScrollToBottom}
         size="icon"
+        aria-label="Scroll to latest message"
         type="button"
         variant="outline"
         {...props}

@@ -1,4 +1,8 @@
 "use client";
+
+import { ContactImportHistory } from "./contact-import-history";
+import { useArtifactHistory } from "@/components/writing/use-artifact-history";
+import { ArtifactWriter } from "@/components/writing/artifact-writer";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,11 +12,11 @@ import {
   FilePlus2,
   Pencil,
   Plus,
-  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ContactDiscoveryProps } from "./contact-discovery";
 import {
   Select,
   SelectContent,
@@ -21,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
@@ -34,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   api,
+  ApiError,
   apiDownload,
   dateLabel,
   label,
@@ -42,6 +46,7 @@ import {
   type DocumentImport,
   type Page,
   type Resource,
+  type Resources,
   type Schema,
   type WorkspaceRecord,
 } from "@/lib/api";
@@ -53,6 +58,8 @@ import { useWorkspaceContext } from "./context";
 import { ActivityList } from "./activity-list";
 import { OpportunityResearch } from "./opportunity-research";
 import { DocumentUploadDialog } from "./document-intake";
+import { DocumentTasks, TaskDocuments } from "./document-tasks";
+import { DocumentOriginal } from "./document-original";
 import { PdfExportControl } from "./pdf-export";
 
 const RichAgentResponse = deferView<{ children: string }>(
@@ -61,6 +68,30 @@ const RichAgentResponse = deferView<{ children: string }>(
       default: module.AgentResponse,
     })),
   "rich content",
+);
+const DeferredDiscovery = deferView<ContactDiscoveryProps>(
+  () =>
+    import("./contact-discovery").then((module) => ({
+      default: module.ContactDiscovery,
+    })),
+  "contact discovery",
+);
+const DeferredRecordWork = deferView<{
+  resource: "contacts" | "companies";
+  id: string;
+}>(
+  () =>
+    import("./record-agent-work").then((module) => ({
+      default: module.RecordAgentWork,
+    })),
+  "record work",
+);
+const DeferredFollowUps = deferView<{ contact: Resources["contacts"] }>(
+  () =>
+    import("./contact-follow-ups").then((module) => ({
+      default: module.ContactFollowUps,
+    })),
+  "follow-ups",
 );
 const DeferredWorkConversation = deferView<{
   resource: "tasks" | "opportunities";
@@ -82,11 +113,6 @@ type ArtifactReviewDraft = {
   decision: ArtifactReviewDecision;
   reason: string;
 };
-type ArtifactVersionSubmission = {
-  basedOnVersionId: string | undefined;
-  expectedVersion: number;
-  text: string;
-};
 
 function reviewSignature(review: ArtifactReviewDraft) {
   return JSON.stringify(review);
@@ -100,18 +126,20 @@ export function ArtifactContent({
   pinnedVersionId?: string;
 }) {
   const queryClient = useQueryClient();
-  const versions = useQuery({
-    queryKey: ["versions", record.id],
-    queryFn: () =>
-      api<Schema["VersionRead"][]>(`artifacts/${record.id}/versions`),
-  });
+  const versions = useArtifactHistory(record.id);
   const [selected, setSelected] = useState<string | undefined>(pinnedVersionId);
-  const version = selected
-    ? versions.data?.find((candidate) => candidate.id === selected)
-    : versions.data?.[0];
-  if (!selected && versions.data?.[0]) setSelected(versions.data[0].id);
+  if (!selected && versions.items[0]) setSelected(versions.items[0].id);
+  const versionQuery = useQuery({
+    queryKey: ["artifact-version", record.id, selected],
+    enabled: !!selected,
+    queryFn: () =>
+      api<Schema["VersionRead"]>(`artifacts/${record.id}/versions/${selected}`),
+  });
+  const version = versionQuery.data;
   const pinnedVersionMissing =
-    !!selected && !versions.isPending && !versions.error && !version;
+    !!selected &&
+    versionQuery.error instanceof ApiError &&
+    versionQuery.error.status === 404;
   const reviews = useQuery({
     queryKey: ["reviews", version?.id],
     enabled: !!version,
@@ -120,6 +148,12 @@ export function ArtifactContent({
   });
   const imports = useQuery({
     queryKey: ["document-imports", record.id],
+    refetchInterval: (query) =>
+      query.state.data?.items.some((item) =>
+        ["queued", "running"].includes(item.state),
+      )
+        ? 2000
+        : false,
     enabled: (record as unknown as Record<string, unknown>).kind === "document",
     queryFn: () =>
       api<Page<DocumentImport>>(
@@ -127,13 +161,15 @@ export function ArtifactContent({
       ),
   });
   const [editing, setEditing] = useState(false);
+  const editSession = useRef(0);
+  const [editBase, setEditBase] = useState<{
+    versionId: string;
+    version: number;
+    expectedVersion: number;
+    session: number;
+    text: string;
+  }>();
   const [uploading, setUploading] = useState(false);
-  const [text, setText] = useState("");
-  const currentText = useRef(text);
-  useLayoutEffect(() => {
-    currentText.current = text;
-  }, [text]);
-  const [appendIntent] = useState(() => new RetainedRequestIntent());
   const [reviewDraft, setReviewDraft] = useState<ArtifactReviewDraft>();
   const currentReviewDraft = useRef(reviewDraft);
   useLayoutEffect(() => {
@@ -145,7 +181,7 @@ export function ArtifactContent({
     reviewDraft?.versionId === version?.id ? reviewDraft : undefined;
   const reason = matchingReviewDraft?.reason ?? "";
   const decision = matchingReviewDraft?.decision ?? "approved";
-  const newestVersion = versions.data?.[0];
+  const newestVersion = versions.items[0];
   const newerVersionAvailable =
     !!version && !!newestVersion && newestVersion.version > version.version;
   const reviewIsDirty =
@@ -166,40 +202,6 @@ export function ArtifactContent({
       ...update,
     }));
   };
-  const append = useMutation({
-    mutationFn: (submission: ArtifactVersionSubmission) => {
-      const target = `artifacts/${record.id}/versions`;
-      const body = {
-        based_on_version_id: submission.basedOnVersionId,
-        expected_version: submission.expectedVersion,
-        text: submission.text,
-      };
-      const intent = appendIntent.forRequest("POST", target, body);
-      return api(target, {
-        method: "POST",
-        body,
-        key: intent.key,
-      });
-    },
-    onSuccess: (_result, submission) => {
-      const target = `artifacts/${record.id}/versions`;
-      appendIntent.confirmRequest("POST", target, {
-        based_on_version_id: submission.basedOnVersionId,
-        expected_version: submission.expectedVersion,
-        text: submission.text,
-      });
-      queryClient.invalidateQueries();
-      if (currentText.current === submission.text) {
-        setEditing(false);
-        setSelected(undefined);
-        setReviewDraft(undefined);
-        setPendingVersionId(undefined);
-        reviewIntent.reset();
-      }
-      toast.success("New version saved");
-    },
-    onError: (e) => toast.error(e.message),
-  });
   const review = useMutation({
     mutationFn: (submission: ArtifactReviewDraft) => {
       const target = `versions/${submission.versionId}/reviews`;
@@ -242,6 +244,7 @@ export function ArtifactContent({
     review.reset();
   };
   const requestVersion = (versionId: string) => {
+    if (editing) return;
     if (versionId === version?.id) return;
     if (reviewIsDirty) setPendingVersionId(versionId);
     else switchVersion(versionId);
@@ -273,7 +276,8 @@ export function ArtifactContent({
   );
   return (
     <div className="flex flex-col gap-5">
-      {versions.isPending ? (
+      {versions.isPending ||
+      (!!selected && versionQuery.isPending && !editing) ? (
         <LoadingRows />
       ) : versions.error ? (
         <ErrorState error={versions.error} />
@@ -283,13 +287,21 @@ export function ArtifactContent({
             <Select
               value={selected ?? version?.id}
               onValueChange={requestVersion}
+              disabled={editing}
             >
               <SelectTrigger className="w-40" aria-label="Artifact version">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {versions.data?.map((v) => (
+                  {version &&
+                    !versions.items.some((item) => item.id === version.id) && (
+                      <SelectItem value={version.id}>
+                        Version {version.version} ·{" "}
+                        {dateLabel(version.created_at)}
+                      </SelectItem>
+                    )}
+                  {versions.items.map((v) => (
                     <SelectItem value={v.id} key={v.id}>
                       Version {v.version} · {dateLabel(v.created_at)}
                     </SelectItem>
@@ -297,6 +309,22 @@ export function ArtifactContent({
                 </SelectGroup>
               </SelectContent>
             </Select>
+            {versions.hasNextPage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={editing || versions.isFetchingNextPage}
+                onClick={() => void versions.fetchNextPage()}
+              >
+                Load older
+              </Button>
+            )}
+            {versionQuery.error && !pinnedVersionMissing && (
+              <ErrorState
+                error={versionQuery.error}
+                retry={() => versionQuery.refetch()}
+              />
+            )}
             {!pinnedVersionMissing ? (
               <>
                 {downloadableImport ? (
@@ -326,15 +354,26 @@ export function ArtifactContent({
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={
+                    editing || typeof version?.payload?.text !== "string"
+                  }
                   onClick={() => {
-                    setText(String(version?.payload?.text ?? ""));
+                    if (!version) return;
+                    editSession.current += 1;
+                    setEditBase({
+                      session: editSession.current,
+                      text: String(version.payload?.text ?? ""),
+                      versionId: version.id,
+                      version: version.version,
+                      expectedVersion: record.row_version,
+                    });
                     setEditing(true);
                   }}
                 >
                   <Plus />
                   New version
                 </Button>
-                {recordData.kind === "document" && version ? (
+                {recordData.kind === "document" && version && !editing ? (
                   <PdfExportControl
                     artifactId={record.id}
                     versionId={version.id}
@@ -393,7 +432,7 @@ export function ArtifactContent({
               </div>
             </div>
           ) : null}
-          {pinnedVersionMissing ? (
+          {pinnedVersionMissing && !editing ? (
             <div
               role="alert"
               className="rounded-md border border-destructive/30 p-4 text-sm"
@@ -407,38 +446,38 @@ export function ArtifactContent({
               </p>
             </div>
           ) : editing ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                append.mutate({
-                  basedOnVersionId: version?.id,
-                  expectedVersion: record.row_version,
-                  text,
-                });
-              }}
-              className="flex flex-col gap-3"
-            >
-              <Textarea
-                rows={12}
-                aria-label="New version content"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                maxLength={100000}
+            editBase ? (
+              <ArtifactWriter
+                key={editBase.session}
+                artifactId={record.id}
+                initial={{
+                  text: editBase.text,
+                  baseVersionId: editBase.versionId,
+                  baseVersion: editBase.version,
+                  expectedVersion: editBase.expectedVersion,
+                }}
+                onSaved={(saved) => {
+                  queryClient.setQueryData(
+                    ["artifact-version", record.id, saved.id],
+                    saved,
+                  );
+                  void queryClient.invalidateQueries();
+                  if (editBase.session === editSession.current)
+                    setSelected(saved.id);
+                }}
+                onClose={() => {
+                  if (editBase.session !== editSession.current) return;
+                  editSession.current += 1;
+                  setEditing(false);
+                  setEditBase(undefined);
+                  setReviewDraft(undefined);
+                  setPendingVersionId(undefined);
+                  reviewIntent.reset();
+                }}
               />
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  type="button"
-                  onClick={() => setEditing(false)}
-                >
-                  Cancel
-                </Button>
-                <Button disabled={append.isPending}>
-                  <Save />
-                  Save version
-                </Button>
-              </div>
-            </form>
+            ) : null
+          ) : version?.payload === null ? (
+            <DocumentOriginal key={version.id} imported={downloadableImport} />
           ) : (
             <div className="min-h-40 break-words rounded-lg border border-border bg-background p-4">
               <RichAgentResponse>
@@ -538,7 +577,9 @@ export function ArtifactContent({
                   />
                   <Button
                     variant="outline"
-                    disabled={review.isPending || !version || !reason.trim()}
+                    disabled={
+                      editing || review.isPending || !version || !reason.trim()
+                    }
                     className="self-end"
                   >
                     Record review
@@ -620,6 +661,7 @@ export function RecordDetail({
   const context = useWorkspaceContext();
   const stateFieldId = useId();
   const client = useQueryClient();
+  const [discoveringContacts, setDiscoveringContacts] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState(initialTab ?? "overview");
@@ -681,6 +723,7 @@ export function RecordDetail({
             "archived_at",
             "completed_at",
             "latest_version",
+            "latest_research",
             ...(resource === "opportunities" || resource === "tasks"
               ? ["stage", "state"]
               : []),
@@ -706,6 +749,13 @@ export function RecordDetail({
     : undefined;
   return (
     <section aria-label="Record details" className="min-w-0 bg-background">
+      {discoveringContacts && resource === "companies" && record && (
+        <DeferredDiscovery
+          open
+          onOpenChange={setDiscoveringContacts}
+          company={record as Resources["companies"]}
+        />
+      )}
       <header className="border-b border-border px-6 py-5">
         <div className="mb-5 flex items-center gap-2 text-xs text-muted-foreground">
           {!compact && (
@@ -730,7 +780,17 @@ export function RecordDetail({
           </h2>
         </div>
         {record && (
-          <div className="mt-5 flex items-center gap-2">
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            {resource === "companies" && (
+              <Button size="sm" onClick={() => setDiscoveringContacts(true)}>
+                Find people
+              </Button>
+            )}
+            {resource === "contacts" && (
+              <Button size="sm" onClick={() => setActiveTab("follow-ups")}>
+                Follow up
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -824,6 +884,9 @@ export function RecordDetail({
           <div className="overflow-x-auto border-b border-border px-6">
             <TabsList className="h-12 min-w-max bg-transparent p-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              {resource === "contacts" && (
+                <TabsTrigger value="follow-ups">Follow-ups</TabsTrigger>
+              )}
               {resource === "artifacts" && (
                 <TabsTrigger value="content">Content & versions</TabsTrigger>
               )}
@@ -840,6 +903,12 @@ export function RecordDetail({
             </TabsList>
           </div>
           <TabsContent value="overview" className="px-6 py-6">
+            {resource === "tasks" && <TaskDocuments taskId={id} />}
+            {resource === "companies" && (
+              <div className="mb-6">
+                <DeferredRecordWork resource="companies" id={record.id} />
+              </div>
+            )}
             <dl className="flex flex-col gap-5">
               {details.map(([key, value]) => (
                 <div
@@ -874,6 +943,8 @@ export function RecordDetail({
                       </a>
                     ) : key === "priority" ? (
                       ["Low", "Normal", "High", "Urgent"][Number(value)]
+                    ) : ["notes", "rationale", "description"].includes(key) ? (
+                      <RichAgentResponse>{String(value)}</RichAgentResponse>
                     ) : (
                       <span className="whitespace-pre-wrap">
                         {String(value)}
@@ -883,6 +954,9 @@ export function RecordDetail({
                 </div>
               ))}
             </dl>
+            {resource === "contacts" && (
+              <ContactImportHistory contactId={record.id} />
+            )}
             <div className="mt-8 border-t border-border pt-4 text-[10px] text-muted-foreground">
               <p>
                 Created {dateLabel(record.created_at)} · Updated{" "}
@@ -890,11 +964,20 @@ export function RecordDetail({
               </p>
             </div>
           </TabsContent>
+          {resource === "contacts" && (
+            <TabsContent value="follow-ups" className="p-6">
+              <DeferredFollowUps contact={record as Resources["contacts"]} />
+            </TabsContent>
+          )}
           {resource === "artifacts" && (
             <TabsContent value="content" className="p-6">
               <ArtifactContent
                 record={record}
                 pinnedVersionId={pinnedVersionId}
+              />
+              <DocumentTasks
+                artifactId={id}
+                archived={!!(record as Resources["artifacts"]).archived_at}
               />
             </TabsContent>
           )}

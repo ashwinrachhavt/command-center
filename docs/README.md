@@ -1,12 +1,12 @@
 # Command Center
 
-**Revision:** 2026-09-22-r15. **Status:** connected workspace and operator import implemented; full-page navigation, contextual inspection, appearance and workspace state/retry/loading remedies implemented locally. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Grounded application preparation, exact resume uploads, reviewed scoped memory and durable token/tool streaming are implemented locally with synthetic coverage. Scoped Calendar/Linear/Notion context, reviewed external actions, isolated scripts/PDF exports, spending controls and job cleanup recovery are implemented locally with synthetic tests. The user has deferred hands-on ATS/provider QA to their own testing. Paid-model evaluation and an always-on deployment remain release work.
+**Revision:** 2026-09-22-r19. **Status:** connected workspace and operator import implemented; full-page navigation, contextual inspection, appearance and workspace state/retry/loading remedies implemented locally. Deep Agents conversations, job-lead discovery/evidence/drafts, local document ingestion and reviewed candidate facts are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Grounded application preparation, exact resume uploads, reviewed scoped memory and durable token/tool streaming are implemented locally with synthetic coverage. Scoped Calendar/Linear/Notion context, reviewed external actions, isolated scripts/PDF exports, spending controls and job cleanup recovery are implemented locally with synthetic tests. The user has deferred hands-on ATS/provider QA to their own testing. Paid-model evaluation and an always-on deployment remain release work.
 
-A local workspace for autonomous job discovery, relationships, research, tailored applications and follow-ups. Product and technical decisions have one canonical home each.
+A personal workspace for knowledge work and automation, including correspondence, relationships, reading, writing, research and follow-through. The active [personal work OS revamp](product/product-spec.md#personal-work-os-revamp--confirmed-2026-09-22) includes connected apps, LinkedIn mapping, shared writing, Library, contact discovery and enrichment. Application automation is the latest priority; general routines remain deferred. Product and technical decisions have one canonical home each.
 
 ## Document ownership
 
-There are two active specifications: Product and Tech. Supporting design and engineering documents elaborate their own concern and link back instead of maintaining another requirement list.
+There are three canonical specifications: Product, Tech and Design. Product direction and Engineering elaborate strategy and delivery evidence without maintaining competing requirements.
 
 | Document | Owns |
 | --- | --- |
@@ -19,7 +19,7 @@ There are two active specifications: Product and Tech. Supporting design and eng
 
 Model/schema/API source and migrations establish what is implemented. A spec or review score describes a contract; it does not prove implementation or release readiness. Preserve confirmed direction when correcting stale status. Keep historical evidence dated and distinguish it from checks run in the current session.
 
-The latest checkpoint adds durable agent questions/resume, exact source-version lineage for generic drafts, and isolated DeepEval tooling with offline checks. Paid evaluation remains disabled until a reviewed plan and allowance exist. The overview's consolidated attention/running-work/output projection remains unfinished; hands-on platform/provider QA is deferred to the user.
+The latest application checkpoint adds saved job descriptions, recoverable tailored résumé/cover-letter requests, contextual document editing and PDF export, plus separate résumé/cover-letter selection and exact file attachment for autofill. See [Engineering](tech/engineering.md#application-materials--current-pass) for validation and deployment status. Settings also supports structured employment/education review with recoverable Tiptap descriptions. Existing explicit employment/education groups now support approved-fact autofill with date precision and whole-group preservation. Automatic row creation, keyword scoring and broader multi-page ATS support remain unfinished. Paid evaluation remains disabled until a reviewed plan and allowance exist. The overview's consolidated attention/running-work/output projection and daily-task polish remain unfinished; hands-on platform/provider QA is deferred to the user.
 
 ## Operational leads
 

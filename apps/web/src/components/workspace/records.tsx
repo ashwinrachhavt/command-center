@@ -57,6 +57,16 @@ import { deferView } from "./deferred-view";
 import type { RecordDetailProps } from "./record-detail";
 import { LeadDiscovery } from "./lead-discovery";
 import { DocumentIntake } from "./document-intake";
+import { RecordWorkButton } from "./record-agent-work";
+import { useWorkspaceContext } from "./context";
+import type { ContactDiscoveryProps } from "./contact-discovery";
+const DeferredContactDiscovery = deferView<ContactDiscoveryProps>(
+  () =>
+    import("./contact-discovery").then((module) => ({
+      default: module.ContactDiscovery,
+    })),
+  "contact discovery",
+);
 
 const DeferredRecordDetail = deferView<RecordDetailProps>(
   () =>
@@ -73,6 +83,7 @@ function field(record: WorkspaceRecord, key: string): string {
 
 export function Records({ resource }: { resource: Resource }) {
   const search = useSearchParams();
+  const context = useWorkspaceContext();
   const selected = search.get("record");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
@@ -174,15 +185,23 @@ export function Records({ resource }: { resource: Resource }) {
           description={selected ? undefined : name.description}
           action={
             <div className="flex items-center gap-2">
-              {resource === "opportunities" ? (
+              {resource === "opportunities" || resource === "contacts" ? (
                 <Button
                   size={selected ? "icon-sm" : "default"}
                   variant="outline"
-                  aria-label="Discover leads"
+                  aria-label={
+                    resource === "contacts"
+                      ? "Discover contacts"
+                      : "Discover leads"
+                  }
                   onClick={() => setDiscovering(true)}
                 >
                   <Search data-icon="inline-start" />
-                  {!selected ? "Discover leads" : null}
+                  {!selected
+                    ? resource === "contacts"
+                      ? "Discover contacts"
+                      : "Discover leads"
+                    : null}
                 </Button>
               ) : null}
               <Button
@@ -342,7 +361,9 @@ export function Records({ resource }: { resource: Resource }) {
                       ? "Priority"
                       : resource === "contacts"
                         ? "Email"
-                        : "Updated"}
+                        : resource === "companies"
+                          ? "Research"
+                          : "Updated"}
                   </TableHead>
                   <TableHead className="w-10">
                     <span className="sr-only">Open details</span>
@@ -451,6 +472,34 @@ export function Records({ resource }: { resource: Resource }) {
                         <Priority value={Number(field(row, "priority"))} />
                       ) : resource === "contacts" ? (
                         field(row, "email") || "—"
+                      ) : resource === "companies" ? (
+                        (row as Resources["companies"]).latest_research ? (
+                          <button
+                            className="max-w-64 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => context?.open("companies", row.id)}
+                          >
+                            <span className="line-clamp-2 leading-5">
+                              {
+                                (row as Resources["companies"]).latest_research
+                                  ?.summary
+                              }
+                            </span>
+                            <span className="mt-1 block text-[10px]">
+                              Brief ·{" "}
+                              {dateLabel(
+                                (row as Resources["companies"]).latest_research
+                                  ?.created_at,
+                              )}
+                            </span>
+                          </button>
+                        ) : (
+                          <RecordWorkButton
+                            resource="companies"
+                            id={row.id}
+                            compact
+                            onStarted={() => context?.open("companies", row.id)}
+                          />
+                        )
                       ) : (
                         dateLabel(row.updated_at)
                       )}
@@ -521,6 +570,13 @@ export function Records({ resource }: { resource: Resource }) {
           open={creating}
           onOpenChange={setCreating}
           onSaved={(r) => select(r.id)}
+        />
+      )}
+      {resource === "contacts" && discovering && (
+        <DeferredContactDiscovery
+          open
+          onOpenChange={setDiscovering}
+          onImported={select}
         />
       )}
       {resource === "opportunities" && discovering ? (

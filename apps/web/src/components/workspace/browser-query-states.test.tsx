@@ -4,6 +4,10 @@ import { expect, it, vi } from "vitest";
 
 import { BrowserPage } from "./browser";
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 it("keeps device and command history visible through local refresh failures", async () => {
   const deviceReads = [
     Response.json([
@@ -41,6 +45,10 @@ it("keeps device and command history visible through local refresh failures", as
       return Promise.resolve(commandReads.shift() ?? Response.json([]));
     if (route.endsWith("/browser/snapshots"))
       return Promise.resolve(Response.json([]));
+    if (route.endsWith("/browser/cover-letters"))
+      return Promise.resolve(
+        Response.json({ default_version_id: null, items: [] }),
+      );
     if (route.endsWith("/browser/resumes"))
       return Promise.resolve(
         Response.json({ default_version_id: null, items: [] }),

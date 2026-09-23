@@ -63,7 +63,6 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
     assert set(discovered) == {
         "connected_accounts",
         "connected_context",
-        "gmail_search",
         "propose_connected_action",
         "reviewed_action",
     }
@@ -72,9 +71,7 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
         "properties": {},
         "additionalProperties": False,
     }
-    search = discovered["gmail_search"]
-    assert search["required"] == ["query"]
-    assert "account_id" not in search["properties"]
+    assert "gmail_search" not in discovered  # Also excludes historical profile grants.
     context = discovered["connected_context"]
     assert set(context["required"]) == {"account_id", "query"}
     assert set(context["properties"]) == {"account_id", "query"}

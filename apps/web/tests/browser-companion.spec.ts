@@ -590,7 +590,10 @@ test("popup follows generation to completion and preserves a local answer", asyn
     });
     window.fetch = async (input) => {
       const route = new URL(String(input)).pathname;
-      if (route.endsWith("/device/resumes"))
+      if (
+        route.endsWith("/device/resumes") ||
+        route.endsWith("/device/cover-letters")
+      )
         return Response.json({ default_version_id: null, items: [] });
       if (route.endsWith("/generation")) {
         generationPoll += 1;

@@ -10,7 +10,7 @@ from uuid import UUID
 from pydantic import Field, HttpUrl, model_validator
 
 from command_center.api import schemas as s
-from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal
+from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal, temporal_numbers
 
 FieldId = Annotated[str, Field(pattern=r"^f[0-9]{1,3}$")]
 FieldValue = Annotated[str, Field(max_length=5000)]
@@ -55,6 +55,40 @@ class NumericConstraints(s.Contract):
         return self
 
 
+class TemporalConstraints(s.Contract):
+    minimum: str | None = Field(default=None, max_length=10)
+    maximum: str | None = Field(default=None, max_length=10)
+    step: NumericValue | Literal["any"]
+    step_base: str = Field(max_length=10)
+
+
+class CareerField(s.Contract):
+    group_id: str = Field(pattern=r"^h[0-9]{1,3}$")
+    kind: Literal["experience", "education"]
+    position: int = Field(ge=0, le=99)
+    label: str = Field(min_length=1, max_length=200)
+    component: Literal[
+        "organization",
+        "role",
+        "degree",
+        "field_of_study",
+        "location",
+        "description",
+        "start_date",
+        "start_year",
+        "start_month",
+        "end_date",
+        "end_year",
+        "end_month",
+        "current",
+        "unknown",
+    ]
+    order: Literal["newest_first", "oldest_first"] = "newest_first"
+    date_format: (
+        Literal["yyyy", "yyyy-mm", "yyyy-mm-dd", "mm/yyyy", "mm/dd/yyyy", "dd/mm/yyyy"] | None
+    ) = None
+
+
 class FormField(s.Contract):
     id: FieldId
     label: str = Field(max_length=500)
@@ -69,6 +103,8 @@ class FormField(s.Contract):
         "radio",
         "checkbox",
         "number",
+        "date",
+        "month",
         "unsupported",
     ]
     required: bool = False
@@ -79,6 +115,8 @@ class FormField(s.Contract):
     option_labels: dict[Option, OptionLabel] = Field(default_factory=dict, max_length=300)
     unsupported_reason: str | None = Field(default=None, max_length=300)
     numeric_constraints: NumericConstraints | None = None
+    history: CareerField | None = None
+    temporal_constraints: TemporalConstraints | None = None
 
     @model_validator(mode="after")
     def validate_options(self) -> "FormField":
@@ -88,6 +126,12 @@ class FormField(s.Contract):
             raise ValueError("Number fields require normalized numeric constraints")
         if self.type != "number" and self.numeric_constraints is not None:
             raise ValueError("Only number fields may contain numeric constraints")
+        if self.type in {"date", "month"}:
+            if self.temporal_constraints is None:
+                raise ValueError("Calendar controls require normalized constraints")
+            temporal_numbers(self.type, self.temporal_constraints.model_dump())
+        elif self.temporal_constraints is not None:
+            raise ValueError("Only calendar controls may contain calendar constraints")
         return self
 
 

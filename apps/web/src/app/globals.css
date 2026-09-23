@@ -1,6 +1,74 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "streamdown/styles.css";
+
+.cc-writer {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.cc-writer p + p {
+  margin-top: 0.75em;
+}
+.cc-writer h1,
+.cc-writer h2,
+.cc-writer h3 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1em 0 0.5em;
+}
+.cc-writer h1 {
+  font-size: 1.6em;
+}
+.cc-writer h2 {
+  font-size: 1.3em;
+}
+.cc-writer h3 {
+  font-size: 1.1em;
+}
+.cc-writer ul,
+.cc-writer ol {
+  padding-left: 1.5em;
+  margin-block: 0.5em;
+}
+.cc-writer ul {
+  list-style: disc;
+}
+.cc-writer ol {
+  list-style: decimal;
+}
+.cc-writer blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  margin-block: 0.75em;
+  color: var(--muted-foreground);
+}
+.cc-writer pre {
+  padding: 0.75em;
+  background: var(--muted);
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+.cc-writer code {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.9em;
+}
+.cc-writer a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cc-writer p.is-editor-empty:first-child::before {
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.cc-writer > :first-child {
+  margin-top: 0;
+}
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
 @source "../../node_modules/@streamdown/cjk/dist/*.js";
@@ -193,6 +261,7 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
 }

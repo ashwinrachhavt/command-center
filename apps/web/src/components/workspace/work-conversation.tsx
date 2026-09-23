@@ -19,11 +19,7 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
   api,
   ApiError,
@@ -37,6 +33,7 @@ import {
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
+import { AgentResponse } from "./agent-response";
 
 const activeStates = new Set(["queued", "running", "waiting_for_user"]);
 const messagePageSize = 100;
@@ -287,7 +284,10 @@ export function WorkConversation({
         </div>
       ) : (
         <>
-          <Conversation className="max-h-[52vh] min-h-52 border-y border-border">
+          <Conversation
+            aria-label="Work conversation"
+            className="h-[min(52vh,36rem)] min-h-52 flex-none border-y border-border"
+          >
             <ConversationContent className="gap-5 px-6 py-5">
               {messages.error ? (
                 <ErrorState
@@ -333,19 +333,7 @@ export function WorkConversation({
                         }
                       >
                         {message.author === "assistant" ? (
-                          <MessageResponse
-                            mode="static"
-                            skipHtml
-                            disallowedElements={[
-                              "img",
-                              "iframe",
-                              "script",
-                              "style",
-                            ]}
-                            className="text-base leading-7 [&_a:visited]:text-primary/70"
-                          >
-                            {message.content}
-                          </MessageResponse>
+                          <AgentResponse>{message.content}</AgentResponse>
                         ) : (
                           message.content
                         )}
@@ -354,33 +342,39 @@ export function WorkConversation({
                   );
                 })
               )}
+              {runs.error ? (
+                <div className="px-6">
+                  <ErrorState error={runs.error} retry={() => runs.refetch()} />
+                </div>
+              ) : runs.data?.items.length ? (
+                <div
+                  className="space-y-3"
+                  role="group"
+                  aria-label="Recent run activity"
+                >
+                  {runs.data.items
+                    .slice(0, 10)
+                    .reverse()
+                    .map((run) => (
+                      <RunActivity
+                        key={run.id}
+                        run={run}
+                        showOutput={!assistantRunIds.has(run.id)}
+                        cancelling={
+                          cancel.isPending && cancel.variables?.id === run.id
+                        }
+                        onCancel={
+                          activeStates.has(run.state)
+                            ? (item) => cancel.mutate(item)
+                            : undefined
+                        }
+                      />
+                    ))}
+                </div>
+              ) : null}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
-
-          {runs.error ? (
-            <div className="px-6">
-              <ErrorState error={runs.error} retry={() => runs.refetch()} />
-            </div>
-          ) : runs.data?.items.length ? (
-            <div className="space-y-3 px-6" aria-label="Recent run activity">
-              {runs.data.items.slice(0, 10).map((run) => (
-                <RunActivity
-                  key={run.id}
-                  run={run}
-                  showOutput={!assistantRunIds.has(run.id)}
-                  cancelling={
-                    cancel.isPending && cancel.variables?.id === run.id
-                  }
-                  onCancel={
-                    activeStates.has(run.state)
-                      ? (item) => cancel.mutate(item)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          ) : null}
 
           {cancelError ? (
             <p className="mx-6 text-xs text-destructive" role="alert">

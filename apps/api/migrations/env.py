@@ -5,10 +5,14 @@ from command_center.db import (  # noqa: F401
     agent_events,
     agent_questions,
     agents,
+    application_materials,
     application_preparations,
+    applications,
     artifacts,
     browser,
+    contact_discovery,
     conversations,
+    correspondence,
     crm,
     document_imports,
     evidence,
@@ -17,9 +21,11 @@ from command_center.db import (  # noqa: F401
     models,
     pdf_exports,
     profile_facts,
+    record_work,
     research_executions,
     reviewed_actions,
     spending,
+    writing,
 )
 from command_center.db.base import Base, UTCDateTime
 from command_center.db.session import create_database_engine

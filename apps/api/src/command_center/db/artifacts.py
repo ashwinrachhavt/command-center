@@ -3,7 +3,7 @@
 import hashlib
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import (
@@ -12,16 +12,22 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    Select,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    func,
+    or_,
     select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
 from command_center.db.base import Base, UTCDateTime, utc_now
+
+if TYPE_CHECKING:
+    from command_center.db.models import Task
 
 
 class Artifact(Base):
@@ -48,6 +54,108 @@ class Artifact(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
     __mapper_args__ = {"version_id_col": row_version}
+
+    @classmethod
+    def library_query(
+        cls,
+        owner_id: UUID,
+        *,
+        q: str = "",
+        collection: str = "all",
+        document_type_id: UUID | None = None,
+        kind: str | None = None,
+        task_id: UUID | None = None,
+    ) -> Select[tuple["Artifact"]]:
+        """Search current writing and the extraction of the current original only."""
+        from command_center.db.document_imports import DocumentImport
+
+        statement = select(cls).where(cls.owner_id == owner_id, cls.archived_at.is_(None))
+        if collection == "library":
+            statement = statement.where(
+                cls.kind.in_(["document", "research", "package"]),
+                ~select(DocumentImport.id)
+                .where(
+                    DocumentImport.owner_id == owner_id,
+                    DocumentImport.extraction_artifact_id == cls.id,
+                )
+                .exists(),
+            )
+        if collection == "notes" or document_type_id:
+            statement = statement.join(Document).join(DocumentType)
+            if collection == "notes":
+                statement = statement.where(DocumentType.slug == "notes")
+            if document_type_id:
+                statement = statement.where(Document.document_type_id == document_type_id)
+        if kind:
+            statement = statement.where(cls.kind == kind)
+        if task_id:
+            statement = statement.join(TaskArtifact).where(TaskArtifact.task_id == task_id)
+        if q:
+            latest_id = (
+                select(ArtifactVersion.id)
+                .where(ArtifactVersion.artifact_id == cls.id)
+                .order_by(ArtifactVersion.version.desc())
+                .limit(1)
+                .correlate(cls)
+                .scalar_subquery()
+            )
+            current_text = (
+                select(ArtifactVersion.payload["text"].astext)
+                .where(ArtifactVersion.id == latest_id)
+                .correlate(cls)
+                .scalar_subquery()
+            )
+            extracted_text = (
+                select(ArtifactVersion.payload["text"].astext)
+                .join(DocumentImport, DocumentImport.extraction_version_id == ArtifactVersion.id)
+                .where(
+                    DocumentImport.owner_id == owner_id,
+                    DocumentImport.artifact_id == cls.id,
+                    DocumentImport.source_version_id == latest_id,
+                    DocumentImport.state == "completed",
+                )
+                .correlate(cls)
+                .scalar_subquery()
+            )
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            statement = statement.where(
+                or_(
+                    cls.title.ilike(pattern, escape="\\"),
+                    func.coalesce(current_text, extracted_text, "").ilike(pattern, escape="\\"),
+                )
+            )
+        return statement
+
+    def create_task(self, *, task_id: UUID, request_id: UUID, **fields: Any) -> "Task":
+        """Keep a new commitment and its source document in the same transaction."""
+        from command_center.db.crm import Opportunity
+        from command_center.db.models import AuditEvent, Task
+
+        session = object_session(self)
+        if session is None or self.archived_at is not None:
+            raise ValueError("Choose an active document")
+        if fields.get("opportunity_id"):
+            opportunity = session.get(Opportunity, fields["opportunity_id"])
+            if not opportunity or opportunity.owner_id != self.owner_id or opportunity.archived_at:
+                raise ValueError("Choose an active opportunity in your workspace")
+        task = Task(id=task_id, owner_id=self.owner_id, **fields)
+        session.add(task)
+        session.flush()
+        session.add_all(
+            [
+                TaskArtifact(task_id=task.id, artifact_id=self.id),
+                AuditEvent(
+                    actor_id=self.owner_id,
+                    action="tasks.created",
+                    subject_type="tasks",
+                    subject_id=task.id,
+                    request_id=request_id,
+                    details={"source_artifact_id": str(self.id)},
+                ),
+            ]
+        )
+        return task
 
     @classmethod
     def draft(

@@ -16,6 +16,7 @@ from command_center.db.models import Actor
 from command_center.db.reviewed_actions import (
     ActionAttempt,
     ExternalAccount,
+    GmailSendPayload,
     ReviewedAction,
     ReviewedActionRevision,
 )
@@ -27,6 +28,14 @@ from command_center.integrations.composio_actions import (
     VerifiedIdentity,
 )
 from command_center.main import create_app
+
+
+def test_email_checkpoint_preserves_written_whitespace():
+    message = "  Hello,\n\nKeep the final blank line.\n\n"
+    payload = GmailSendPayload(
+        kind="gmail_send", to=["synthetic@example.com"], subject="Synthetic draft", body=message
+    )
+    assert payload.model_dump()["body"] == message
 
 
 @pytest.fixture
@@ -63,6 +72,38 @@ def request(client, method, path, body=None, *, key=None):
         json=body,
         headers={"Idempotency-Key": str(key or uuid4())},
     )
+
+
+def test_manual_mail_pull_rejects_a_changed_selected_account_before_provider_access(
+    action_client, engine
+):
+    with Session(engine) as db, db.begin():
+        db.add(
+            ExternalAccount(
+                id=uuid4(),
+                owner_id=action_client.actor_id,
+                toolkit="gmail",
+                composio_connected_account_id="ca_synthetic_mail_pull",
+                composio_auth_config_id="ac_synthetic_mail_pull",
+                display_name="Synthetic selected Gmail",
+                provider_identity={"email": "synthetic@example.com"},
+                connection_status="ACTIVE",
+                selected_purpose="outreach",
+                identity_verified_at=datetime(2026, 9, 22, tzinfo=UTC),
+            )
+        )
+    result = request(
+        action_client,
+        "POST",
+        "gmail/search",
+        {
+            "account_id": str(uuid4()),
+            "query": "from:synthetic@example.com",
+            "max_results": 1,
+        },
+    )
+    assert result.status_code == 422, result.text
+    assert "selected Gmail account changed" in result.json()["detail"]
 
 
 def proposal_body(client, **overrides):
@@ -170,7 +211,7 @@ def test_revision_does_not_inherit_prior_approval(action_client):
 
 
 def test_review_projection_links_exact_attachment_and_notion_source_versions(action_client, engine):
-    attachment_bytes = b"synthetic reviewed attachment"
+    attachment_bytes = f"synthetic reviewed attachment {uuid4()}".encode()
     attachment_sha = hashlib.sha256(attachment_bytes).hexdigest()
     gmail_account_id = uuid4()
     notion_account_id = uuid4()

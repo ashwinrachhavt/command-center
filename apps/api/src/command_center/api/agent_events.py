@@ -16,7 +16,8 @@ from command_center.db.agent_events import AgentEvent
 from command_center.db.agents import AgentRun
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
-POLL_SECONDS = 0.25
+POLL_SECONDS = 0.05
+IDLE_POLL_SECONDS = 0.25
 KEEPALIVE_SECONDS = 15
 
 
@@ -59,6 +60,7 @@ async def event_stream(
 ) -> AsyncIterator[str]:
     cursor = after_sequence
     idle = 0.0
+    poll_seconds = POLL_SECONDS
     while True:
         if await request.is_disconnected():
             return
@@ -74,8 +76,12 @@ async def event_stream(
             yield encode_event(event)
         if terminal:
             return
-        await asyncio.sleep(POLL_SECONDS)
-        idle += POLL_SECONDS
+        # Drain a full replay page immediately; only wait when caught up.
+        if len(events) >= 100:
+            continue
+        poll_seconds = POLL_SECONDS if events else min(poll_seconds * 2, IDLE_POLL_SECONDS)
+        await asyncio.sleep(poll_seconds)
+        idle += poll_seconds
         if idle >= KEEPALIVE_SECONDS:
             idle = 0.0
             yield ": keepalive\n\n"

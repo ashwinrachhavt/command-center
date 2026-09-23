@@ -1,5 +1,6 @@
 import asyncio
 from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
@@ -303,8 +304,12 @@ def connect_composio(
         connection = client.connected_accounts.initiate(
             user_id=str(identity.id),
             auth_config_id=config_id,
-            callback_url=settings.web_origin + "/settings?connected=1",
+            callback_url=settings.web_origin + "/connections?connected=1",
         )
-        return {"redirect_url": str(connection.redirect_url)}
+        redirect_url = str(connection.redirect_url)
+        parsed = urlsplit(redirect_url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Invalid provider connection URL")
+        return {"redirect_url": redirect_url}
     except Exception as exc:
         raise HTTPException(502, "Composio could not start the connection") from exc
