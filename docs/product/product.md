@@ -1,8 +1,12 @@
 # product.md — Direction and scope
 
-**Parent:** [Product Spec](product-spec.md). **Revision:** 2026-09-22-r7. **Purpose:** strategy and decision rationale, not a second requirement list.
+**Parent:** [Product Spec](product-spec.md). **Revision:** 2026-09-23-r8. **Purpose:** strategy and decision rationale, not a second requirement list.
 
 ## Product thesis
+
+**Central mission — confirmed 2026-09-23:** Command Center OS should let agents gather context and carry out coordination, repetitive work and follow-through across the user's work tools, so the user can focus on the most important task. Interview preparation is the immediate priority. Evaluate product progress by useful work completed and attention saved.
+
+The desired connected surfaces include Gmail, WhatsApp, Slack, Notion, Calendar, PDFs, internet browsers and web forms. Composio is the preferred integration layer where supported, with appropriate document and browser capabilities alongside it. The user requested a standalone local Hinterview setup for practice now and explicitly deferred investigation of Hinterview/Command Center integration and broader cross-surface orchestration to a later session. This records the mission and future direction; availability and implementation of each connector remain separate facts. [Product Spec](product-spec.md#1-outcome-and-user) owns current behavior and approval boundaries.
 
 The user expanded the direction on 2026-09-21 to a configurable agent workspace for operating a one-person company, then clarified it on 2026-09-22 as an all-in-one personal workspace for knowledge work and automation. Email, relationships, reading, connected ideas, writing, interviews, outreach and follow-through should feel like one coherent product. The original revamp order was **email/relationships/follow-up → routines/automation → Library/writing/linked tasks**. The latest D5 direction is to build connections now and defer routines; the broader roadmap does not make routine decisions a prerequisite. [Product Spec](product-spec.md#personal-work-os-revamp--confirmed-2026-09-22) owns the accepted delivery direction and unresolved behavior.
 

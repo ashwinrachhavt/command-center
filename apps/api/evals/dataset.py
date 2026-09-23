@@ -1,5 +1,7 @@
+import json
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 
 from .contracts import Capture, Captures, Case, Evidence, ModelIdentity, Suite
 
@@ -126,10 +128,24 @@ def load_suite() -> Suite:
             ),
         ]
     )
+    # Keep scenario prose easy to review; evidence digests are derived from exact text.
+    productivity = json.loads(Path(__file__).with_name("productivity_cases.json").read_text())
+    cases.extend(
+        Case.model_validate(
+            {
+                **case,
+                "evidence": [
+                    evidence(source["id"], source["revision"], source["text"])
+                    for source in case["evidence"]
+                ],
+            }
+        )
+        for case in productivity
+    )
     return Suite(
         schema_version=1,
         id="first-agent-release",
-        revision="2026-09-22.1",
+        revision="2026-09-23.1",
         classification="synthetic",
         cases=cases,
     )

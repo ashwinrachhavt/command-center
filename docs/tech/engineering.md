@@ -540,3 +540,13 @@ Focused synthetic evidence: 17 intake/lead tests, 10 actual HTTP/stdio local-MCP
 See [local setup and tool policy](local-mcp.md). Migrations `0030_mcp_clients` and `0031_chat_context` add credentials, compacted context and answer provenance; existing transcripts remain intact.
 
 Local Compose was rebuilt and restarted with these images. Migration `0031_chat_context` applied; API readiness, web health and worker readiness passed. The local MCP credential endpoint rejects unauthenticated requests. This is local verification, not an external deployment or a paid-model quality benchmark.
+
+## Focused-work prompt optimization — 2026-09-23
+
+Implemented the confirmed productivity decisions in `agents/skills/opportunity-work.md`, research/outreach/application directives and the shared writing skill. The supervisor remains general; career work gets explicit priority, completion and next-action rules. Research gains read-only approved-profile access for the dossier. Quick connection-note settings and existing action/approval/persistence contracts remain unchanged. Product and Tech Specs record scope and remaining decisions.
+
+Added seven synthetic scenarios in `apps/api/evals/productivity_cases.json`, retaining the original seven. Suite revision `2026-09-23.1` has fourteen cases and 42 judge calls. Fixture loading derives evidence digests; contract tests derive case/call counts and now remove every case for a platform when checking missing coverage. The fixed rubrics assess source authority, requested mode, relationship-specific intent and honest partial completion. Original prompt/config/rubric files are preserved in the ignored local baseline directory.
+
+Validation: `make eval-check` passed 15 tests; configuration contracts plus existing profile/skill-loading coverage passed 11 tests; evaluation Ruff lint/format and `git diff --check` passed. The running API loaded the revised mounted agent configuration successfully. Newly created runs load it; existing snapshots stay pinned. No frontend/backend domain behavior changed, so this pass used targeted checks rather than rerunning the whole workspace build. No paid generation/judging, model-quality improvement or end-to-end task completion is claimed.
+
+The learning article in `docs/learning/eval-driven-agent-development.md` was updated in Notion Command Center with Status=Blogs, using synthetic examples and the actual validation results. It explains the fixture/capture/judge distinction, controlled comparisons and the added read tool as a separate experimental variable. Recorded-model baseline/candidate evaluation remains pending a reviewed plan; the generated plan retains zero allowance.
