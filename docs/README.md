@@ -21,6 +21,8 @@ Model/schema/API source and migrations establish what is implemented. A spec or 
 
 The current `frontend-redesign` release includes saved job descriptions, recoverable tailored résumé/cover-letter requests, contextual Tiptap editing and PDF export; deterministic keyword coverage pinned to saved sources; approved employment/education autofill and bounded Add-row expansion; current-job recognition across supported application pages; and the daily Overview attention/running/output queues and task controls. Companion `0.4.5` retains manual Next and Submit. See [Engineering](tech/engineering.md) for the recorded validation checkpoints. These features are integrated through `ed69ac1`. Historical-application matching, broader authenticated ATS coverage, accurate email reply targeting and live provider/model quality remain unfinished. General routines remain deferred. Hands-on platform/provider QA is user-led; paid evaluation remains disabled until a reviewed plan and allowance exist.
 
+For hands-on release testing, use the [smoke-test checklist](smoke-test.md). It covers core workflows, optional live integrations and known limits.
+
 ## Operational leads
 
 [Leads Real Data](https://app.notion.com/p/3e22e26208a58027b5f4d84258dd8c6f)
