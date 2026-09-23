@@ -350,11 +350,15 @@ def test_worker_creates_one_derived_version_without_completing_review_task(
         async def convert(self, data: bytes, filename: str, media_type: str):
             assert data == b"Synthetic resume text"
             assert (filename, media_type) == ("resume.txt", "text/plain")
-            await asyncio.sleep(0.05)
-            with Session(engine) as db:
-                running = db.get(DocumentImport, imported["id"])
-                assert running is not None and running.state == "running"
-                assert running.row_version >= 3  # Independent heartbeat renewed the lease.
+            # Wait for a committed renewal, not a wall-clock guess about thread/DB speed.
+            async with asyncio.timeout(5):
+                while True:
+                    with Session(engine) as db:
+                        running = db.get(DocumentImport, imported["id"])
+                        assert running is not None and running.state == "running"
+                        if running.row_version >= 3:
+                            break  # Independent heartbeat renewed the lease.
+                    await asyncio.sleep(0.01)
             return SimpleNamespace(
                 text="Synthetic extracted resume text",
                 document={"body": {"children": [{"text": "Synthetic extracted resume text"}]}},
@@ -365,7 +369,7 @@ def test_worker_creates_one_derived_version_without_completing_review_task(
             return None
 
     monkeypatch.setattr(worker, "DoclingClient", SyntheticDocling)
-    monkeypatch.setattr(worker, "HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(worker, "HEARTBEAT_SECONDS", 0.1)
     settings = client.app.state.document_test_settings
     assert worker.perform_document_import(engine, settings, imported["id"])
     assert not worker.perform_document_import(engine, settings, imported["id"])
