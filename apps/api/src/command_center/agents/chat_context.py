@@ -59,13 +59,20 @@ class ChatSummarizationMiddleware(SummarizationMiddleware):
         self.limit = limit
         self.summary_limit = min(10000, limit // 6)
         self.sink = sink
+        summary_prompt = SUMMARY_PROMPT.format(limit=self.summary_limit)
+        # The summary model receives its own prompt, without agent instructions or
+        # tool schemas. Reserve its full requested summary and framing headroom;
+        # a valid 20k-character message must fit the 40k connection profile.
+        self.summary_input_limit = (
+            limit - self.summary_limit - len(summary_prompt.format(messages="")) - 1024
+        )
         super().__init__(
             model,
             backend=StateBackend(),
             trigger=("tokens", limit * 3 // 4),
             keep=("messages", 4),
             token_counter=message_chars,
-            summary_prompt=SUMMARY_PROMPT.format(limit=self.summary_limit),
+            summary_prompt=summary_prompt,
             trim_tokens_to_summarize=None,
         )
 
@@ -96,7 +103,7 @@ class ChatSummarizationMiddleware(SummarizationMiddleware):
             serialized_size = 0
             for index in range(1, len(effective)):
                 serialized_size += len(get_buffer_string([effective[index - 1]], format="xml")) + 1
-                if serialized_size > self.limit // 2:
+                if serialized_size > self.summary_input_limit:
                     break
                 if not isinstance(effective[index], ToolMessage):
                     cutoff = index

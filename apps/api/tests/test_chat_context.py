@@ -340,3 +340,38 @@ def test_large_tool_result_is_offloaded_and_model_input_stays_bounded(scripted_m
     assert result == "Read the bounded synthetic result."
     assert sum(len(str(message.content)) for message in observed) < profile.max_context_chars
     assert any("/large_tool_results/" in str(message.content) for message in observed)
+
+
+def test_compaction_accepts_full_length_messages_in_smaller_profile(scripted_model):
+    profile = AgentProfile(
+        name="Synthetic",
+        description="Synthetic",
+        model="gpt-5-mini",
+        instructions="Preserve the supplied synthetic constraints.",
+        max_context_chars=40000,
+    )
+    calls = []
+
+    async def persist(state):
+        pass
+
+    def reply(batch):
+        calls.append(sum(len(str(message.content)) for message in batch))
+        if len(batch) == 1 and "<messages>" in str(batch[0].content):
+            return AIMessage(content="The first synthetic message's constraints.")
+        return AIMessage(content="Both synthetic messages were considered.")
+
+    output = asyncio.run(
+        run_graph(
+            profile,
+            [HumanMessage(content="a" * 20000), HumanMessage(content="b" * 20000)],
+            NoTools(),
+            persist,
+            model=scripted_model([reply, reply]),
+            checkpointer=InMemorySaver(),
+            thread_id=str(uuid4()),
+        )
+    )
+    assert output == "Both synthetic messages were considered."
+    assert len(calls) == 2
+    assert max(calls) < profile.max_context_chars
