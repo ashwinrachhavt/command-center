@@ -23,6 +23,9 @@ models = {
     name: getattr(browser_contracts, name)
     for name in (
         "InspectMessage",
+        "InspectResult",
+        "ExpandHistoryMessage",
+        "ExpandHistoryResult",
         "ApplyMessage",
         "ApplyResult",
         "SnapshotCreate",

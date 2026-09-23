@@ -11,7 +11,7 @@ from sqlalchemy import select
 from command_center.api import schemas as s
 from command_center.api.agents import available_profile
 from command_center.api.browser import Device
-from command_center.api.browser_contracts import FieldId, FieldValue, ResumeFile
+from command_center.api.browser_contracts import FieldId, FieldValue, HistoryTargets, ResumeFile
 from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity, Identity
@@ -101,6 +101,7 @@ class ApplicationPreparationRead(s.Contract):
     cover_letter_upload_fields: list[str] = Field(default_factory=list)
     replace_fields: list[str]
     upload_fields: list[str]
+    history_targets: HistoryTargets = Field(default_factory=HistoryTargets)
     fields: list[PreparedFieldRead]
     created_at: datetime
 
@@ -192,6 +193,7 @@ def preparation_read(
             "cover_letter_upload_fields": payload.get("cover_letter_upload_fields", []),
             "replace_fields": payload["replace_fields"],
             "upload_fields": payload["upload_fields"],
+            "history_targets": payload.get("history_targets", {}),
             "fields": [
                 {key: field[key] for key in PreparedFieldRead.model_fields}
                 for field in payload["fields"]

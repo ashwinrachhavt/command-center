@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from command_center.api.browser_contracts import FormField
+from command_center.db import application_preparations
 from command_center.db.application_preparations import initial_answers
 from command_center.db.browser import validate_temporal_answer
 from command_center.db.career import CareerEntry
@@ -42,6 +43,71 @@ def field(index, component, *, group=0, kind="experience", **changes):
             "order": "newest_first",
         },
     } | changes
+
+
+def test_history_targets_deduplicate_the_entries_selected_for_autofill():
+    facts = [
+        approved(organization="Synthetic Earlier", start_date="2015"),
+        approved(organization="Synthetic Recent", start_date="2024-03"),
+        approved(organization="Synthetic Recent", start_date="2024-03"),
+        approved(kind="education", organization="Synthetic University", start_date="2010"),
+    ]
+    assert application_preparations.history_targets(facts) == {"experience": 2, "education": 1}
+    answers = initial_answers(
+        [field(0, "organization"), field(1, "organization", group=1)], facts, None
+    )
+    assert [answer["value"] for answer in answers] == ["Synthetic Recent", "Synthetic Earlier"]
+
+
+def test_history_targets_cap_each_kind_at_ten_unique_entries():
+    facts = [
+        approved(kind=kind, organization=f"Synthetic {year}", start_date=str(year))
+        for kind in ("experience", "education")
+        for year in range(2000, 2012)
+    ]
+    assert application_preparations.history_targets(facts) == {"experience": 10, "education": 10}
+
+
+@pytest.mark.parametrize(
+    ("dates", "target"),
+    [
+        ([], 0),
+        ([None], 1),
+        ([None, "2024"], 0),
+        (["2020", "2020-09"], 0),
+        (["2020-09", "2020-09-01"], 0),
+        (["2020-09", "2020-10"], 2),
+    ],
+)
+def test_history_targets_follow_autofill_date_ambiguity_per_kind(dates, target):
+    facts = [
+        approved(organization=f"Synthetic Employer {index}", start_date=date)
+        for index, date in enumerate(dates)
+    ] + [approved(kind="education", organization="Synthetic University")]
+    assert application_preparations.history_targets(facts) == {
+        "experience": target,
+        "education": 1,
+    }
+    answers = initial_answers([field(0, "organization")], facts, None)
+    assert (answers[0]["value"] is not None) == (target > 0)
+
+
+def test_history_targets_exclude_scoped_inactive_unstructured_and_mismatched_facts():
+    scoped = approved(organization="Synthetic Scoped")
+    scoped[1].context = "Synthetic employer-specific context"
+    inactive = approved(organization="Synthetic Pending")
+    inactive[0].active_revision_id = None
+    superseded = approved(organization="Synthetic Superseded")
+    superseded[0].active_revision_id = uuid4()
+    unstructured = approved(organization="Synthetic Unstructured")
+    unstructured[1].value = "Synthetic prose employment history"
+    mismatched = approved(kind="education", organization="Synthetic Mismatch")
+    mismatched[0].field = "experience"
+    unrelated = approved(organization="Synthetic Unrelated")
+    unrelated[0].field = "summary"
+    facts = [scoped, inactive, superseded, unstructured, mismatched, unrelated]
+    assert application_preparations.history_targets(facts) == {"experience": 0, "education": 0}
+    assert initial_answers([field(0, "organization")], facts, None)[0]["value"] is None
 
 
 def test_each_repeated_section_uses_one_exact_approved_revision():

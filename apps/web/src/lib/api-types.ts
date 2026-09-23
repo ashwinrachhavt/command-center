@@ -3037,6 +3037,7 @@ export interface components {
             replace_fields: string[];
             /** Upload Fields */
             upload_fields: string[];
+            history_targets?: components["schemas"]["HistoryTargets"];
             /** Fields */
             fields: components["schemas"]["PreparedFieldRead"][];
             /**
@@ -4364,6 +4365,19 @@ export interface components {
         HealthStatus: {
             /** Status */
             status: string;
+        };
+        /** HistoryTargets */
+        HistoryTargets: {
+            /**
+             * Experience
+             * @default 0
+             */
+            experience: number;
+            /**
+             * Education
+             * @default 0
+             */
+            education: number;
         };
         /** ImportRead */
         ImportRead: {

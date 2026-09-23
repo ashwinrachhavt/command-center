@@ -23,6 +23,9 @@ function syncAutofillControls() {
   const choosing = draft?.autofill?.stage === "choose_application";
   const busy = actionBusy || autofillBusy;
   const manualPending = Boolean(draft?.reviewedCommand || draft?.recapture);
+  const historyMessage = draft?.autofill?.historyResult?.message;
+  element("history-status").hidden = !historyMessage;
+  element("history-status").textContent = historyMessage ?? "";
   element("fields").inert = busy || Boolean(pending) || manualPending;
   element("proposals").inert = busy || Boolean(pending) || manualPending;
   for (const id of [
@@ -944,7 +947,7 @@ element("disconnect").addEventListener("click", async () => {
   );
 });
 
-async function agentBrowserStructure(tab) {
+async function agentBrowserStructure(tab, allowEmpty = false) {
   const nonce = crypto.randomUUID();
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
@@ -976,7 +979,7 @@ async function agentBrowserStructure(tab) {
       typeof structure.title !== "string" ||
       !Array.isArray(structure.controls) ||
       structure.controls.length > 100 ||
-      !structure.controls.length
+      (!structure.controls.length && !allowEmpty)
     )
       throw new Error(
         "AgentBrowser found no usable form structure on this page.",
@@ -1026,8 +1029,14 @@ async function inspectForm(useReader = false) {
   });
   if (response?.state === "rejected" && typeof response.message === "string")
     throw new Error(response.message.slice(0, 300));
-  const snapshot = validate("SnapshotCreate", response);
-  if (!snapshot.fields.some((field) => field.type !== "unsupported")) {
+  const { history_expandable: historyExpandable, ...snapshot } = validate(
+    "InspectResult",
+    response,
+  );
+  if (
+    !snapshot.fields.some((field) => field.type !== "unsupported") &&
+    !historyExpandable
+  ) {
     const workday = /(^|\.)myworkdayjobs\.com$/.test(new URL(tab.url).hostname);
     throw new Error(
       workday
@@ -1037,7 +1046,7 @@ async function inspectForm(useReader = false) {
   }
   const structure =
     useReader && element("page-reader").value === "agent-browser"
-      ? await agentBrowserStructure(tab)
+      ? await agentBrowserStructure(tab, Boolean(historyExpandable))
       : null;
   if (structure) snapshot.title = structure.title.slice(0, 300);
   return { tab, snapshot, structure };
@@ -1141,6 +1150,10 @@ async function runAutofill() {
       throw new Error(
         "Check the application page after the uncertain fill. Discard this draft before starting again.",
       );
+    if (operation.stage === "history_uncertain")
+      throw new Error(
+        "Review the work and education rows on the page, then discard this draft and share again. Row additions will not replay.",
+      );
     await autofillTab(operation);
     if (operation.stage === "capture") {
       await api("snapshots", {
@@ -1170,6 +1183,95 @@ async function runAutofill() {
           },
         }),
       );
+      mergePreparation(prepared);
+      operation.baseVersionId = prepared.version_id;
+      const targets = prepared.history_targets;
+      if (targets && (targets.experience > 0 || targets.education > 0)) {
+        operation.historyRequest = {
+          version: 2,
+          action: "expand-history",
+          id: crypto.randomUUID(),
+          snapshot_id: draft.snapshot.id,
+          targets,
+        };
+        operation.stage = "expand_history";
+      } else operation.stage = "authorize";
+      await saveDraft();
+    }
+    if (operation.stage === "expand_history") {
+      const tab = await autofillTab(operation);
+      autofillStatus("Adding missing work and education rows…");
+      const request = validate(
+        "ExpandHistoryMessage",
+        operation.historyRequest,
+      );
+      const response = validate(
+        "ExpandHistoryResult",
+        await chrome.tabs.sendMessage(tab.id, request),
+      );
+      if (
+        response.operation_id !== request.id ||
+        response.snapshot_id !== request.snapshot_id
+      )
+        throw new Error(
+          "The row response did not match this application. Try again.",
+        );
+      operation.historyResult = response;
+      operation.stage = ["rejected", "outcome_unknown"].includes(response.state)
+        ? "history_uncertain"
+        : response.state === "unchanged"
+          ? "authorize"
+          : "history_recapture";
+      await saveDraft();
+      if (operation.stage === "history_uncertain")
+        throw new Error(response.message);
+    }
+    if (operation.stage === "history_recapture") {
+      await autofillTab(operation);
+      autofillStatus("Reading the new rows before filling…");
+      const { tab, snapshot, structure } = await inspectForm(true);
+      await autofillTab(operation);
+      if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
+        throw new Error(
+          "Return to the captured application tab before continuing.",
+        );
+      operation.historyPreviousId = draft.preparation.id;
+      draft.snapshot = snapshot;
+      draft.structure = structure;
+      operation.stage = "history_capture";
+      await saveDraft();
+    }
+    if (operation.stage === "history_capture") {
+      await autofillTab(operation);
+      await api("snapshots", {
+        method: "POST",
+        key: receipt("history-capture"),
+        body: draft.snapshot,
+      });
+      operation.stage = "history_prepare";
+      await saveDraft();
+    }
+    if (operation.stage === "history_prepare") {
+      await autofillTab(operation);
+      const prepared = validPreparation(
+        await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
+          method: "POST",
+          key: receipt("history-prepare"),
+          body: {
+            opportunity_id: null,
+            resume_version_id: operation.resumeVersionId,
+            cover_letter_version_id: operation.coverLetterVersionId ?? null,
+            continue_preparation_id: operation.historyPreviousId,
+          },
+        }),
+      );
+      if (
+        prepared.snapshot_id !== draft.snapshot.id ||
+        prepared.task_id !== draft.preparation.task_id
+      )
+        throw new Error(
+          "The refreshed answers do not match this application. Try again.",
+        );
       mergePreparation(prepared);
       operation.baseVersionId = prepared.version_id;
       operation.stage = "authorize";

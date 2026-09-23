@@ -279,6 +279,38 @@ def career_value(entry: CareerEntry, field: dict[str, Any]) -> str | None:
     return value
 
 
+def career_candidates(
+    facts: list[tuple[ProfileFact, ProfileFactRevision]], kind: str
+) -> tuple[list[tuple[ProfileFact, ProfileFactRevision, CareerEntry]], bool]:
+    """Return distinct active, unscoped entries in oldest-first order and any ambiguity."""
+    candidates: list[tuple[ProfileFact, ProfileFactRevision, CareerEntry]] = []
+    seen = set()
+    for fact, revision in facts:
+        if fact.field != kind or fact.active_revision_id != revision.id or revision.context:
+            continue
+        entry = decode_career(revision.value)
+        if entry and entry.kind == kind and entry.encode() not in seen:
+            seen.add(entry.encode())
+            candidates.append((fact, revision, entry))
+    ambiguous = len(candidates) > 1 and any(not item[2].start_date for item in candidates)
+    if len(candidates) > 1 and not ambiguous:
+        candidates.sort(key=lambda item: date_interval(item[2].start_date or "0001")[0])
+        ambiguous = any(
+            date_interval(left[2].start_date or "0001")[1]
+            >= date_interval(right[2].start_date or "0001")[0]
+            for left, right in zip(candidates, candidates[1:], strict=False)
+        )
+    return candidates, ambiguous
+
+
+def history_targets(facts: list[tuple[ProfileFact, ProfileFactRevision]]) -> dict[str, int]:
+    targets = {}
+    for kind in ("experience", "education"):
+        candidates, ambiguous = career_candidates(facts, kind)
+        targets[kind] = 0 if ambiguous else min(len(candidates), 10)
+    return targets
+
+
 def initial_answers(
     fields: list[dict[str, Any]],
     facts: list[tuple[ProfileFact, ProfileFactRevision]],
@@ -316,23 +348,7 @@ def initial_answers(
             for member in members
         )
         present = any(member["value_state"] == "present" for member in members)
-        candidates: list[tuple[ProfileFact, ProfileFactRevision, CareerEntry]] = []
-        seen = set()
-        for fact, revision in facts:
-            if fact.field != history["kind"] or revision.context:
-                continue
-            entry = decode_career(revision.value)
-            if entry and entry.kind == history["kind"] and entry.encode() not in seen:
-                seen.add(entry.encode())
-                candidates.append((fact, revision, entry))
-        ambiguous = len(candidates) > 1 and any(not item[2].start_date for item in candidates)
-        if len(candidates) > 1 and not ambiguous:
-            candidates.sort(key=lambda item: date_interval(item[2].start_date or "0001")[0])
-            ambiguous = any(
-                date_interval(left[2].start_date or "0001")[1]
-                >= date_interval(right[2].start_date or "0001")[0]
-                for left, right in zip(candidates, candidates[1:], strict=False)
-            )
+        candidates, ambiguous = career_candidates(facts, history["kind"])
         if history.get("order", "newest_first") == "newest_first":
             candidates.reverse()
         position = history["position"]
@@ -518,6 +534,7 @@ class ApplicationPreparation(Base):
             "cover_letter_upload_fields": [],
             "replace_fields": [],
             "upload_fields": [],
+            "history_targets": history_targets(facts),
             "fields": initial_answers(snapshot.fields, facts, opportunity_id),
         }
         continuation = (

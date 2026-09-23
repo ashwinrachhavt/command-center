@@ -62,6 +62,11 @@ class TemporalConstraints(s.Contract):
     step_base: str = Field(max_length=10)
 
 
+class HistoryTargets(s.Contract):
+    experience: int = Field(default=0, ge=0, le=10)
+    education: int = Field(default=0, ge=0, le=10)
+
+
 class CareerField(s.Contract):
     group_id: str = Field(pattern=r"^h[0-9]{1,3}$")
     kind: Literal["experience", "education"]
@@ -141,6 +146,10 @@ class SnapshotCreate(s.Contract):
     page_url: HttpUrl
     title: str = Field(max_length=300)
     fields: list[FormField] = Field(max_length=100)
+
+
+class InspectResult(SnapshotCreate):
+    history_expandable: bool = False
 
 
 class FillCreate(s.Contract):
@@ -241,6 +250,23 @@ class ClaimResult(s.Contract):
 class InspectMessage(s.Contract):
     version: Literal[2]
     action: Literal["inspect"]
+
+
+class ExpandHistoryMessage(s.Contract):
+    version: Literal[2]
+    action: Literal["expand-history"]
+    id: UUID
+    snapshot_id: UUID
+    targets: HistoryTargets
+
+
+class ExpandHistoryResult(s.Contract):
+    operation_id: UUID
+    snapshot_id: UUID
+    state: Literal["expanded", "unchanged", "partial", "rejected", "outcome_unknown"]
+    counts: HistoryTargets
+    added: HistoryTargets
+    message: str = Field(max_length=500)
 
 
 class FileTransfer(ResumeFile):
