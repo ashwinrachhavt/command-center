@@ -38,8 +38,12 @@ class SourceRecord(Base):
         provider: str,
         extraction_method: str,
         request_id: UUID,
+        sensitivity: str = "public",
+        account_scope: str = "public",
+        source_version_ids: list[UUID] | None = None,
+        source_message_id: UUID | None = None,
     ) -> "SourceRecord":
-        """Persist one immutable public-source acquisition and its exact content."""
+        """Persist an immutable source acquisition with its exact content and provenance."""
         from command_center.db.artifacts import Artifact
         from command_center.db.crm import record_event
 
@@ -57,17 +61,18 @@ class SourceRecord(Base):
             owner_id=owner_id,
             title=title,
             kind="source",
-            sensitivity="public",
+            sensitivity=sensitivity,
             text=text,
             document_type_id=None,
             request_id=request_id,
+            source_version_ids=source_version_ids,
         )
         source = cls(
             id=record_id,
             opportunity_id=opportunity_id,
             artifact_version_id=uuid5(artifact.id, "version:1"),
             provider=provider,
-            account_scope="public",
+            account_scope=account_scope,
             locator=url,
             extraction_method=extraction_method,
         )
@@ -82,6 +87,7 @@ class SourceRecord(Base):
             source_record_id=str(record_id),
             artifact_id=str(artifact_id),
             provider=provider,
+            source_message_id=str(source_message_id) if source_message_id else None,
         )
         session.flush()
         return source

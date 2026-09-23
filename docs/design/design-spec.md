@@ -328,3 +328,9 @@ sidebar shows one entry per conversation, and New chat explicitly starts another
 Enter sends; Shift+Enter adds a line; IME composition does not submit. The Contacts
 outreach controls stack below the contact name on narrow screens so the full note
 and copy action remain visible.
+
+## Generic Home conversations — 2026-09-23
+
+Home starts with the Command Center supervisor and a general-purpose composer; lead intake is an example rather than the identity of the chat. Session selection is URL-addressable. Searchable paginated conversation history stays separate from recent run activity, and selecting an existing conversation preserves its configured profile. Stream token/tool activity, show saved questions in place and distinguish waiting from cancellation. Load transcript deltas, defer older run detail and stop rapid polling when idle.
+
+Show cached-answer provenance and an explicit fresh-answer option. Settings → Local AI clients creates named, revocable credentials and shows each token once, with copy/hide controls and setup instructions. Keep token values out of query caches, URLs and browser persistence. Lead-intake results link to the saved records and exact source version; private pasted-source identifiers are not external web links.

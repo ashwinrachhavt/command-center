@@ -530,3 +530,11 @@ Cohere catalog entries now require a supported Command tool model, and custom Ay
 selections are rejected before enqueueing. Native Cohere API errors are classified
 without exposing provider response bodies. Synthetic tests cover continuity,
 legacy adoption, idempotency, ownership and unsupported model filtering.
+
+## Shared MCP and generic chat — 2026-09-23
+
+Implemented a request-scoped FastMCP catalog and authenticated local stdio bridge; named expiring/revocable credentials; explicit API operation policies; progressive supervisor discovery; and atomic private lead intake from literal text, an owned saved text version or a saved user message. The generic supervisor can call tools directly or delegate within its pinned limits. Home now uses incremental transcripts, saved-session search/pagination, streamed activity and durable question controls. Bounded middleware persists conversation summaries across turns; exact eligible first-exchange text transformations have a five-minute answer-reuse path with visible provenance and fresh-answer bypass.
+
+Focused synthetic evidence: 17 intake/lead tests, 10 actual HTTP/stdio local-MCP tests, 65 context/conversation/question/runtime tests and 12 application-context/writing regressions passed. Frontend: 348 unit tests and 21 targeted browser checks passed, with desktop/mobile synthetic screenshots inspected. These checks make no paid provider calls and do not establish live model quality or measured production latency. Full-project integration verification is recorded below when complete.
+
+See [local setup and tool policy](local-mcp.md). Migrations `0030_mcp_clients` and `0031_chat_context` add credentials, compacted context and answer provenance; existing transcripts remain intact.

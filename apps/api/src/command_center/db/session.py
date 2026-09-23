@@ -3,7 +3,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-SCHEMA_REVISION = "0029_connection_notes"
+SCHEMA_REVISION = "0031_chat_context"
 
 
 def create_database_engine(database_url: str, pool_mode: str = "session") -> Engine:

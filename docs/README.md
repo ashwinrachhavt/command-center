@@ -23,6 +23,8 @@ The current `frontend-redesign` release includes saved job descriptions, recover
 
 The subsequent local usability cleanup makes Home the agent workspace, consolidates career views under Opportunities, separates Library writing/reviews from the uploaded Document Vault, and opens artifacts in a wide reading canvas. Agents groups current profiles, connectors, skills, workflow entry points and memory. Companion `0.4.6` defaults to reading the active Chrome tab. This work is local, with validation recorded in [Engineering](tech/engineering.md#calm-workbench-usability-cleanup--2026-09-22); it is not a deployment claim.
 
+The 2026-09-23 local chat increment adds a generic supervisor, a shared FastMCP catalog for in-app and local AI clients, private linked lead intake, discoverable conversation history, bounded context compaction and conservative answer reuse. See [client setup](tech/local-mcp.md) and the dated sections in the three canonical specifications. Validation is recorded in Engineering.
+
 For hands-on release testing, use the [smoke-test checklist](smoke-test.md). It covers core workflows, optional live integrations and known limits.
 
 ## Operational leads

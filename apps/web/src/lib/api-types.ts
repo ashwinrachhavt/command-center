@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/api/v1/mcp-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clients */
+        get: operations["clients_api_v1_mcp_clients_get"];
+        put?: never;
+        /** Create Client */
+        post: operations["create_client_api_v1_mcp_clients_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp-clients/{client_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Client */
+        post: operations["revoke_client_api_v1_mcp_clients__client_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -1120,6 +1155,26 @@ export interface paths {
         put?: never;
         /** Save Work */
         post: operations["save_work_api_v1_tasks__task_id__record_work_output_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leads/intake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Intake Lead
+         * @description Save private pasted or saved page content and its linked CRM records atomically.
+         */
+        post: operations["intake_lead_api_v1_leads_intake_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2874,6 +2929,24 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** AnswerCacheRead */
+        AnswerCacheRead: {
+            /**
+             * Source Run Id
+             * Format: uuid
+             */
+            source_run_id: string;
+            /**
+             * Source Completed At
+             * Format: date-time
+             */
+            source_completed_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** ApplicationContextCreate */
         ApplicationContextCreate: {
             /** Expected Version */
@@ -3527,6 +3600,62 @@ export interface components {
              * @constant
              */
             state: "claimed";
+        };
+        /** ClientCreate */
+        ClientCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Expires In Days
+             * @default 90
+             */
+            expires_in_days: number;
+        };
+        /** ClientCreated */
+        ClientCreated: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Token */
+            token: string;
+        };
+        /** ClientRead */
+        ClientRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
         };
         /** CompanyCreate */
         CompanyCreate: {
@@ -4568,6 +4697,31 @@ export interface components {
             /** Created */
             created: boolean;
         };
+        /** IntakeContact */
+        IntakeContact: {
+            /** Name */
+            name: string;
+            /** Email */
+            email?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Linkedin Url */
+            linkedin_url?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** IntakeJob */
+        IntakeJob: {
+            /** Title */
+            title: string;
+            /**
+             * Url
+             * Format: uri
+             */
+            url: string;
+            /** Location */
+            location?: string | null;
+        };
         /** JobContextCreate */
         JobContextCreate: {
             /**
@@ -4804,6 +4958,63 @@ export interface components {
             company_name: string;
             /** Snippet */
             snippet?: string | null;
+        };
+        /** LeadIntakeRead */
+        LeadIntakeRead: {
+            /**
+             * Opportunity Id
+             * Format: uuid
+             */
+            opportunity_id: string;
+            /**
+             * Company Id
+             * Format: uuid
+             */
+            company_id: string;
+            /** Contact Id */
+            contact_id: string | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Created */
+            created: {
+                [key: string]: boolean;
+            };
+            source: components["schemas"]["LeadSourceRead"];
+            /** Links */
+            links: {
+                [key: string]: string;
+            };
+            /** Warnings */
+            warnings: string[];
+        };
+        /** LeadIntakeRequest */
+        LeadIntakeRequest: {
+            /** Title */
+            title: string;
+            /** Company Id */
+            company_id?: string | null;
+            /** Company Name */
+            company_name?: string | null;
+            /** Company Domain */
+            company_domain?: string | null;
+            /** Contact Id */
+            contact_id?: string | null;
+            contact?: components["schemas"]["IntakeContact"] | null;
+            /** Opportunity Id */
+            opportunity_id?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            job?: components["schemas"]["IntakeJob"] | null;
+            /** Notes */
+            notes?: string | null;
+            /** Source Text */
+            source_text?: string | null;
+            /** Source Version Id */
+            source_version_id?: string | null;
+            /** Source Message Id */
+            source_message_id?: string | null;
+            /** Source Url */
+            source_url?: string | null;
         };
         /** LeadSourceRead */
         LeadSourceRead: {
@@ -5160,6 +5371,15 @@ export interface components {
              * @default lead
              */
             profile: string;
+            /** Provider */
+            provider?: ("openai" | "gemini" | "mistral" | "cohere") | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Fresh Answer
+             * @default false
+             */
+            fresh_answer: boolean;
         };
         /** MessageRead */
         MessageRead: {
@@ -5198,6 +5418,7 @@ export interface components {
             profile: string;
             /** Content */
             content: string;
+            answer_cache?: components["schemas"]["AnswerCacheRead"] | null;
         };
         /** ModelRate */
         ModelRate: {
@@ -6660,6 +6881,11 @@ export interface components {
         };
         /** SessionCreate */
         SessionCreate: {
+            /**
+             * Title
+             * @default New conversation
+             */
+            title: string;
             /** Task Id */
             task_id?: string | null;
             /** Opportunity Id */
@@ -7161,6 +7387,90 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    clients_api_v1_mcp_clients_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRead"][];
+                };
+            };
+        };
+    };
+    create_client_api_v1_mcp_clients_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_client_api_v1_mcp_clients__client_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     live_health_live_get: {
         parameters: {
             query?: never;
@@ -9292,6 +9602,8 @@ export interface operations {
             query?: {
                 task_id?: string | null;
                 opportunity_id?: string | null;
+                q?: string;
+                standalone?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -9972,6 +10284,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    intake_lead_api_v1_leads_intake_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadIntakeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadIntakeRead"];
                 };
             };
             /** @description Validation Error */
