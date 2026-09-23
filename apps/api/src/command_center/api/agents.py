@@ -330,10 +330,11 @@ def connect_composio(
         raise HTTPException(422, "Configure this toolkit in CC_COMPOSIO_AUTH_CONFIGS first")
     try:
         client = Composio(api_key=settings.composio_api_key.get_secret_value())
-        connection = client.connected_accounts.initiate(
+        connection = client.connected_accounts.link(
             user_id=str(identity.id),
             auth_config_id=config_id,
             callback_url=settings.web_origin + "/connections?connected=1",
+            allow_multiple=True,
         )
         redirect_url = str(connection.redirect_url)
         parsed = urlsplit(redirect_url)
