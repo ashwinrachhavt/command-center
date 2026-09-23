@@ -22,6 +22,7 @@ from command_center.agents.mcp_policy import POLICIES, coverage, local_api_allow
 from command_center.core.capabilities import issue_run_token
 from command_center.core.local_credentials import issue_client_api_token
 from command_center.db.agents import AgentRun
+from command_center.db.artifacts import Artifact, ArtifactVersion
 from command_center.db.base import utc_now
 from command_center.db.crm import Company
 from command_center.db.mcp_clients import MCPClientCredential
@@ -201,6 +202,32 @@ def test_http_local_typed_crm_retry_and_audit(agent_server, engine, local_client
                 )
             )
             assert event.details["initiator"] == "local_mcp"
+
+
+def test_shared_http_catalog_captures_linked_private_lead(agent_server, engine, local_client):
+    actor_id, _, token = local_client
+    original = "  Morgan at Cedar Studio needs a design partner.\n"
+    arguments = {
+        "operation_id": "synthetic-lead-1",
+        "body": {
+            "title": "Design partnership",
+            "company_name": "Cedar Studio",
+            "company_domain": "cedar.example",
+            "contact": {"name": "Morgan", "email": "morgan@cedar.example"},
+            "source_text": original,
+        },
+    }
+    with httpx.Client(base_url=agent_server.internal_api_url, trust_env=False) as http:
+        saved = rpc(http, token, "capture_lead_content", arguments)
+        assert saved["contact_id"] and saved["opportunity_id"], saved
+        assert saved["job_id"] is None
+        assert rpc(http, token, "capture_lead_content", arguments) == saved
+        assert saved["links"]["opportunity"].startswith("/opportunities?inspect=")
+    with Session(engine) as db:
+        version = db.get(ArtifactVersion, UUID(saved["source"]["version_id"]))
+        artifact = db.get(Artifact, version.artifact_id)
+        assert artifact.owner_id == actor_id and artifact.sensitivity == "private"
+        assert version.payload["text"] == original
 
 
 def test_real_stdio_discovery_and_call(agent_server, engine, local_client, tmp_path):
