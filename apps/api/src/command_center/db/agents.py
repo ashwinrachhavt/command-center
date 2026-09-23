@@ -246,7 +246,12 @@ class AgentRun(OwnedRecord, Base):
                         profile=self.profile,
                         content=output,
                         request_id=self.id,
+                        answer_cache=self.checkpoint.get("answer_cache"),
                     )
+                if state == "completed" and not self.checkpoint.get("answer_cache"):
+                    entry = conversation.cache_candidate(self)
+                    if entry is not None:
+                        self.checkpoint = {**self.checkpoint, "answer_cache_entry": entry}
                 if state == "completed" and pending is not None:
                     configuration = self.config_snapshot.get("profile")
                     revision = self.config_snapshot.get("revision")

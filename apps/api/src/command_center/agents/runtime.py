@@ -26,6 +26,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 
+from command_center.agents.chat_context import ChatSummarizationMiddleware, SummarySink
 from command_center.agents.config import AgentProfile
 from command_center.agents.runtime_control import (
     ActivitySink,
@@ -112,6 +113,7 @@ def build_agent(
     instructions: InstructionSource | None = None,
     nested: bool = False,
     spending: ModelSpendingGate | None = None,
+    summary_sink: SummarySink | None = None,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     # Model callbacks also cover framework-owned context compaction calls.
     callbacks = [
@@ -135,13 +137,17 @@ def build_agent(
         permissions=[FilesystemPermission(operations=["write"], paths=["/skills/**"], mode="deny")],
         subagents=subagents or [],
         middleware=[
+            cast(
+                Any,
+                ChatSummarizationMiddleware(model, control.profile.max_context_chars, summary_sink),
+            ),
             WorkMiddleware(
                 control,
                 role,
                 delegates=frozenset(profile.specialists),
                 instructions=instructions,
                 nested=nested,
-            )
+            ),
         ],
         state_schema=WorkState,
         checkpointer=checkpointer,
@@ -167,6 +173,7 @@ async def run_graph(
     spending: ModelSpendingGate | None = None,
     resume: tuple[str, str] | None = None,
     prior_state: dict[str, Any] | None = None,
+    summary_sink: SummarySink | None = None,
 ) -> str | GraphPaused:
     pending: dict[tuple[str, str], tuple[str, float]] = {}
     delta_lock = asyncio.Lock()
@@ -229,6 +236,7 @@ async def run_graph(
         checkpointer=checkpointer,
         instructions=instructions,
         spending=spending,
+        summary_sink=summary_sink,
     )
     messages = [HumanMessage(content=prompt)] if isinstance(prompt, str) else prompt
     initial_input: dict[str, Any] = {

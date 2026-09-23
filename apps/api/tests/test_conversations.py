@@ -159,7 +159,8 @@ def test_session_scope_validation_and_owner_isolation(client, engine):
     task = post(client, "tasks", {"title": "Private synthetic task"}).json()
     opportunity = create_opportunity(client)
     empty = post(client, "agent-sessions", {"task_id": None, "opportunity_id": None})
-    assert empty.status_code == 422
+    assert empty.status_code == 201
+    assert empty.json()["task_id"] is None and empty.json()["opportunity_id"] is None
     assert (
         post(
             client,
