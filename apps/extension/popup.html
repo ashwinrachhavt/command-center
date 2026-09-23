@@ -20,19 +20,21 @@
     </header>
     <main>
       <section id="pairing">
-        <h1>A little help.<br />Right where you need it.</h1>
+        <h1>Connect your browser</h1>
         <p>
-          Pair this browser with your workspace. Your signed-in sessions stay
-          here.
+          Open Browser companion in your workspace, select Pair a browser, and
+          paste the code below.
         </p>
         <form id="pair-form">
-          <label for="api-url">Local API</label
-          ><select id="api-url">
-            <option value="http://localhost:8000">localhost:8000</option>
-            <option value="http://127.0.0.1:8000">
-              127.0.0.1:8000
-            </option></select
-          ><label for="code">Pairing code</label
+          <details class="connection-settings">
+            <summary>Connection settings</summary>
+            <label for="api-url">Local API</label
+            ><select id="api-url">
+              <option value="http://localhost:8000">localhost:8000</option>
+              <option value="http://127.0.0.1:8000">127.0.0.1:8000</option>
+            </select>
+          </details>
+          <label for="code">Pairing code</label
           ><input
             id="code"
             required
@@ -54,20 +56,23 @@
             Disconnect
           </button>
         </div>
-        <h1 id="application-title">Your next opportunity.</h1>
+        <h1 id="application-title">Fill your application</h1>
         <p id="page-location" class="hint" hidden></p>
         <p>
           Fill this page from your approved profile. Review the results on the
           application before continuing.
         </p>
-        <label for="page-reader">Page reader</label>
-        <select id="page-reader">
-          <option value="agent-browser">AgentBrowser</option>
-          <option value="direct">Direct browser</option>
-        </select>
-        <p id="reader-status" class="hint">
-          AgentBrowser uses the local companion browser.
-        </p>
+        <details class="capture-settings">
+          <summary>Capture settings</summary>
+          <label for="page-reader">Page reader</label>
+          <select id="page-reader">
+            <option value="direct">This browser (recommended)</option>
+            <option value="agent-browser">AgentBrowser · advanced</option>
+          </select>
+          <p id="reader-status" class="hint">
+            Reads this Chrome tab. No separate browser needed.
+          </p>
+        </details>
         <p class="hint">
           Autofill saves the form structure and, when identified, the job
           description to this application in your workspace.
@@ -89,28 +94,33 @@
             >Attach this résumé to résumé fields</label
           >
         </div>
-        <label for="cover-letter">Cover letter · optional</label>
-        <select id="cover-letter">
-          <option value="">No cover letter selected</option>
-        </select>
-        <p class="hint">
-          Choose an uploaded letter or an exported PDF. Text drafts appear after
-          PDF export.
-        </p>
-        <a
-          id="manage-letters"
-          class="workspace-link"
-          href="http://localhost:3001/applications"
-          target="_blank"
-          rel="noopener"
-          >Write or export a cover letter ↗</a
-        >
-        <div class="choice">
-          <input id="auto-cover-letter" type="checkbox" checked />
-          <label for="auto-cover-letter"
-            >Attach this letter to cover-letter fields</label
+        <details class="optional-letter">
+          <summary>
+            Attach a cover letter <span class="hint">Optional</span>
+          </summary>
+          <label for="cover-letter">Cover letter · optional</label>
+          <select id="cover-letter">
+            <option value="">No cover letter selected</option>
+          </select>
+          <p class="hint">
+            Choose an uploaded letter or an exported PDF. Text drafts appear
+            after PDF export.
+          </p>
+          <a
+            id="manage-letters"
+            class="workspace-link"
+            href="http://localhost:3001/applications"
+            target="_blank"
+            rel="noopener"
+            >Write or export a cover letter ↗</a
           >
-        </div>
+          <div class="choice">
+            <input id="auto-cover-letter" type="checkbox" checked />
+            <label for="auto-cover-letter"
+              >Attach this letter to cover-letter fields</label
+            >
+          </div>
+        </details>
         <button id="autofill" type="button" disabled>
           Autofill this page <span aria-hidden="true">→</span>
         </button>

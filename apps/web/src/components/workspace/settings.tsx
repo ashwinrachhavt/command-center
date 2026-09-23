@@ -19,6 +19,7 @@ import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
 import { ProfileFacts } from "./profile-facts";
 import { SpendingSettings } from "./spending";
+import { LocalAIClients } from "./local-ai-clients";
 
 type ProfileValues = Pick<
   Profile,
@@ -263,6 +264,7 @@ export function Settings() {
         </section>
         <ProfileFacts />
         <SpendingSettings />
+        <LocalAIClients />
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-6">
           <div>
             <h2 className="text-sm font-medium">Connected apps</h2>

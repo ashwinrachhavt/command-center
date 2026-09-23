@@ -17,9 +17,15 @@ There are three canonical specifications: Product, Tech and Design. Product dire
 | [Engineering](tech/engineering.md) | Accepted tasks and status, dependencies, test plan and delivery evidence |
 | [Root README](../README.md) | Setup, local commands, operator import and deployment instructions |
 
+Learning notebook: [From Vague Prompts to Evaluated Workflows](learning/eval-driven-agent-development.md) explains prompt assembly, synthetic fixtures and the distinction between offline checks, model quality and completed work. It labels proposed changes separately from verified results.
+
 Model/schema/API source and migrations establish what is implemented. A spec or review score describes a contract; it does not prove implementation or release readiness. Preserve confirmed direction when correcting stale status. Keep historical evidence dated and distinguish it from checks run in the current session.
 
 The current `frontend-redesign` release includes saved job descriptions, recoverable tailored résumé/cover-letter requests, contextual Tiptap editing and PDF export; deterministic keyword coverage pinned to saved sources; approved employment/education autofill and bounded Add-row expansion; current-job recognition across supported application pages; and the daily Overview attention/running/output queues and task controls. Companion `0.4.5` retains manual Next and Submit. See [Engineering](tech/engineering.md) for the recorded validation checkpoints. These features are integrated through `ed69ac1`. Historical-application matching, broader authenticated ATS coverage, accurate email reply targeting and live provider/model quality remain unfinished. General routines remain deferred. Hands-on platform/provider QA is user-led; paid evaluation remains disabled until a reviewed plan and allowance exist.
+
+The subsequent local usability cleanup makes Home the agent workspace, consolidates career views under Opportunities, separates Library writing/reviews from the uploaded Document Vault, and opens artifacts in a wide reading canvas. Agents groups current profiles, connectors, skills, workflow entry points and memory. Companion `0.4.6` defaults to reading the active Chrome tab. This work is local, with validation recorded in [Engineering](tech/engineering.md#calm-workbench-usability-cleanup--2026-09-22); it is not a deployment claim.
+
+The 2026-09-23 local chat increment adds a generic supervisor, a shared FastMCP catalog for in-app and local AI clients, private linked lead intake, discoverable conversation history, bounded context compaction and conservative answer reuse. See [client setup](tech/local-mcp.md) and the dated sections in the three canonical specifications. Validation is recorded in Engineering.
 
 For hands-on release testing, use the [smoke-test checklist](smoke-test.md). It covers core workflows, optional live integrations and known limits.
 

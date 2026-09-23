@@ -25,6 +25,9 @@ from command_center.db.reviewed_actions import (
     LinearCreatePayload,
     LinearIssueQuery,
     LinearUpdatePayload,
+    LinkedInPostPayload,
+    LinkedInPostQuery,
+    LinkedInProfileQuery,
     NotionPageQuery,
     NotionPublishPayload,
     NotionUpdatePayload,
@@ -37,6 +40,7 @@ IDENTITY_TOOLS = {
     "googlecalendar": "GOOGLECALENDAR_GET_CURRENT_USER",
     "linear": "LINEAR_WHO_AM_I",
     "notion": "NOTION_GET_ABOUT_ME",
+    "linkedin": "LINKEDIN_WHO_AM_I",
 }
 CONNECTED_ACCOUNTS_LIST_OPERATION = "COMPOSIO_CONNECTED_ACCOUNTS_LIST"
 PRESIGNED_FILE_UPLOAD_OPERATION = "COMPOSIO_FILES_CREATE_PRESIGNED_URL"
@@ -53,6 +57,8 @@ CONNECTED_OPERATION_LABELS = {
     "LINEAR_GET_LINEAR_ISSUE": "Read Linear issue",
     "NOTION_RETRIEVE_PAGE": "Read Notion page metadata",
     "NOTION_GET_PAGE_MARKDOWN": "Read Notion page content",
+    "LINKEDIN_WHO_AM_I": "Verify LinkedIn identity",
+    "LINKEDIN_GET_POST_CONTENT": "Read selected LinkedIn post",
 }
 
 
@@ -372,6 +378,15 @@ class ComposioActionClient:
                 "time_zone": str(data.get("time_zone", "")),
             }
             display = email or identity["primary_calendar_id"]
+        elif account.toolkit == "linkedin":
+            inner = data.get("data") if isinstance(data.get("data"), dict) else data
+            subject = str(inner.get("sub") or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", subject):
+                raise ProviderFailure("Provider did not return a stable LinkedIn member identity")
+            # Only the stable subject participates in execution identity checks;
+            # an updated profile name/email must not invalidate an approved action.
+            identity = {"sub": subject}
+            display = str(inner.get("name") or inner.get("email") or subject)
         elif account.toolkit == "linear":
             inner = data.get("data") if isinstance(data.get("data"), dict) else data
             identity = {
@@ -594,6 +609,42 @@ class ComposioActionClient:
                 "markdown": str(content.get("markdown", "")),
             }
             revision = str(page.get("last_edited_time") or _revision_hash(context))
+        elif isinstance(query, (LinkedInProfileQuery, LinkedInPostQuery)):
+            profile = isinstance(query, LinkedInProfileQuery)
+            result = self._execute(
+                "LINKEDIN_WHO_AM_I" if profile else "LINKEDIN_GET_POST_CONTENT",
+                {"post_id": query.post_id} if isinstance(query, LinkedInPostQuery) else {},
+                account=account,
+                user_id=user_id,
+                charge=charge,
+                reserve_budget=reserve_budget,
+                write=False,
+            )
+            results.append(result)
+            data = _response_data(result["data"])
+            if profile and isinstance(data.get("data"), dict):
+                data = data["data"]
+            if not data.get("sub" if profile else "id"):
+                raise ProviderFailure("Provider LinkedIn response did not identify the resource")
+            keys = (
+                ("sub", "name", "email")
+                if profile
+                else (
+                    "id",
+                    "author",
+                    "commentary",
+                    "content",
+                    "visibility",
+                    "createdAt",
+                    "publishedAt",
+                    "lastModifiedAt",
+                    "lifecycleState",
+                )
+            )
+            context = {
+                "profile" if profile else "post": {key: data[key] for key in keys if key in data}
+            }
+            revision = str(data.get("lastModifiedAt") or _revision_hash(context))
         else:  # pragma: no cover - the discriminated union is exhaustive
             raise ValueError("Unknown connected context query")
         fitted, truncated, content_sha256 = _fit_context(context)
@@ -804,6 +855,16 @@ class ComposioActionClient:
                 "create_backup": True,
                 "archive_existing_children": True,
                 "dry_run": False,
+            }
+        elif isinstance(parsed, LinkedInPostPayload):
+            subject = str((account.provider_identity or {}).get("sub") or "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", subject):
+                raise ValueError("Verify the LinkedIn member account before publishing")
+            arguments = {
+                "author": f"urn:li:person:{subject}",
+                "commentary": parsed.commentary,
+                "visibility": parsed.visibility,
+                "lifecycleState": "PUBLISHED",
             }
         else:  # pragma: no cover - discriminated union is exhaustive
             raise ValueError("Unknown reviewed action payload")
@@ -1103,6 +1164,14 @@ def receipt_for(tool_slug: str, result: dict[str, Any]) -> ExecutionReceipt:
         errors = data.get("errors")
         state = "partial" if errors or data.get("success") is not True else "succeeded"
         external_id = None
+    elif tool_slug == "LINKEDIN_CREATE_LINKED_IN_POST":
+        post = _response_data(data)
+        external_id = str(post.get("id") or "") or None
+        if external_id and re.fullmatch(r"urn:li:(ugcPost|share):[0-9]+", external_id):
+            url = f"https://www.linkedin.com/feed/update/{external_id}/"
+        revision = str(post.get("lastModifiedAt") or "") or None
+        if not external_id:
+            state = "outcome_unknown"
     return ExecutionReceipt(
         state=state,
         log_id=result.get("log_id"),

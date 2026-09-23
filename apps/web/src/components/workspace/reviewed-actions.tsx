@@ -74,6 +74,7 @@ const kinds: Record<Kind, { title: string; toolkit: string }> = {
   linear_update: { title: "Update a Linear issue", toolkit: "linear" },
   notion_publish: { title: "Publish a Notion page", toolkit: "notion" },
   notion_update: { title: "Update a Notion page", toolkit: "notion" },
+  linkedin_post: { title: "Publish a LinkedIn post", toolkit: "linkedin" },
 };
 type FormField = {
   key: string;
@@ -81,6 +82,7 @@ type FormField = {
   required?: boolean;
   format?: "list" | "number" | "text" | "boolean";
   hint?: string;
+  options?: { value: string; label: string }[];
 };
 const fields: Record<Kind, FormField[]> = {
   gmail_send: [
@@ -164,6 +166,23 @@ const fields: Record<Kind, FormField[]> = {
     { key: "title", title: "Page title", required: true },
   ],
   notion_update: [{ key: "page_id", title: "Page ID", required: true }],
+  linkedin_post: [
+    {
+      key: "commentary",
+      title: "Post text",
+      format: "text",
+      required: true,
+      hint: "Up to 3,000 characters. Publishes as the selected LinkedIn member.",
+    },
+    {
+      key: "visibility",
+      title: "Audience",
+      options: [
+        { value: "PUBLIC", label: "Anyone" },
+        { value: "CONNECTIONS", label: "Connections only" },
+      ],
+    },
+  ],
 };
 
 function VersionPicker({
@@ -591,6 +610,21 @@ function ActionEditorForm({
                         }))
                       }
                     />
+                  ) : field.options ? (
+                    <select
+                      id={`action-${field.key}`}
+                      className={selectStyle}
+                      value={values[field.key] ?? field.options[0].value}
+                      onChange={(e) =>
+                        setValues({ ...values, [field.key]: e.target.value })
+                      }
+                    >
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   ) : field.format === "text" ? (
                     <Textarea
                       id={`action-${field.key}`}

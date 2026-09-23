@@ -11,7 +11,6 @@ import {
   Globe,
   Link2,
   Plus,
-  Puzzle,
   RefreshCw,
   Send,
   Sparkles,
@@ -1028,33 +1027,74 @@ export function BrowserPage() {
       <div className="grid grid-cols-1 gap-6 px-5 md:px-9 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <section className="flex flex-col gap-5">
           <div className="rounded-xl border border-border bg-card p-6">
-            <Puzzle className="mb-4 size-7 text-primary" />
-            <h2 className="text-lg font-medium">Your application copilot</h2>
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              Open the companion browser with{" "}
-              <code>make companion-browser</code>, then pair its extension here.
-              On a job application, click the extension icon, choose your résumé
-              and select Autofill this page. AgentBrowser reads the form; the
-              companion fills supported answers and shows what still needs your
-              input.
-            </p>
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              For your usual Chrome window, load <code>apps/extension</code> and
-              choose Direct browser in the companion. Review your{" "}
-              <Link
-                href="/settings"
-                className="text-primary underline underline-offset-4"
-              >
-                profile facts and default résumé
-              </Link>{" "}
-              before starting. Generated answers stay editable. Next and Submit
-              are yours.
-            </p>
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              Logins, cookies and existing field values stay in Chrome. The
-              workspace receives field descriptions and whether each field is
-              empty or present.
-            </p>
+            <h2 className="text-lg font-medium">Get ready in three steps</h2>
+            <ol className="mt-5 space-y-5 text-sm">
+              <li className="flex gap-3">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs">
+                  1
+                </span>
+                <div>
+                  <h3 className="font-medium">Add the extension to Chrome</h3>
+                  <p className="mt-1 leading-6 text-muted-foreground">
+                    Open <code>chrome://extensions</code>, turn on Developer
+                    mode, choose Load unpacked, and select{" "}
+                    <code>apps/extension</code>. Pin Command Center to your
+                    toolbar.
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs">
+                  2
+                </span>
+                <div>
+                  <h3 className="font-medium">Connect this browser</h3>
+                  <p className="mt-1 leading-6 text-muted-foreground">
+                    Choose Pair a browser above. Open the extension and paste
+                    the one-time code.
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs">
+                  3
+                </span>
+                <div>
+                  <h3 className="font-medium">
+                    Open an application and autofill
+                  </h3>
+                  <p className="mt-1 leading-6 text-muted-foreground">
+                    Click the extension icon on the application tab, choose your
+                    résumé, then Autofill this page. Review the filled answers
+                    before continuing.
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <div className="mt-5 flex flex-wrap gap-3 border-t border-border pt-4 text-sm">
+              <Link href="/settings" className="underline underline-offset-4">
+                Review profile facts
+              </Link>
+              <Link href="/documents" className="underline underline-offset-4">
+                Upload a résumé
+              </Link>
+            </div>
+            <details className="mt-5 text-sm">
+              <summary className="cursor-pointer text-muted-foreground">
+                Capture not working?
+              </summary>
+              <p className="mt-2 leading-6 text-muted-foreground">
+                In the extension’s Capture settings, choose This browser for
+                your regular Chrome window. Click the extension icon again after
+                changing tabs to grant access. Open the actual application form
+                before filling.
+              </p>
+              <p className="mt-2 leading-6 text-muted-foreground">
+                AgentBrowser is an advanced option for the dedicated browser
+                opened with <code>make companion-browser</code>. It requires the
+                local helper. Next and Submit remain yours.
+              </p>
+            </details>
             {code ? (
               <div className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
                 <Field>

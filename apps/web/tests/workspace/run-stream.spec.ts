@@ -100,7 +100,7 @@ test("replays a disconnected run stream without duplicating tools or mixing runs
   await expect(primary).not.toContainText("Independent second stream.");
   await expect(secondary).not.toContainText("Streaming answer");
 
-  await primary.getByRole("button", { name: "Retry stream" }).click();
+  // Event delivery reconnects automatically from the saved cursor; work is not resubmitted.
   await expect(
     primary.getByText("Live activity complete", { exact: true }),
   ).toBeVisible();

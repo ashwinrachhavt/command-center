@@ -74,13 +74,22 @@ export async function followUpFixture(url: URL, init?: RequestInit) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       latest_version: (previous?.version.version ?? 0) + 1,
+      review_status: "unreviewed",
       document_type_id: null,
     },
     version: {
       id: crypto.randomUUID(),
       artifact_id: id,
       version: (previous?.version.version ?? 0) + 1,
-      payload: body,
+      payload: {
+        ...body,
+        ...(previous?.version.payload?.connection_note
+          ? {
+              connection_note: true,
+              contact_research: previous.version.payload.contact_research,
+            }
+          : {}),
+      },
       input_version_ids: previous ? [previous.version.id] : [],
       content_sha256: `synthetic-${id}`,
       created_at: new Date().toISOString(),

@@ -209,11 +209,18 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
             str(uuid5(NAMESPACE_URL, f"{namespace}:{original_id}")) if self.nested else original_id
         )
         control = self.control
+        limited = False
         async with control.lock:
             existing = control.tools.get(call_id)
             if existing is None:
                 if control.tool_count >= control.profile.max_tool_calls:
                     raise ExecutionStopped("tool_limit")
+                limit = control.profile.tool_call_limits.get(call["name"])
+                limited = (
+                    limit is not None
+                    and sum(item["name"] == call["name"] for item in control.tools.values())
+                    >= limit
+                )
                 control.tool_count += 1
                 control.tools[call_id] = {
                     "id": call_id,
@@ -221,6 +228,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     "role": self.role,
                     "state": "input-available",
                     "output": None,
+                    "budget_denied": limited,
                 }
                 if call["name"] == "task":
                     control.tools[call_id].update(
@@ -239,6 +247,8 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                 )
             elif existing.get("name") != call["name"] or existing.get("role") != self.role:
                 raise ExecutionStopped("tool_identity_conflict")
+            else:
+                limited = bool(existing.get("budget_denied"))
         context = tool_identity.set(call_id)
 
         async def dispatch() -> ToolMessage | Command[Any]:
@@ -257,8 +267,15 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
             return await handler(request)
 
         try:
-            if call["name"] == "task" and call["args"].get("subagent_type") not in self.delegates:
+            if limited:
                 result: ToolMessage | Command[Any] = ToolMessage(
+                    "This tool's lookup budget is used. Continue with saved context and existing "
+                    "results; omit unsupported claims and save a useful concise draft.",
+                    tool_call_id=original_id,
+                    status="error",
+                )
+            elif call["name"] == "task" and call["args"].get("subagent_type") not in self.delegates:
+                result = ToolMessage(
                     "Denied: this specialist is not configured for the current role.",
                     tool_call_id=original_id,
                     status="error",

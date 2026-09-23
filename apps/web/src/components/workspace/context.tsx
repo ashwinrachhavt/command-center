@@ -25,6 +25,7 @@ import { deferView } from "./deferred-view";
 import type { RecordDetailProps } from "./record-detail";
 import { RecordEditor, resourceNames } from "./record-editor";
 import { ErrorState, LoadingRows, Mark } from "./primitives";
+import { cn } from "@/lib/utils";
 
 const DeferredRecordDetail = deferView<RecordDetailProps>(
   () =>
@@ -66,7 +67,7 @@ function subscribeToViewport(callback: () => void) {
 }
 
 export function WorkspaceContext({ children }: { children: React.ReactNode }) {
-  const overlay = useSyncExternalStore(
+  const smallViewport = useSyncExternalStore(
     subscribeToViewport,
     () => window.matchMedia(overlayQuery).matches,
     () => false,
@@ -99,6 +100,16 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
       );
     })
     .slice(0, 8);
+  const documentOpen = frames.some((frame) => frame.startsWith("artifacts:"));
+  const overlay = smallViewport || documentOpen;
+  useEffect(() => {
+    if (!documentOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [documentOpen]);
   const frameKey = frames.join(",");
   const pane = useRef<HTMLElement>(null);
   const triggers = useRef<(HTMLElement | null)[]>([]);
@@ -159,6 +170,12 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
         <div className="min-w-0 flex-1" inert={overlay && frames.length > 0}>
           {children}
         </div>
+        {documentOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px]"
+            aria-hidden="true"
+          />
+        )}
         {frames.length > 0 && (
           <FocusScope
             asChild
@@ -172,7 +189,12 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
               aria-label="Related workspace"
               role={overlay ? "dialog" : undefined}
               aria-modal={overlay || undefined}
-              className="fixed top-14 right-0 bottom-0 z-30 flex w-full flex-col border-l border-border bg-background shadow-xl outline-none sm:w-[380px] xl:sticky xl:top-14 xl:z-10 xl:h-[calc(100dvh-3.5rem)] xl:w-[360px] xl:shrink-0 xl:shadow-none"
+              className={cn(
+                "flex flex-col border-border bg-background outline-none",
+                documentOpen
+                  ? "fixed inset-0 z-40 m-auto h-dvh w-full shadow-2xl sm:inset-5 sm:h-auto sm:w-[calc(100%-2.5rem)] sm:max-w-6xl sm:rounded-xl sm:border"
+                  : "fixed top-14 right-0 bottom-0 z-30 w-full border-l shadow-xl sm:w-[380px] xl:sticky xl:top-14 xl:z-10 xl:h-[calc(100dvh-3.5rem)] xl:w-[360px] xl:shrink-0 xl:shadow-none",
+              )}
             >
               <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
                 <Button
@@ -184,7 +206,8 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                   <ArrowLeft />
                 </Button>
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  Alongside {pathname.slice(1) || "overview"}
+                  {documentOpen ? "Document workspace · " : "Alongside "}
+                  {pathname.slice(1) || "home"}
                 </span>
                 <Button
                   variant="ghost"
@@ -206,7 +229,11 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                   <div
                     key={`${index}:${frame}`}
                     hidden={index !== frames.length - 1}
-                    className="min-h-0 flex-1 overflow-y-auto"
+                    className={cn(
+                      "min-h-0 flex-1 overflow-y-auto overscroll-contain",
+                      documentOpen &&
+                        "rounded-b-xl [&>section]:mx-auto [&>section]:max-w-4xl",
+                    )}
                   >
                     {id ? (
                       <DeferredRecordDetail

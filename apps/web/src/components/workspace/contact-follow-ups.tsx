@@ -7,6 +7,8 @@ import { Copy, Mail, Plus, ArrowUpRight, Pencil, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { safeLinkedIn } from "@/lib/linkedin";
 import {
   Dialog,
   DialogContent,
@@ -273,27 +275,13 @@ export function ContactFollowUps({
   );
 }
 
-function safeLinkedIn(value: string | null | undefined) {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" &&
-      (url.hostname === "linkedin.com" ||
-        url.hostname.endsWith(".linkedin.com"))
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-type WriterProps = {
+export type WriterProps = {
   contact: Resources["contacts"];
   existing?: FollowUp;
   close: () => void;
   onSaved: (saved: FollowUp) => void;
 };
-function FollowUpWriter(props: WriterProps) {
+export function FollowUpWriter(props: WriterProps) {
   const { isLoaded, userId } = useAuth();
   if (!isLoaded || !userId) return null;
   return (
@@ -320,6 +308,7 @@ function OwnedFollowUpWriter({
     };
   }, []);
   const payload = existing?.version.payload;
+  const connectionNote = !!payload?.connection_note;
   const writing = useWorkingDraft<FollowUpDraft>(
     actor,
     `follow-up-${existing?.artifact.id ?? `${contact.id}-new`}`,
@@ -340,6 +329,12 @@ function OwnedFollowUpWriter({
       const snapshot = draft.getSnapshot().data;
       if (snapshot.text.length > 50_000)
         throw new Error("Keep this message under 50,000 characters.");
+      if (
+        connectionNote &&
+        snapshot.channel === "linkedin" &&
+        snapshot.text.length > 200
+      )
+        throw new Error("Keep this connection note within 200 characters.");
       await draft.flush();
       const body = {
         channel: snapshot.channel,
@@ -372,6 +367,7 @@ function OwnedFollowUpWriter({
     onSuccess: async ({ saved, snapshot }) => {
       client.setQueryData(["follow-up", saved.artifact.id], saved);
       void client.invalidateQueries({ queryKey: ["follow-ups", contact.id] });
+      void client.invalidateQueries({ queryKey: ["contacts"] });
       void client.invalidateQueries({ queryKey: ["artifacts"] });
       if (active.current) onSaved(saved);
       try {
@@ -416,10 +412,15 @@ function OwnedFollowUpWriter({
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Follow up with {contact.name}</DialogTitle>
+          <DialogTitle>
+            {connectionNote ? "Connection note for" : "Follow up with"}{" "}
+            {contact.name}
+          </DialogTitle>
           <DialogDescription>
-            {contact.title || "Write a thoughtful next step."} Your working copy
-            autosaves; save a version when it is ready to use.
+            {connectionNote
+              ? "Keep it within 200 characters."
+              : contact.title || "Write a thoughtful next step."}{" "}
+            Your working copy autosaves; save a version when it is ready to use.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -439,70 +440,99 @@ function OwnedFollowUpWriter({
             disabled={writing.status === "loading"}
             className="min-w-0 space-y-4"
           >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span>Use for</span>
-                <select
-                  aria-label="Follow-up channel"
-                  className={selectStyle}
-                  value={data.channel}
+            {!connectionNote && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm">
+                    <span>Use for</span>
+                    <select
+                      aria-label="Follow-up channel"
+                      className={selectStyle}
+                      value={data.channel}
+                      onChange={(event) =>
+                        draft.edit((current) => ({
+                          ...current,
+                          channel: event.target
+                            .value as FollowUpDraft["channel"],
+                        }))
+                      }
+                    >
+                      <option value="linkedin">LinkedIn message</option>
+                      <option value="email">Email</option>
+                    </select>
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span>Email address (optional)</span>
+                    <Input
+                      aria-label="Recipient email"
+                      type="email"
+                      value={data.recipient_email}
+                      onChange={(event) =>
+                        draft.edit((current) => ({
+                          ...current,
+                          recipient_email: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="block space-y-2 text-sm">
+                  <span>Subject or reminder</span>
+                  <Input
+                    aria-label="Subject or reminder"
+                    maxLength={300}
+                    value={data.subject}
+                    onChange={(event) =>
+                      draft.edit((current) => ({
+                        ...current,
+                        subject: event.target.value,
+                      }))
+                    }
+                    placeholder="A clear reason to reconnect"
+                  />
+                </label>
+              </>
+            )}
+            {connectionNote && data.channel === "linkedin" ? (
+              <label className="block space-y-2 text-sm">
+                <span>Connection note</span>
+                <Textarea
+                  aria-label="Connection note"
+                  value={data.text}
+                  rows={4}
                   onChange={(event) =>
                     draft.edit((current) => ({
                       ...current,
-                      channel: event.target.value as FollowUpDraft["channel"],
-                    }))
-                  }
-                >
-                  <option value="linkedin">LinkedIn message</option>
-                  <option value="email">Email</option>
-                </select>
-              </label>
-              <label className="space-y-2 text-sm">
-                <span>Email address (optional)</span>
-                <Input
-                  aria-label="Recipient email"
-                  type="email"
-                  value={data.recipient_email}
-                  onChange={(event) =>
-                    draft.edit((current) => ({
-                      ...current,
-                      recipient_email: event.target.value,
+                      text: event.target.value,
+                      format: "text",
                     }))
                   }
                 />
+                <span
+                  className={`block text-xs ${data.text.length > 200 ? "text-destructive" : "text-muted-foreground"}`}
+                >
+                  {data.text.length}/200 characters
+                  {data.text.length > 200 ? " · Shorten before saving" : ""}
+                </span>
               </label>
-            </div>
-            <label className="block space-y-2 text-sm">
-              <span>Subject or reminder</span>
-              <Input
-                aria-label="Subject or reminder"
-                maxLength={300}
-                value={data.subject}
-                onChange={(event) =>
+            ) : (
+              <RichWriter
+                id="follow-up-writing"
+                label="Follow-up message"
+                value={data.text}
+                format={data.format}
+                revision={writing.editorRevision}
+                disabled={writing.status === "loading"}
+                placeholder={`Hi ${contact.name.split(" ")[0]},…`}
+                onChange={(text, format) =>
                   draft.edit((current) => ({
                     ...current,
-                    subject: event.target.value,
+                    text,
+                    format: format === "html" ? "html" : "text",
                   }))
                 }
-                placeholder="A clear reason to reconnect"
               />
-            </label>
-            <RichWriter
-              id="follow-up-writing"
-              label="Follow-up message"
-              value={data.text}
-              format={data.format}
-              revision={writing.editorRevision}
-              disabled={writing.status === "loading"}
-              placeholder={`Hi ${contact.name.split(" ")[0]},…`}
-              onChange={(text, format) =>
-                draft.edit((current) => ({
-                  ...current,
-                  text,
-                  format: format === "html" ? "html" : "text",
-                }))
-              }
-            />
+            )}
           </fieldset>
           {(save.error || branch.error) && (
             <div role="alert" className="space-y-2 text-sm text-destructive">
@@ -530,11 +560,18 @@ function OwnedFollowUpWriter({
               disabled={
                 save.isPending ||
                 branch.isPending ||
+                (connectionNote &&
+                  data.channel === "linkedin" &&
+                  data.text.length > 200) ||
                 ["loading", "conflict"].includes(writing.status)
               }
             >
               <Save />
-              {save.isPending ? "Saving follow-up…" : "Save follow-up"}
+              {save.isPending
+                ? "Saving…"
+                : connectionNote
+                  ? "Save note"
+                  : "Save follow-up"}
             </Button>
           </div>
         </form>

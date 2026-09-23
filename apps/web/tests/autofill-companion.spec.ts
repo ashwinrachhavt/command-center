@@ -55,6 +55,8 @@ async function fixture(
     lostResult?: boolean;
     unknown?: boolean;
     readerError?: boolean;
+    captureDenied?: boolean;
+    pageReader?: "direct" | "agent-browser";
     coverLetter?: boolean;
   } = {},
 ) {
@@ -85,6 +87,7 @@ async function fixture(
   await job.addScriptTag({ content: read("contracts.js") });
   await job.addScriptTag({ content: read("content.js") });
   const storage: Record<string, unknown> = {
+    ...(options.pageReader ? { pageReader: options.pageReader } : {}),
     connection: {
       base: "http://localhost:8000",
       token: "synthetic-device-token",
@@ -308,32 +311,40 @@ async function fixture(
     await page.goto("/health");
     await page.setContent(popup);
     await page.addStyleTag({ content: read("popup.css") });
-    await page.evaluate((url) => {
-      const w = window as unknown as FixtureWindow;
-      Object.assign(window, {
-        chrome: {
-          storage: {
-            local: {
-              setAccessLevel: async () => {},
-              get: () => w.fixtureGet(),
-              set: (v: unknown) => w.fixtureSet(v),
-              remove: (k: unknown) => w.fixtureRemove(k),
+    await page.evaluate(
+      ({ url, captureDenied }) => {
+        const w = window as unknown as FixtureWindow;
+        Object.assign(window, {
+          chrome: {
+            storage: {
+              local: {
+                setAccessLevel: async () => {},
+                get: () => w.fixtureGet(),
+                set: (v: unknown) => w.fixtureSet(v),
+                remove: (k: unknown) => w.fixtureRemove(k),
+              },
             },
+            tabs: {
+              query: async () => [{ id: 7, url }],
+              sendMessage: (_: unknown, msg: unknown) => w.fixtureMessage(msg),
+            },
+            scripting: {
+              executeScript: async ({ files }: { files?: string[] }) => {
+                if (captureDenied)
+                  throw new Error(
+                    "Cannot access contents of the page. Extension manifest must request permission to access this host.",
+                  );
+                return files?.includes("page-structure.js")
+                  ? [{ frameId: 0, result: await w.fixtureReadStructure() }]
+                  : [];
+              },
+            },
+            runtime: { sendNativeMessage: () => w.fixtureInspect() },
           },
-          tabs: {
-            query: async () => [{ id: 7, url }],
-            sendMessage: (_: unknown, msg: unknown) => w.fixtureMessage(msg),
-          },
-          scripting: {
-            executeScript: async ({ files }: { files?: string[] }) =>
-              files?.includes("page-structure.js")
-                ? [{ frameId: 0, result: await w.fixtureReadStructure() }]
-                : [],
-          },
-          runtime: { sendNativeMessage: () => w.fixtureInspect() },
-        },
-      });
-    }, job.url());
+        });
+      },
+      { url: job.url(), captureDenied: options.captureDenied },
+    );
     await page.addScriptTag({ content: read("contracts.js") });
     await page.addScriptTag({ content: read("popup.js"), type: "module" });
     await expect(
@@ -343,6 +354,8 @@ async function fixture(
     ).toBeEnabled();
   }
   await open();
+  if (options.coverLetter)
+    await page.locator(".optional-letter summary").click();
   return {
     job,
     calls,
@@ -351,6 +364,25 @@ async function fixture(
     count: () => ({ applied, nativeReads, preparationCount }),
   };
 }
+
+test("a blocked capture explains how to grant tab access without preparing or filling", async ({
+  page,
+}) => {
+  const f = await fixture(page, { captureDenied: true });
+  await page.getByRole("button", { name: /Autofill this page/ }).click();
+  await expect(page.locator("#message")).toContainText(
+    "Chrome needs permission to read this tab",
+  );
+  await expect(page.locator("#message")).toContainText(
+    "Click the Command Center extension icon on the application page",
+  );
+  expect(f.count()).toEqual({
+    applied: 0,
+    nativeReads: 0,
+    preparationCount: 0,
+  });
+  expect(f.calls.some((call) => call.route === "snapshots")).toBe(false);
+});
 
 test("one click reads structure, fills and uploads exact resume, then applies an edited answer on a fresh capture", async ({
   page,
@@ -386,7 +418,7 @@ test("one click reads structure, fills and uploads exact resume, then applies an
   ).toBe("resume.txt");
   expect(f.count()).toEqual({
     applied: 1,
-    nativeReads: 1,
+    nativeReads: 0,
     preparationCount: 1,
   });
   expect(
@@ -489,7 +521,7 @@ test("an interrupted preparation resumes its saved request after reopening", asy
   expect(calls[0].key).toBe(calls[1].key);
   expect(f.count()).toEqual({
     applied: 1,
-    nativeReads: 1,
+    nativeReads: 0,
     preparationCount: 1,
   });
 });
@@ -570,13 +602,17 @@ test("missing facts leave a useful saved preparation without an empty fill", asy
 test("AgentBrowser failure is explicit and never falls back or creates a preparation", async ({
   page,
 }) => {
-  const f = await fixture(page, { readerError: true });
+  const f = await fixture(page, {
+    readerError: true,
+    pageReader: "agent-browser",
+  });
   await page.getByRole("button", { name: /Autofill this page/ }).click();
   await expect(page.locator("#message")).toContainText(
     "AgentBrowser is unavailable",
   );
   expect(f.count().preparationCount).toBe(0);
   expect(f.count().applied).toBe(0);
+  await page.getByText("Capture settings", { exact: true }).click();
   await page.getByLabel("Page reader").selectOption("direct");
   await page.getByRole("button", { name: /Autofill this page/ }).click();
   await expect(page.locator("#autofill-status")).toContainText(

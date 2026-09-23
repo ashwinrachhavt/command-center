@@ -1,0 +1,962 @@
+{
+  "GET /api/v1/activity": {
+    "name": "cc_workspace_activity",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-runs": {
+    "name": "cc_agents_runs",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-runs/{record_id}": {
+    "name": "cc_agents_run_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-runs/{record_id}/artifacts": {
+    "name": "cc_agents_run_artifacts",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-runs/{record_id}/steps": {
+    "name": "cc_agents_run_steps",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-runs/{run_id}/events": {
+    "name": "cc_agent_events_run_events",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/agent-runs/{run_id}/questions": {
+    "name": "cc_agent_questions_questions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-sessions": {
+    "name": "cc_conversations_sessions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-sessions/{record_id}": {
+    "name": "cc_conversations_session_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-sessions/{record_id}/messages": {
+    "name": "cc_conversations_messages",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agent-sessions/{record_id}/runs": {
+    "name": "cc_conversations_session_runs",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agents/models": {
+    "name": "cc_agents_models",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/agents/profiles": {
+    "name": "cc_agents_profiles",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/application-materials/{record_id}/context": {
+    "name": "application_material_context",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications": {
+    "name": "cc_applications_applications",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications/{task_id}": {
+    "name": "cc_applications_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications/{task_id}/job-context": {
+    "name": "cc_applications_read_context",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications/{task_id}/materials": {
+    "name": "cc_application_materials_list_materials",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications/{task_id}/packages": {
+    "name": "cc_applications_packages",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications/{task_id}/packages/{preparation_id}/versions/{version_id}": {
+    "name": "cc_applications_package_version",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts": {
+    "name": "cc_artifacts_list_artifacts",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts/{artifact_id}/versions/{version_id}/download": {
+    "name": "cc_documents_download_version",
+    "policy": "transport",
+    "reason": "Private multipart upload or binary download uses the authenticated document UI. Text is accessible through document_read; no local filesystem is exposed to the model."
+  },
+  "GET /api/v1/artifacts/{record_id}": {
+    "name": "cc_artifacts_get_artifact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts/{record_id}/tasks": {
+    "name": "cc_artifacts_document_tasks",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts/{record_id}/version-history": {
+    "name": "cc_artifacts_version_history",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts/{record_id}/versions": {
+    "name": "cc_artifacts_versions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/artifacts/{record_id}/versions/{version_id}": {
+    "name": "cc_artifacts_get_version",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/commands": {
+    "name": "cc_browser_commands",
+    "policy": "human",
+    "reason": "Requires an explicit human UI action or decision."
+  },
+  "GET /api/v1/browser/cover-letters": {
+    "name": "cc_browser_cover_letters",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/device/commands": {
+    "name": "cc_browser_pending_commands",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/commands/{command_id}/files/{field_id}": {
+    "name": "cc_browser_command_file",
+    "policy": "transport",
+    "reason": "Browser device downloads selected private upload bytes; transport only."
+  },
+  "GET /api/v1/browser/device/cover-letters": {
+    "name": "cc_browser_device_cover_letters",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/preparations/{record_id}": {
+    "name": "cc_application_preparations_device_preparation_detail",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/preparations/{record_id}/generation": {
+    "name": "cc_application_preparations_device_generation_detail",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/resumes": {
+    "name": "cc_browser_device_resumes",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/devices": {
+    "name": "cc_browser_devices",
+    "policy": "human",
+    "reason": "Requires an explicit human UI action or decision."
+  },
+  "GET /api/v1/browser/preparations/{record_id}": {
+    "name": "cc_application_preparations_preparation_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/preparations/{record_id}/context": {
+    "name": "application_context",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/preparations/{record_id}/generation": {
+    "name": "cc_application_preparations_generation_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/resumes": {
+    "name": "cc_browser_resumes",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/snapshots": {
+    "name": "cc_browser_snapshots",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/snapshots/{snapshot_id}": {
+    "name": "cc_application_preparations_snapshot_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/snapshots/{snapshot_id}/preparation": {
+    "name": "cc_application_preparations_snapshot_preparation",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/companies": {
+    "name": "cc_workspace_list_companies",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/companies/{record_id}": {
+    "name": "cc_workspace_get_company",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/company-labels": {
+    "name": "cc_workspace_company_labels",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/contact-discovery/contacts/{contact_id}/evidence": {
+    "name": "cc_contact_discovery_evidence",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/contact-discovery/providers": {
+    "name": "cc_contact_discovery_providers",
+    "policy": "human",
+    "reason": "Requires an explicit human UI action or decision."
+  },
+  "GET /api/v1/contact-discovery/recent": {
+    "name": "cc_contact_discovery_recent",
+    "policy": "human",
+    "reason": "Requires an explicit human UI action or decision."
+  },
+  "GET /api/v1/contacts": {
+    "name": "cc_workspace_list_contacts",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/contacts/{contact_id}/follow-ups": {
+    "name": "cc_correspondence_follow_ups",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/contacts/{record_id}": {
+    "name": "cc_workspace_get_contact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/contacts/{record_id}/observations": {
+    "name": "cc_workspace_contact_observations",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/dashboard": {
+    "name": "workspace_summary",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/dashboard/tasks": {
+    "name": "cc_work_queue_tasks",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/dashboard/work": {
+    "name": "cc_work_queue_work",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/document-types": {
+    "name": "cc_artifacts_document_types",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/documents/imports": {
+    "name": "cc_documents_list_imports",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/documents/imports/{import_id}": {
+    "name": "cc_documents_get_import",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/documents/versions/{version_id}/text": {
+    "name": "document_read",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/follow-ups/{artifact_id}": {
+    "name": "cc_correspondence_get_follow_up",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/integrations": {
+    "name": "cc_agents_integrations",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/integrations/composio/accounts": {
+    "name": "connected_accounts",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/jobs": {
+    "name": "cc_workspace_list_jobs",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/jobs/{record_id}": {
+    "name": "cc_workspace_get_job",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/mcp-clients": {
+    "name": "cc_mcp_clients_clients",
+    "policy": "human",
+    "reason": "Local MCP credential provisioning, listing, and revocation require an authenticated human session; never callable with a local MCP credential."
+  },
+  "GET /api/v1/me": {
+    "name": "cc_workspace_me",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/memories": {
+    "name": "cc_memory_memories",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/memories/retrieve": {
+    "name": "memory_read",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/memories/{memory_id}/versions": {
+    "name": "cc_memory_memory_versions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/opportunities": {
+    "name": "cc_workspace_list_opportunities",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/opportunities/{opportunity_id}/research": {
+    "name": "lead_evidence",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/opportunities/{record_id}": {
+    "name": "cc_workspace_get_opportunity",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/pdf-exports/{export_id}": {
+    "name": "cc_pdf_exports_export_detail",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/profile/default-resume": {
+    "name": "cc_documents_get_default_resume",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/profile/facts": {
+    "name": "cc_profile_facts_list_facts",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/profile/facts/approved": {
+    "name": "approved_profile",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/profile/facts/{fact_id}/versions": {
+    "name": "cc_profile_facts_list_fact_versions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/record-work/{resource}/{target_id}": {
+    "name": "cc_record_work_list_work",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/research-executions/{execution_id}": {
+    "name": "research_execution",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/reviewed-actions": {
+    "name": "cc_reviewed_actions_list_actions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/reviewed-actions/{action_id}": {
+    "name": "reviewed_action",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/reviewed-actions/{action_id}/versions": {
+    "name": "cc_reviewed_actions_list_action_versions",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/spending": {
+    "name": "cc_spending_spending",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/spending/agent-runs/{run_id}": {
+    "name": "cc_spending_run_spending",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/spending/catalog": {
+    "name": "cc_spending_catalog",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/spending/rate-cards": {
+    "name": "cc_spending_rate_cards",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/tasks": {
+    "name": "cc_workspace_list_tasks",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/tasks/{record_id}": {
+    "name": "cc_workspace_get_task",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/tasks/{task_id}/record-work/context": {
+    "name": "record_work_context",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/versions/{version_id}/lineage": {
+    "name": "cc_artifacts_version_lineage",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/versions/{version_id}/reviews": {
+    "name": "cc_artifacts_reviews",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/writing-drafts/{scope_key}": {
+    "name": "cc_writing_get_draft",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/writing-drafts/{scope_key}/recovery": {
+    "name": "cc_writing_recovery_history",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/writing-drafts/{scope_key}/recovery/{copy_id}": {
+    "name": "cc_writing_read_recovery",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/applications/{task_id}": {
+    "name": "cc_applications_update",
+    "policy": "human",
+    "reason": "Only the human confirms application submission and tracking outcomes."
+  },
+  "PATCH /api/v1/artifacts/{record_id}": {
+    "name": "cc_artifacts_update_artifact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/companies/{record_id}": {
+    "name": "cc_workspace_update_company",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/contacts/{record_id}": {
+    "name": "cc_workspace_update_contact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/follow-ups/{artifact_id}": {
+    "name": "cc_correspondence_update_follow_up",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/jobs/{record_id}": {
+    "name": "cc_workspace_update_job",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/me": {
+    "name": "cc_workspace_update_me",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/memories/{memory_id}": {
+    "name": "cc_memory_edit_memory",
+    "policy": "runtime",
+    "reason": "Requires an owned task/conversation and leased agent run; start or message an owned conversation to execute this workflow."
+  },
+  "PATCH /api/v1/opportunities/{record_id}": {
+    "name": "cc_workspace_update_opportunity",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/reviewed-actions/{action_id}": {
+    "name": "cc_reviewed_actions_revise_action",
+    "policy": "tool",
+    "reason": "Unapproved proposal revision only; never authorize or execute connected write."
+  },
+  "PATCH /api/v1/tasks/{record_id}": {
+    "name": "cc_workspace_update_task",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/agent-runs": {
+    "name": "cc_agents_queue_run",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/agent-runs/{record_id}/cancel": {
+    "name": "cc_agents_cancel_run",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/agent-runs/{run_id}/questions/{question_id}/answer": {
+    "name": "cc_agent_questions_answer_question",
+    "policy": "human",
+    "reason": "Only the human owner may answer agent questions or resume a run."
+  },
+  "POST /api/v1/agent-sessions": {
+    "name": "cc_conversations_create_session",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/agent-sessions/{record_id}/messages": {
+    "name": "cc_conversations_receive_message",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/application-materials/{record_id}/output": {
+    "name": "save_application_material",
+    "policy": "runtime",
+    "reason": "Requires the assigned live AgentRun and exact material request."
+  },
+  "POST /api/v1/applications/{task_id}/job-context": {
+    "name": "cc_applications_add_context",
+    "policy": "tool",
+    "reason": "Currently guarded by human_only; expose to client only after an explicit client-safe application policy."
+  },
+  "POST /api/v1/applications/{task_id}/keyword-match": {
+    "name": "cc_application_materials_match_keywords",
+    "policy": "human",
+    "reason": "Human-requested job/resume keyword comparison."
+  },
+  "POST /api/v1/applications/{task_id}/materials": {
+    "name": "cc_application_materials_create_material",
+    "policy": "human",
+    "reason": "Human-selected resume/cover-letter generation request; may start a paid run."
+  },
+  "POST /api/v1/artifacts": {
+    "name": "cc_artifacts_create_artifact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/artifacts/{artifact_id}/versions/{version_id}/exports": {
+    "name": "cc_pdf_exports_create_export",
+    "policy": "tool",
+    "reason": "Exact immutable PDF derivative; requires configured renderer and spending/task bounds."
+  },
+  "POST /api/v1/artifacts/{record_id}/archive": {
+    "name": "cc_artifacts_archive_artifact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/artifacts/{record_id}/tasks": {
+    "name": "cc_artifacts_create_document_task",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/artifacts/{record_id}/versions": {
+    "name": "cc_artifacts_append_version",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/browser/commands": {
+    "name": "cc_browser_propose_fill",
+    "policy": "human",
+    "reason": "Issues a command to the open browser companion; requires a human browser flow."
+  },
+  "POST /api/v1/browser/device/commands": {
+    "name": "cc_browser_device_propose_fill",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/commands/{command_id}/claim": {
+    "name": "cc_browser_claim",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/commands/{command_id}/result": {
+    "name": "cc_browser_result",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/preparations/{record_id}/autofill": {
+    "name": "cc_application_preparations_device_autofill",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/preparations/{record_id}/generate": {
+    "name": "cc_application_preparations_device_generate",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/preparations/{record_id}/revisions": {
+    "name": "cc_application_preparations_device_revise",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/snapshots/{snapshot_id}/preparations": {
+    "name": "cc_application_preparations_device_prepare",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/devices/{device_id}/revoke": {
+    "name": "cc_browser_revoke",
+    "policy": "human",
+    "reason": "Revokes a paired browser; human device-management action."
+  },
+  "POST /api/v1/browser/pairings": {
+    "name": "cc_browser_pair",
+    "policy": "human",
+    "reason": "Creates a browser pairing code; do not issue device credentials to a model."
+  },
+  "POST /api/v1/browser/pairings/exchange": {
+    "name": "cc_browser_exchange",
+    "policy": "transport",
+    "reason": "Redeems pairing code into device secret; device transport only."
+  },
+  "POST /api/v1/browser/preparations/{record_id}/generate": {
+    "name": "cc_application_preparations_generate",
+    "policy": "human",
+    "reason": "Human-controlled answer generation from a reviewed preparation."
+  },
+  "POST /api/v1/browser/preparations/{record_id}/revisions": {
+    "name": "cc_application_preparations_revise",
+    "policy": "human",
+    "reason": "Saves exact application review and may remember confirmed answers; real human required."
+  },
+  "POST /api/v1/browser/preparations/{record_id}/suggestions": {
+    "name": "suggest_application_answers",
+    "policy": "runtime",
+    "reason": "Requires the assigned live AgentRun and saves unapproved suggestions."
+  },
+  "POST /api/v1/browser/snapshots": {
+    "name": "cc_browser_capture",
+    "policy": "transport",
+    "reason": "Authenticated browser device uploads a signed-in page snapshot."
+  },
+  "POST /api/v1/browser/snapshots/{snapshot_id}/preparations": {
+    "name": "cc_application_preparations_prepare",
+    "policy": "human",
+    "reason": "Starts a reviewed browser preparation from a captured signed-in page; human flow."
+  },
+  "POST /api/v1/companies": {
+    "name": "cc_workspace_create_company",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/companies/{record_id}/archive": {
+    "name": "cc_workspace_archive_company",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/contact-discovery/fill-missing": {
+    "name": "cc_contact_discovery_fill_missing",
+    "policy": "human",
+    "reason": "Applies provider data to an existing contact; current route requires a human."
+  },
+  "POST /api/v1/contact-discovery/import": {
+    "name": "cc_contact_discovery_import_contact",
+    "policy": "human",
+    "reason": "Imports provider-sourced contact; current route requires a human."
+  },
+  "POST /api/v1/contact-discovery/reveal": {
+    "name": "cc_contact_discovery_reveal",
+    "policy": "human",
+    "reason": "Paid contact data reveal; current route requires a human."
+  },
+  "POST /api/v1/contact-discovery/search": {
+    "name": "cc_contact_discovery_search",
+    "policy": "human",
+    "reason": "Paid contact provider search; current route requires a human."
+  },
+  "POST /api/v1/contacts": {
+    "name": "cc_workspace_create_contact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/contacts/{contact_id}/follow-ups": {
+    "name": "cc_correspondence_create_follow_up",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/contacts/{record_id}/archive": {
+    "name": "cc_workspace_archive_contact",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/demo": {
+    "name": "cc_workspace_demo",
+    "policy": "human",
+    "reason": "Synthetic starter data creation is an explicit owner opt-in."
+  },
+  "POST /api/v1/documents/imports": {
+    "name": "cc_documents_import_document",
+    "policy": "transport",
+    "reason": "Private multipart upload or binary download uses the authenticated document UI. Text is accessible through document_read; no local filesystem is exposed to the model."
+  },
+  "POST /api/v1/documents/imports/{import_id}/cancel": {
+    "name": "cc_documents_cancel_import",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/documents/imports/{import_id}/retry": {
+    "name": "cc_documents_retry_import",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/gmail/search": {
+    "name": "gmail_search",
+    "policy": "human",
+    "reason": "Mail import/search requires an explicit human pull in Command Center; no agent may impersonate that consent."
+  },
+  "POST /api/v1/integrations/composio/accounts/sync": {
+    "name": "cc_reviewed_actions_sync_accounts",
+    "policy": "human",
+    "reason": "Refreshes verified account identity against provider; keep as a human settings action."
+  },
+  "POST /api/v1/integrations/composio/accounts/{account_id}/select": {
+    "name": "cc_reviewed_actions_select_account",
+    "policy": "human",
+    "reason": "Selects the verified sending account; keep as a human settings action."
+  },
+  "POST /api/v1/integrations/composio/connect": {
+    "name": "cc_agents_connect_composio",
+    "policy": "human",
+    "reason": "Provider account connection belongs to human Settings flow."
+  },
+  "POST /api/v1/integrations/composio/context": {
+    "name": "connected_context",
+    "policy": "tool",
+    "reason": "Paid external read; require verified account, spending bound and explicit client work scope."
+  },
+  "POST /api/v1/jobs": {
+    "name": "cc_workspace_create_job",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/jobs/{record_id}/archive": {
+    "name": "cc_workspace_archive_job",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/leads/capture": {
+    "name": "capture_lead",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/mcp-clients": {
+    "name": "cc_mcp_clients_create_client",
+    "policy": "human",
+    "reason": "Local MCP credential provisioning, listing, and revocation require an authenticated human session; never callable with a local MCP credential."
+  },
+  "POST /api/v1/mcp-clients/{client_id}/revoke": {
+    "name": "cc_mcp_clients_revoke_client",
+    "policy": "human",
+    "reason": "Local MCP credential provisioning, listing, and revocation require an authenticated human session; never callable with a local MCP credential."
+  },
+  "POST /api/v1/memories": {
+    "name": "memory_append",
+    "policy": "runtime",
+    "reason": "Requires an owned task/conversation and leased agent run; start or message an owned conversation to execute this workflow."
+  },
+  "POST /api/v1/memories/{memory_id}/archive": {
+    "name": "cc_memory_forget",
+    "policy": "human",
+    "reason": "Archives reviewed reusable memory; keep as a human settings action."
+  },
+  "POST /api/v1/memories/{memory_id}/reviews": {
+    "name": "cc_memory_review_memory",
+    "policy": "human",
+    "reason": "Approves, rejects, or revokes reusable memory; requires real human review."
+  },
+  "POST /api/v1/opportunities": {
+    "name": "cc_workspace_create_opportunity",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/opportunities/{opportunity_id}/enrich": {
+    "name": "enrich_lead",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/opportunities/{record_id}/archive": {
+    "name": "cc_workspace_archive_opportunity",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/pdf-exports/{export_id}/cancel": {
+    "name": "cc_pdf_exports_cancel_export",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/pdf-exports/{export_id}/retry": {
+    "name": "cc_pdf_exports_retry_export",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/profile/default-resume": {
+    "name": "cc_documents_set_default_resume",
+    "policy": "human",
+    "reason": "Default resume is a user choice and must not silently change."
+  },
+  "POST /api/v1/profile/facts": {
+    "name": "propose_profile_fact",
+    "policy": "tool",
+    "reason": "Candidate proposal only; require source version and excerpt even for a local client."
+  },
+  "POST /api/v1/profile/facts/{fact_id}/reviews": {
+    "name": "cc_profile_facts_review_fact",
+    "policy": "human",
+    "reason": "Approves, rejects, or revokes an exact personal fact revision; requires real human review."
+  },
+  "POST /api/v1/profile/facts/{fact_id}/versions": {
+    "name": "cc_profile_facts_create_fact_version",
+    "policy": "tool",
+    "reason": "Candidate proposal only; require source version and excerpt even for a local client."
+  },
+  "POST /api/v1/record-work/{resource}/{target_id}": {
+    "name": "cc_record_work_start_work",
+    "policy": "tool",
+    "reason": "Starts paid record-specific agent work; permit only with explicit client request and spending controls; currently uses _human guard."
+  },
+  "POST /api/v1/research-executions/{execution_id}/cancel": {
+    "name": "cc_research_executions_cancel_execution",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/research-executions/{execution_id}/retry": {
+    "name": "cc_research_executions_retry_execution",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/research/search": {
+    "name": "research_search",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/reviewed-actions": {
+    "name": "propose_connected_action",
+    "policy": "tool",
+    "reason": "Proposal only; never authorize or execute connected write."
+  },
+  "POST /api/v1/reviewed-actions/{action_id}/reconcile": {
+    "name": "cc_reviewed_actions_reconcile_action",
+    "policy": "human",
+    "reason": "May finalize an uncertain external provider outcome; requires real human action."
+  },
+  "POST /api/v1/reviewed-actions/{action_id}/reviews": {
+    "name": "cc_reviewed_actions_review_action",
+    "policy": "human",
+    "reason": "Exact connected action approval dispatches an external write; requires real human review."
+  },
+  "POST /api/v1/spending/defaults": {
+    "name": "cc_spending_apply_defaults",
+    "policy": "human",
+    "reason": "Rate prices and numeric spending limits are human configuration."
+  },
+  "POST /api/v1/spending/rate-cards": {
+    "name": "cc_spending_create_rate_card",
+    "policy": "human",
+    "reason": "Rate prices and numeric spending limits are human configuration."
+  },
+  "POST /api/v1/tasks": {
+    "name": "cc_workspace_create_task",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/tasks/{task_id}/record-work/output": {
+    "name": "save_record_work",
+    "policy": "runtime",
+    "reason": "Requires a scoped live AgentRun; a local client cannot impersonate the assigned run."
+  },
+  "POST /api/v1/tasks/{task_id}/research-executions": {
+    "name": "run_research_script",
+    "policy": "tool",
+    "reason": "Queue an isolated script for an explicitly owned task; leased agents remain scoped to their task."
+  },
+  "POST /api/v1/tasks/{task_id}/research-sources": {
+    "name": "capture_research_source",
+    "policy": "tool",
+    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/versions/{version_id}/reviews": {
+    "name": "cc_artifacts_review_version",
+    "policy": "human",
+    "reason": "Exact artifact version review is a human decision; endpoint lacks its own human guard."
+  },
+  "POST /api/v1/writing-drafts/{scope_key}/clear": {
+    "name": "cc_writing_clear_draft",
+    "policy": "human",
+    "reason": "Working editor drafts belong to the human; agents propose separate immutable artifact versions."
+  },
+  "PUT /api/v1/spending/opportunities/{opportunity_id}": {
+    "name": "cc_spending_configure_opportunity",
+    "policy": "human",
+    "reason": "Rate prices and numeric spending limits are human configuration."
+  },
+  "PUT /api/v1/spending/policy": {
+    "name": "cc_spending_update_policy",
+    "policy": "human",
+    "reason": "Rate prices and numeric spending limits are human configuration."
+  },
+  "PUT /api/v1/spending/tasks/{task_id}": {
+    "name": "cc_spending_configure_task",
+    "policy": "human",
+    "reason": "Rate prices and numeric spending limits are human configuration."
+  },
+  "PUT /api/v1/writing-drafts/{scope_key}": {
+    "name": "cc_writing_save_draft",
+    "policy": "human",
+    "reason": "Working editor drafts belong to the human; agents propose separate immutable artifact versions."
+  },
+  "GET /api/v1/system/status": {
+    "name": "cc_system_status",
+    "policy": "human",
+    "reason": "Operator status uses the separate API administrator credential; inspect it in the local operator flow."
+  },
+  "POST /api/v1/leads/intake": {
+    "name": "capture_lead_content",
+    "policy": "tool",
+    "reason": "Save private source content and linked lead records atomically. Uses owned records and immutable provenance; performs no external writes."
+  }
+}

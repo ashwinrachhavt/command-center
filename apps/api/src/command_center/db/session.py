@@ -3,7 +3,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-SCHEMA_REVISION = "0026_application_materials"
+SCHEMA_REVISION = "0032_linkedin_connector"
 
 
 def create_database_engine(database_url: str, pool_mode: str = "session") -> Engine:

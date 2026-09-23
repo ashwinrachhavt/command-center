@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from command_center.api import schemas as s
 from command_center.api.workspace import Database, WriteKey
-from command_center.core.identity import CurrentIdentity
+from command_center.core.identity import CurrentIdentity, require_workspace_tool
 from command_center.db.writing import WritingDraft, WritingRecoveryCopy
 
 router = APIRouter(prefix="/api/v1/writing-drafts", tags=["writing"])
@@ -54,7 +54,7 @@ class RecoveryHistory(s.ResponseContract):
 
 
 def human_writer(identity: CurrentIdentity) -> None:
-    if identity.run_id is not None:
+    if not identity.is_human:
         raise HTTPException(
             403, "Working drafts are edited by you; agents propose separate versions"
         )
@@ -72,7 +72,7 @@ def draft_read(scope_key: str, draft: WritingDraft | None) -> dict[str, Any]:
 
 @router.get("/{scope_key}", response_model=DraftRead)
 def get_draft(scope_key: DraftScope, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
-    human_writer(identity)
+    require_workspace_tool(identity, "cc_writing_get_draft")
     draft = db.scalar(
         select(WritingDraft).where(
             WritingDraft.owner_id == identity.id,
@@ -90,7 +90,7 @@ def recovery_history(
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
     before: Annotated[int | None, Query(ge=1)] = None,
 ) -> dict[str, Any]:
-    human_writer(identity)
+    require_workspace_tool(identity, "cc_writing_recovery_history")
     draft_id = uuid5(identity.id, f"writing-draft:{scope_key}")
     conditions = [WritingRecoveryCopy.draft_id == draft_id]
     if before is not None:
@@ -124,7 +124,7 @@ def recovery_history(
 def read_recovery(
     scope_key: DraftScope, copy_id: UUID, identity: CurrentIdentity, db: Database
 ) -> WritingRecoveryCopy:
-    human_writer(identity)
+    require_workspace_tool(identity, "cc_writing_read_recovery")
     copy = db.scalar(
         select(WritingRecoveryCopy).where(
             WritingRecoveryCopy.id == copy_id,

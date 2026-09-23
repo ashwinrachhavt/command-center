@@ -16,14 +16,14 @@ let resumeChoice;
 let coverLetterChoice;
 let autofillBusy = false;
 let actionBusy = false;
-element("page-reader").value = stored.pageReader ?? "agent-browser";
+element("page-reader").value = stored.pageReader ?? "direct";
 renderReaderChoice();
 
 function renderReaderChoice() {
   element("reader-status").textContent =
     element("page-reader").value === "agent-browser"
-      ? "AgentBrowser uses the local companion browser."
-      : "Direct browser reads this tab through the extension.";
+      ? "Requires the dedicated AgentBrowser window and local helper. For regular Chrome, choose This browser."
+      : "Reads the application in this Chrome tab. No separate browser or helper needed.";
 }
 
 function syncAutofillControls() {
@@ -224,8 +224,22 @@ async function apiBytes(path) {
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:\/\//.test(tab.url ?? ""))
-    throw new Error("Open a regular application webpage first.");
+    throw new Error(
+      "Open the application form in a website tab, then click the Command Center extension icon on that tab.",
+    );
   return tab;
+}
+
+function captureError(error) {
+  if (
+    /cannot access|missing host permission|cannot be scripted|extensions gallery/i.test(
+      error.message ?? "",
+    )
+  )
+    return new Error(
+      "Chrome needs permission to read this tab. Click the Command Center extension icon on the application page, then try Autofill again. Chrome settings and store pages cannot be filled.",
+    );
+  return error;
 }
 
 async function action(button, work) {
@@ -1031,7 +1045,7 @@ async function agentBrowserStructure(tab, allowEmpty = false) {
       )
     )
       throw new Error(
-        "Set up AgentBrowser with make companion-setup, then make companion-browser. Direct browser is also available above.",
+        "AgentBrowser could not connect. Choose This browser in Capture settings to fill this Chrome tab, or open the dedicated browser with make companion-browser.",
       );
     throw error;
   } finally {
@@ -1056,10 +1070,14 @@ async function agentBrowserStructure(tab, allowEmpty = false) {
 
 async function inspectForm(useReader = false) {
   const tab = await activeTab();
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["contracts.js", "content.js"],
-  });
+  await chrome.scripting
+    .executeScript({
+      target: { tabId: tab.id },
+      files: ["contracts.js", "content.js"],
+    })
+    .catch((error) => {
+      throw captureError(error);
+    });
   const response = await chrome.tabs.sendMessage(tab.id, {
     version: 2,
     action: "inspect",

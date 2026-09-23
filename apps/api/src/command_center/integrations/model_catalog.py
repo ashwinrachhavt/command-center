@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel
 
 from command_center.agents.config import ModelProvider
-from command_center.agents.models import provider_secret
+from command_center.agents.models import cohere_tool_model, provider_secret
 from command_center.core.config import Settings
 
 
@@ -35,7 +35,7 @@ def chat_compatible(provider: ModelProvider, row: dict[str, Any], model: str) ->
         capabilities = row.get("capabilities", {})
         return bool(capabilities.get("completion_chat") and capabilities.get("function_calling"))
     if provider == "cohere":
-        return "chat" in row.get("endpoints", [])
+        return "chat" in row.get("endpoints", []) and cohere_tool_model(model)
     if provider == "gemini":
         return (
             "generateContent" in row.get("supportedGenerationMethods", [])

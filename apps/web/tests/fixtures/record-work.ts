@@ -12,6 +12,8 @@ type Work = Schema["WorkRead"] & {
   readyAt: number;
   target: string;
   resource: "contacts" | "companies";
+  researchRequested?: boolean;
+  connectionNote?: boolean;
 };
 const storage = "synthetic-record-work";
 const base = {
@@ -24,6 +26,20 @@ const brief =
   "# Northstar company brief\n\nNorthstar builds developer tools and lists platform engineering opportunities.\n\n## Next steps\n\nReview [the careers page](https://example.com/careers) and speak with the platform team. Availability and fit still need review.";
 
 function install(work: Work, workspace: Workspace) {
+  const contact = workspace.rows.contacts.find((row) => row.id === work.target);
+  if (contact && (work.researchRequested || work.connectionNote)) {
+    contact.outreach = {
+      task_id: work.task_id,
+      state: work.state,
+      error_code: work.error_code,
+      artifact_id: work.output_artifact_id,
+      version_id: work.output_version_id,
+      message: "",
+      research: null,
+      researched_at: null,
+      sources: [],
+    };
+  }
   const task = {
     ...base,
     id: work.task_id,
@@ -103,6 +119,32 @@ function install(work: Work, workspace: Workspace) {
           channel: "linkedin",
           subject: "Platform team introduction",
           recipient_email: "alex@example.com",
+          connection_note: !!(work.researchRequested || work.connectionNote),
+          ...(work.researchRequested
+            ? {
+                connection_note: true,
+                contact_research: {
+                  identity: "matched",
+                  company: "Northstar",
+                  role: "Engineering lead",
+                  summary:
+                    "The official team page identifies Alex Morgan as Northstar’s engineering lead. The public biography matches the saved LinkedIn profile.",
+                  caveats: "Current hiring needs have not been confirmed.",
+                  identity_evidence: [
+                    {
+                      source_version_id: "00000000-0000-4000-8000-000000000001",
+                      quote: "Alex Morgan leads engineering at Northstar.",
+                    },
+                  ],
+                  employment_evidence: [
+                    {
+                      source_version_id: "00000000-0000-4000-8000-000000000001",
+                      quote: "Alex Morgan leads engineering at Northstar.",
+                    },
+                  ],
+                },
+              }
+            : {}),
         };
   const version = {
     id: work.output_version_id,
@@ -139,6 +181,27 @@ function install(work: Work, workspace: Workspace) {
       plain_text: payload.text,
     };
     localStorage.setItem("synthetic-follow-ups", JSON.stringify(drafts));
+    if (contact && (work.researchRequested || work.connectionNote)) {
+      const saved = drafts[artifact.id];
+      contact.outreach = {
+        task_id: work.task_id,
+        state: work.state,
+        error_code: work.error_code,
+        artifact_id: artifact.id,
+        version_id: saved.version.id,
+        message: saved.plain_text,
+        research:
+          "contact_research" in payload ? payload.contact_research : null,
+        researched_at: base.created_at,
+        sources: [
+          {
+            version_id: "00000000-0000-4000-8000-000000000001",
+            url: "https://example.com/team",
+            retrieved_at: base.created_at,
+          },
+        ],
+      };
+    }
   }
 }
 
@@ -194,6 +257,9 @@ export async function recordWorkFixture(
       readyAt: Date.now() + 500,
       target: match[2],
       resource: match[1] as Work["resource"],
+      researchRequested: !!JSON.parse(String(init?.body ?? "{}"))
+        .research_requested,
+      connectionNote: !!JSON.parse(String(init?.body ?? "{}")).connection_note,
     };
     works.push(work);
     receipts[String(key)] = work;

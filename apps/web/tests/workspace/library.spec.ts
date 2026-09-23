@@ -198,7 +198,10 @@ test("library searches saved content, filters document types, and keeps original
   await expect(
     page.getByRole("button", { name: /Ideas worth returning to/ }),
   ).toHaveCount(0);
-  await page.getByRole("textbox", { name: "Search library" }).fill("");
+  await expect(
+    page.getByRole("button", { name: /Synthetic resume/ }),
+  ).toHaveCount(0);
+  await page.goto("/documents");
   await page.getByRole("combobox", { name: "Document type filter" }).click();
   await page.getByRole("option", { name: "Resume", exact: true }).click();
   await expect(

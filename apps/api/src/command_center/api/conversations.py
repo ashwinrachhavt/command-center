@@ -1,5 +1,6 @@
 """HTTP boundaries for task and opportunity work conversations."""
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -14,7 +15,6 @@ from command_center.api.workspace import (
     Limit,
     Offset,
     WriteKey,
-    listing,
     owned,
     serialize,
     write,
@@ -27,13 +27,14 @@ router = APIRouter(prefix="/api/v1", tags=["agent-sessions"])
 
 
 class SessionCreate(s.Contract):
+    title: str = Field(default="New conversation", min_length=1, max_length=300)
     task_id: UUID | None = None
     opportunity_id: UUID | None = None
 
     @model_validator(mode="after")
     def one_scope(self) -> "SessionCreate":
-        if (self.task_id is None) == (self.opportunity_id is None):
-            raise ValueError("Choose exactly one conversation scope")
+        if self.task_id is not None and self.opportunity_id is not None:
+            raise ValueError("Choose at most one conversation scope")
         return self
 
 
@@ -47,6 +48,15 @@ class SessionRead(s.RecordRead):
 class MessageCreate(s.Contract):
     content: str = Field(min_length=1, max_length=20000)
     profile: str = Field(default="lead", min_length=1, max_length=100)
+    provider: Literal["openai", "gemini", "mistral", "cohere"] | None = None
+    model: str | None = Field(default=None, max_length=100)
+    fresh_answer: bool = False
+
+
+class AnswerCacheRead(s.Contract):
+    source_run_id: UUID
+    source_completed_at: datetime
+    expires_at: datetime
 
 
 class MessageRead(s.RecordRead):
@@ -56,6 +66,7 @@ class MessageRead(s.RecordRead):
     author: Literal["user", "assistant"]
     profile: str
     content: str
+    answer_cache: AnswerCacheRead | None = None
 
 
 AfterSequence = Annotated[int, Query(ge=0)]
@@ -70,6 +81,16 @@ def create_session(
     request: Request,
 ) -> dict[str, Any]:
     def change(record_id: UUID) -> dict[str, Any]:
+        if body.task_id is None and body.opportunity_id is None:
+            return serialize(
+                AgentSession.open_chat(
+                    db,
+                    record_id=record_id,
+                    owner_id=identity.id,
+                    title=body.title,
+                    request_id=UUID(request.state.request_id),
+                )
+            )
         conversation = AgentSession.open(
             db,
             record_id=record_id,
@@ -89,19 +110,37 @@ def sessions(
     db: Database,
     task_id: UUID | None = None,
     opportunity_id: UUID | None = None,
+    q: Annotated[str, Query(max_length=300)] = "",
+    standalone: bool = False,
     limit: Limit = 30,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    return listing(
-        AgentSession,
-        db,
-        identity.id,
-        "",
-        limit,
-        offset,
-        task_id=task_id,
-        opportunity_id=opportunity_id,
+    statement = select(AgentSession).where(
+        AgentSession.owner_id == identity.id, AgentSession.archived_at.is_(None)
     )
+    if task_id is not None:
+        statement = statement.where(AgentSession.task_id == task_id)
+    if opportunity_id is not None:
+        statement = statement.where(AgentSession.opportunity_id == opportunity_id)
+    if standalone:
+        statement = statement.where(
+            AgentSession.task_id.is_(None), AgentSession.opportunity_id.is_(None)
+        )
+    if q:
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        statement = statement.where(AgentSession.title.ilike(f"%{escaped}%", escape="\\"))
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    rows = db.scalars(
+        statement.order_by(AgentSession.updated_at.desc(), AgentSession.id.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return {
+        "items": [serialize(row) for row in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/agent-sessions/{record_id}", response_model=SessionRead)
@@ -151,9 +190,10 @@ def receive_message(
 ) -> dict[str, Any]:
     def change(_: UUID) -> dict[str, Any]:
         conversation = owned(db, AgentSession, record_id, identity.id)
-        profile, revision = available_profile(request, body.profile)
+        profile, revision = available_profile(request, body.profile, body.provider, body.model)
         message = conversation.receive(
             content=body.content,
+            fresh_answer=body.fresh_answer,
             profile=body.profile,
             configuration=profile.model_dump(mode="json"),
             revision=revision,

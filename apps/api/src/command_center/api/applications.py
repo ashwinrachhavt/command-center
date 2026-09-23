@@ -24,7 +24,7 @@ from command_center.api.workspace import (
     check_version,
     write,
 )
-from command_center.core.identity import CurrentIdentity
+from command_center.core.identity import CurrentIdentity, require_workspace_tool
 from command_center.db.application_preparations import ApplicationPreparation
 from command_center.db.applications import ApplicationStatus, ApplicationTrack
 from command_center.db.artifacts import Artifact, ArtifactVersion
@@ -45,7 +45,7 @@ def package_version(
     identity: CurrentIdentity,
     db: Database,
 ) -> ApplicationPreparationRead:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_applications_package_version")
     row = db.execute(
         select(ApplicationPreparation, ArtifactVersion)
         .join(
@@ -204,7 +204,7 @@ def context_read(db: Database, track: ApplicationTrack) -> ApplicationContextRea
 def read_context(
     task_id: UUID, identity: CurrentIdentity, db: Database
 ) -> ApplicationContextRead | None:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_applications_read_context")
     return context_read(db, owned_track(db, identity.id, task_id))
 
 
@@ -217,7 +217,8 @@ def add_context(
     key: WriteKey,
     request: Request,
 ) -> dict[str, Any]:
-    human_only(identity)
+
+    require_workspace_tool(identity, "cc_applications_add_context")
 
     def change(record_id: UUID) -> dict[str, Any]:
         track = owned_track(db, identity.id, task_id, lock=True)
@@ -260,7 +261,7 @@ def applications(
     offset: Offset = 0,
     status: Annotated[ApplicationStatus | None, Query()] = None,
 ) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_applications_applications")
     query = ApplicationTrack.query(identity.id)
     if status:
         query = query.where(ApplicationTrack.status == status)
@@ -293,7 +294,7 @@ def applications(
 
 @router.get("/{task_id}", response_model=ApplicationRead)
 def detail(task_id: UUID, identity: CurrentIdentity, db: Database) -> ApplicationRead:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_applications_detail")
     return application_detail(db, identity.id, task_id)
 
 
@@ -335,7 +336,7 @@ def packages(
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_applications_packages")
     application_detail(db, identity.id, task_id)
     predicate = (
         ApplicationPreparation.task_id == task_id,

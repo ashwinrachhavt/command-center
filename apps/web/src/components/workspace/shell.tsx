@@ -14,9 +14,9 @@ import {
   ChevronsUpDown,
   Command,
   Files,
-  FileCheck,
-  LayoutDashboard,
-  NotebookPen,
+  House,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plug,
   Puzzle,
   Search,
@@ -36,7 +36,6 @@ import {
 import {
   Sidebar,
   SidebarProvider,
-  SidebarTrigger,
   SidebarInset,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -58,29 +57,37 @@ import { Input } from "@/components/ui/input";
 import { api, type Page, type Resources, type Profile } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Appearance } from "@/components/appearance";
+import { usePanelOpen } from "@/hooks/use-panel-open";
 import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 
 export const navigation = [
-  { path: "/", name: "Overview", icon: LayoutDashboard },
+  { path: "/", name: "Home", icon: House },
   { path: "/opportunities", name: "Opportunities", icon: BriefcaseBusiness },
-  { path: "/applications", name: "Applications", icon: FileCheck },
+  { path: "/tasks", name: "Tasks", icon: CheckCheck },
+  { path: "/library", name: "Library", icon: BookOpen },
+  { path: "/documents", name: "Document Vault", icon: Files },
   { path: "/contacts", name: "Contacts", icon: Users },
   { path: "/companies", name: "Companies", icon: Building2 },
-  { path: "/jobs", name: "Roles", icon: Search },
-  { path: "/tasks", name: "Tasks", icon: CheckCheck },
-  { path: "/notes", name: "Notes", icon: NotebookPen },
-  { path: "/library", name: "Library", icon: Files },
-  { path: "/actions", name: "Reviewed actions", icon: FileCheck },
-  { path: "/agents", name: "Agents", icon: Bot },
+  { path: "/agent-settings", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
-  { path: "/memory", name: "Memory", icon: BookOpen },
   { path: "/activity", name: "Activity", icon: Activity },
-  { path: "/connections", name: "Connected apps", icon: Plug },
   { path: "/settings", name: "Settings", icon: Settings2 },
 ];
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
-  const path = usePathname();
+  const pathname = usePathname();
+  const path =
+    (
+      {
+        "/agents": "/",
+        "/applications": "/opportunities",
+        "/jobs": "/opportunities",
+        "/notes": "/library",
+        "/artifacts": "/library",
+        "/connections": "/agent-settings",
+        "/memory": "/agent-settings",
+      } as Record<string, string>
+    )[pathname] ?? pathname;
   const profile = useQuery({
     queryKey: ["me"],
     queryFn: () => api<Profile>("me"),
@@ -163,20 +170,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
       >
         {navigation.map((item, i) => (
           <div key={item.path}>
-            {(item.path === "/" ||
-              item.path === "/agents" ||
-              item.path === "/activity") && (
+            {(item.path === "/" || item.path === "/agent-settings") && (
               <p
                 className={cn(
                   "px-3 pb-2 text-[10px] font-medium tracking-[0.08em] text-muted-foreground",
                   i > 0 && "mt-6",
                 )}
               >
-                {i === 0
-                  ? "WORKSPACE"
-                  : item.path === "/agents"
-                    ? "ASSISTANTS"
-                    : "MANAGE"}
+                {i === 0 ? "WORKSPACE" : "WORKSPACE TOOLS"}
               </p>
             )}
             <Link
@@ -324,20 +325,49 @@ function SidebarNavigation() {
   return <Navigation onNavigate={() => setOpenMobile(false)} />;
 }
 
+function NavigationToggle() {
+  const { open, openMobile, isMobile, toggleSidebar } = useSidebar();
+  const expanded = isMobile ? openMobile : open;
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label="Toggle Sidebar"
+      aria-expanded={expanded}
+      title={expanded ? "Collapse navigation" : "Expand navigation"}
+      onClick={toggleSidebar}
+      className="shrink-0 text-muted-foreground"
+    >
+      {expanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+      <span className="hidden sm:inline">Navigation</span>
+    </Button>
+  );
+}
+
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const chatPage = path === "/" || path === "/agents";
+  const [navigationOpen, setNavigationOpen] = usePanelOpen("navigation");
   const [searchOpen, setSearchOpen] = useState(false);
   return (
     <WorkspaceContext>
       <SidebarProvider
+        open={navigationOpen}
+        onOpenChange={setNavigationOpen}
+        className={cn(chatPage && "h-dvh min-h-0 overflow-hidden")}
         style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
       >
         <Sidebar collapsible="offcanvas" className="border-r border-border">
           <SidebarNavigation />
         </Sidebar>
-        <SidebarInset className="min-w-0 bg-background">
+        <SidebarInset
+          className={cn(
+            "min-w-0 bg-background",
+            chatPage && "min-h-0 overflow-hidden",
+          )}
+        >
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-5 backdrop-blur-md md:px-7">
-            <SidebarTrigger className="text-muted-foreground" />
+            <NavigationToggle />
             <Breadcrumb>
               <BreadcrumbList className="text-xs">
                 <BreadcrumbItem className="hidden sm:block">
@@ -364,7 +394,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               <Appearance />
             </div>
           </header>
-          <main className="min-w-0 flex-1">{children}</main>
+          <main
+            className={cn(
+              "min-w-0 flex-1",
+              chatPage && "flex min-h-0 flex-col overflow-hidden",
+            )}
+          >
+            {children}
+          </main>
         </SidebarInset>
         <WorkspaceSearch open={searchOpen} setOpen={setSearchOpen} />
       </SidebarProvider>

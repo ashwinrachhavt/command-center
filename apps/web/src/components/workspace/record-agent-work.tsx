@@ -29,12 +29,14 @@ export function RecordWorkButton({
   disabled,
   compact,
   onStarted,
+  request,
 }: {
   resource: Resource;
   id: string;
   disabled?: boolean;
   compact?: boolean;
   onStarted?: (work: Work) => void;
+  request?: Partial<Schema["WorkCreate"]>;
 }) {
   const { userId } = useAuth();
   return userId ? (
@@ -46,6 +48,7 @@ export function RecordWorkButton({
       disabled={disabled}
       compact={compact}
       onStarted={onStarted}
+      request={request}
     />
   ) : null;
 }
@@ -57,6 +60,7 @@ function StartWork({
   disabled,
   compact,
   onStarted,
+  request,
 }: {
   actor: string;
   resource: Resource;
@@ -64,10 +68,11 @@ function StartWork({
   disabled?: boolean;
   compact?: boolean;
   onStarted?: (work: Work) => void;
+  request?: Partial<Schema["WorkCreate"]>;
 }) {
   const client = useQueryClient();
   const mounted = useRef(true);
-  const intent = useRef<string | undefined>(undefined);
+  const intent = useRef<{ key: string; body: string } | undefined>(undefined);
   const storageKey = `cc:record-work-request:${actor}:${resource}:${id}`;
   useEffect(() => {
     mounted.current = true;
@@ -77,27 +82,31 @@ function StartWork({
   }, []);
   const start = useMutation({
     mutationFn: async () => {
-      let key = intent.current;
+      const body = JSON.stringify(request ?? {});
+      let retained = intent.current;
       try {
-        key ??= sessionStorage.getItem(storageKey) ?? undefined;
+        retained ??=
+          JSON.parse(sessionStorage.getItem(storageKey) ?? "null") ?? undefined;
       } catch {
         /* memory-only fallback */
       }
-      key ??= crypto.randomUUID();
-      intent.current = key;
+      const key = retained?.body === body ? retained.key : crypto.randomUUID();
+      intent.current = { key, body };
       try {
-        sessionStorage.setItem(storageKey, key);
+        sessionStorage.setItem(storageKey, JSON.stringify(intent.current));
       } catch {
         /* storage can be unavailable */
       }
       const work = await api<Work>(`record-work/${resource}/${id}`, {
         method: "POST",
-        body: {},
+        body: request ?? {},
         key,
       });
-      if (intent.current === key) intent.current = undefined;
+      if (intent.current?.key === key) intent.current = undefined;
       try {
-        if (sessionStorage.getItem(storageKey) === key)
+        if (
+          JSON.parse(sessionStorage.getItem(storageKey) ?? "null")?.key === key
+        )
           sessionStorage.removeItem(storageKey);
       } catch {
         /* optional journal */
@@ -109,13 +118,18 @@ function StartWork({
         queryKey: ["record-work", actor, resource, id],
       });
       void client.invalidateQueries({ queryKey: ["tasks"] });
+      void client.invalidateQueries({ queryKey: [resource] });
       if (mounted.current) {
         onStarted?.(work);
         toast.success(
           work.output_version_id
             ? "Saved result recovered"
             : resource === "contacts"
-              ? "Follow-up drafting started"
+              ? request?.research_requested
+                ? "Contact enrichment started"
+                : request?.connection_note
+                  ? "Connection note started"
+                  : "Follow-up drafting started"
               : "Company research started",
         );
       }
@@ -134,9 +148,13 @@ function StartWork({
           ? "Starting…"
           : start.error
             ? "Retry agent request"
-            : resource === "contacts"
-              ? "Draft with agent"
-              : "Enrich company"}
+            : request?.research_requested
+              ? "Enrich contact"
+              : request?.connection_note
+                ? "Draft connection note"
+                : resource === "contacts"
+                  ? "Draft with agent"
+                  : "Enrich company"}
       </Button>
       {start.error && (
         <p role="alert" className="max-w-md text-xs leading-5 text-destructive">

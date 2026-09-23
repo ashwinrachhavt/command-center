@@ -1,5 +1,46 @@
 import { expect, test } from "@playwright/test";
 
+test("LinkedIn composer saves the chosen audience and exact text as a proposal", async ({
+  page,
+}) => {
+  await page.goto("/actions");
+  await page.getByRole("button", { name: "New proposal" }).click();
+  await page
+    .getByLabel("Action", { exact: true })
+    .selectOption("linkedin_post");
+  await page
+    .getByLabel("Account", { exact: true })
+    .selectOption("77777777-7777-4777-8777-777777777777");
+  await page
+    .getByLabel("Post text", { exact: true })
+    .fill("Synthetic LinkedIn update for review.");
+  await page
+    .getByLabel("Audience", { exact: true })
+    .selectOption("CONNECTIONS");
+  await page
+    .getByRole("button", { name: "Save proposal", exact: true })
+    .click();
+  await expect
+    .poll(async () =>
+      page.evaluate(async () =>
+        (await fetch("/api/backend/test/workflow-requests")).json(),
+      ),
+    )
+    .toMatchObject([
+      {
+        route: "reviewed-actions",
+        body: {
+          account_id: "77777777-7777-4777-8777-777777777777",
+          payload: {
+            kind: "linkedin_post",
+            commentary: "Synthetic LinkedIn update for review.",
+            visibility: "CONNECTIONS",
+          },
+        },
+      },
+    ]);
+});
+
 test("only an explicitly reviewed exact action revision is queued", async ({
   page,
 }) => {

@@ -260,6 +260,59 @@ def test_connected_operations_use_owned_scope_and_idempotent_operation_id(engine
         assert request_budget.opportunity_id is None
 
 
+def test_first_account_verification_provisions_priced_defaults(session: Session) -> None:
+    owner = Actor(id=uuid4(), kind="human", display_name="First connection")
+    session.add(owner)
+    session.flush()
+    row = SpendingReservation.reserve_connected_tool(
+        session,
+        owner_id=owner.id,
+        request_scope_id=uuid4(),
+        operation_id=uuid4(),
+        slug="COMPOSIO_CONNECTED_ACCOUNTS_LIST",
+    )
+    policy = session.get(SpendingPolicy, owner.id)
+    assert policy is not None and policy.active
+    assert policy.monthly_limit_micros == 100_000_000
+    assert row.reserved_micros == 10_000
+    card = session.get(SpendingRateCard, policy.active_rate_card_id)
+    assert card is not None
+    for slug in (
+        "GMAIL_GET_PROFILE",
+        "GOOGLECALENDAR_GET_CURRENT_USER",
+        "LINEAR_WHO_AM_I",
+        "NOTION_GET_ABOUT_ME",
+    ):
+        assert card.tool_rate(slug) == 10_000
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_connection_preserves_existing_zero_or_disabled_policy(
+    session: Session, active: bool
+) -> None:
+    owner = Actor(id=uuid4(), kind="human", display_name="Existing limits")
+    session.add(owner)
+    session.flush()
+    card = configure(session, owner.id, monthly_limit=0)
+    policy = session.get(SpendingPolicy, owner.id)
+    assert policy is not None
+    policy.active = active
+    session.flush()
+    with pytest.raises(
+        SpendingDenied, match="spending_monthly_limit" if active else "spending_policy_unconfigured"
+    ):
+        SpendingReservation.reserve_connected_tool(
+            session,
+            owner_id=owner.id,
+            request_scope_id=uuid4(),
+            operation_id=uuid4(),
+            slug="gmail_search",
+        )
+    assert policy.active is active
+    assert policy.monthly_limit_micros == 0
+    assert policy.active_rate_card_id == card.id
+
+
 def test_spending_configuration_http_is_owned_replayable_and_readable(settings, engine) -> None:
     owner_id = uuid4()
     with Session(engine) as db, db.begin():

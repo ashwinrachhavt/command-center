@@ -47,6 +47,13 @@ CAPABILITIES = {
 }
 
 
+# Deliberately reviewed additions share the same API authorization boundary.
+from command_center.agents.mcp_policy import policy_capabilities  # noqa: E402
+
+for _name, _routes in policy_capabilities().items():
+    CAPABILITIES.setdefault(_name, []).extend(_routes)
+
+
 def issue_run_token(
     settings: Settings,
     run_id: UUID,
@@ -118,6 +125,7 @@ def authenticate_run(
             raise HTTPException(403, "Workspace is inactive")
         role = claims.get("role")
         granted = role_profile(run.config_snapshot, role)["tools"]
+        request.state.agent_tools = granted
         request.state.agent_role = role
         request.state.agent_lease_id = lease_id
         request.state.agent_capability_expires_at = capability_expires_at
@@ -133,6 +141,15 @@ def authenticate_run(
 
 def fence_agent_write(request: Request, session: Session) -> None:
     """Hold the authenticated lease through a write transaction after external I/O."""
+    client_id = getattr(request.state, "mcp_client_id", None)
+    if client_id is not None:
+        from command_center.db.mcp_clients import MCPClientCredential
+
+        try:
+            MCPClientCredential.active(session, client_id, lock=True)
+        except ValueError as exc:
+            raise HTTPException(401, "Local MCP credential expired or revoked") from exc
+        session.info["mcp_client_id"] = client_id
     run_id = getattr(request.state, "agent_run_id", None)
     if run_id is None:
         return

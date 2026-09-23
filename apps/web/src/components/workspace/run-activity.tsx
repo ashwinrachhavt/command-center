@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,49 +35,63 @@ export function RunActivity({
   showOutput,
   cancelling,
   onCancel,
+  deferDetails = false,
 }: {
   run: Run;
   showOutput: boolean;
   cancelling?: boolean;
   onCancel?: (run: Run) => void;
+  deferDetails?: boolean;
 }) {
   const context = useWorkspaceContext();
   const queryClient = useQueryClient();
-  const reconciledState = useRef("");
+  const reconciledState = useRef(run.state);
+  const [detailsOpen, setDetailsOpen] = useState(!deferDetails);
   const stream = useRunEvents(run.id, streamingStates.has(run.state));
   const displayedState = streamingStates.has(run.state)
     ? (stream.runStatus?.state ?? run.state)
     : run.state;
   const active = activeStates.has(displayedState);
+  const loadDetails = active || detailsOpen;
+  const fallbackInterval =
+    active && stream.connection !== "live" ? 10_000 : false;
   const failureCode = stream.runStatus?.errorCode ?? run.error_code;
   const steps = useQuery({
-    queryKey: ["agent-run-steps", run.id, run.state],
+    queryKey: ["agent-run-steps", run.id],
+    enabled: loadDetails,
     queryFn: ({ signal }) =>
       api<RunStep[]>(`agent-runs/${run.id}/steps`, { signal }),
-    refetchInterval: active ? 2500 : false,
+    refetchInterval: fallbackInterval,
   });
 
   const artifacts = useQuery({
-    queryKey: ["agent-run-artifacts", run.id, run.state],
+    queryKey: ["agent-run-artifacts", run.id],
+    enabled: loadDetails,
     queryFn: ({ signal }) =>
       api<Page<RunArtifact>>(`agent-runs/${run.id}/artifacts?limit=100`, {
         signal,
       }),
-    refetchInterval: active ? 2500 : false,
+    refetchInterval: fallbackInterval,
   });
 
   useEffect(() => {
-    const state = stream.runStatus?.state;
-    if (!state || activeStates.has(state) || reconciledState.current === state)
-      return;
+    const state = displayedState;
+    if (!state || reconciledState.current === state) return;
     reconciledState.current = state;
+    if (streamingStates.has(state)) return;
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["agent-session-runs"] }),
       queryClient.invalidateQueries({ queryKey: ["agent-session-messages"] }),
-      steps.refetch(),
-      artifacts.refetch(),
+      queryClient.invalidateQueries({ queryKey: ["agent-run", run.id] }),
+      queryClient.invalidateQueries({
+        queryKey: ["agent-run-questions", run.id],
+      }),
+      queryClient.invalidateQueries({ queryKey: ["agent-run-steps", run.id] }),
+      queryClient.invalidateQueries({
+        queryKey: ["agent-run-artifacts", run.id],
+      }),
     ]);
-  }, [artifacts, queryClient, steps, stream.runStatus?.state]);
+  }, [queryClient, run.id, displayedState]);
 
   const showLiveActivity =
     streamingStates.has(displayedState) ||
@@ -85,6 +99,11 @@ export function RunActivity({
       displayedState !== "waiting_for_user" &&
       showOutput &&
       !run.output);
+
+  const liveToolIds = new Set(
+    showLiveActivity ? stream.tools.map((tool) => tool.id) : [],
+  );
+  const savedSteps = steps.data?.filter((step) => !liveToolIds.has(step.id));
 
   return (
     <section
@@ -169,20 +188,22 @@ export function RunActivity({
               updates from event {stream.lastSequence + 1}.
             </p>
           ) : null}
-          {stream.messages.map((message) => (
-            <Message key={message.id} from="assistant" className="mb-3">
-              <MessageContent>
-                <AgentResponse
-                  streaming={
-                    stream.connection === "live" &&
-                    streamingStates.has(displayedState)
-                  }
-                >
-                  {message.content}
-                </AgentResponse>
-              </MessageContent>
-            </Message>
-          ))}
+          {showOutput && !run.output
+            ? stream.messages.map((message) => (
+                <Message key={message.id} from="assistant" className="mb-3">
+                  <MessageContent>
+                    <AgentResponse
+                      streaming={
+                        stream.connection === "live" &&
+                        streamingStates.has(displayedState)
+                      }
+                    >
+                      {message.content}
+                    </AgentResponse>
+                  </MessageContent>
+                </Message>
+              ))
+            : null}
           {stream.tools.map((tool) => (
             <Tool key={tool.id} className="mb-2">
               <ToolHeader
@@ -209,106 +230,126 @@ export function RunActivity({
         </div>
       ) : null}
 
-      {steps.error ? (
-        <div className="mt-4">
-          <ErrorState error={steps.error} retry={() => steps.refetch()} />
-        </div>
-      ) : null}
-      {steps.isPending && !steps.data ? (
-        <p className="mt-4 text-xs text-muted-foreground" role="status">
-          Loading saved steps…
-        </p>
-      ) : steps.data?.length ? (
-        <div className="mt-4 space-y-2">
-          {steps.data.map((step) => {
-            const specialist = step.specialist
-              ? `${label(step.specialist)} specialist`
-              : step.role === "assistant"
-                ? "Assistant"
-                : label(step.role);
-            return (
-              <div key={step.id}>
-                <p className="mb-1 text-[11px] text-muted-foreground">
-                  {specialist}
-                  {step.summary ? ` · ${step.summary}` : ""}
-                </p>
-                <Tool className="mb-0">
-                  <ToolHeader
-                    type="dynamic-tool"
-                    toolName={step.name}
-                    title={label(step.name)}
-                    state={step.state}
-                  />
-                  <ToolContent>
-                    {step.output ? (
-                      <ToolOutput
-                        output={
-                          step.state === "output-error"
-                            ? undefined
-                            : step.output
-                        }
-                        errorText={
-                          step.state === "output-error"
-                            ? step.output
-                            : undefined
-                        }
-                      />
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        {active
-                          ? "Waiting for the result…"
-                          : "No result was recorded for this step."}
-                      </p>
-                    )}
-                  </ToolContent>
-                </Tool>
-              </div>
-            );
-          })}
-        </div>
-      ) : steps.data ? (
-        <p className="mt-4 text-xs text-muted-foreground">
-          No saved steps for this run.
-        </p>
+      {!active ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="mt-3"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          {detailsOpen ? "Hide activity details" : "Show activity details"}
+        </Button>
       ) : null}
 
-      {artifacts.error ? (
-        <div className="mt-4">
-          <ErrorState
-            error={artifacts.error}
-            retry={() => artifacts.refetch()}
-          />
-        </div>
-      ) : null}
-      {artifacts.isPending && !artifacts.data ? (
-        <p className="mt-4 text-xs text-muted-foreground" role="status">
-          Loading saved outputs…
-        </p>
-      ) : artifacts.data?.items.length ? (
-        <div className="mt-4 flex flex-wrap gap-2" aria-label="Saved outputs">
-          {artifacts.data.items.map((artifact) => (
-            <Button
-              key={artifact.version_id}
-              type="button"
-              size="sm"
-              variant="outline"
-              title={`Open immutable version ${artifact.version}`}
-              onClick={() =>
-                context?.open("artifacts", artifact.id, {
-                  tab: "content",
-                  versionId: artifact.version_id,
-                })
-              }
+      {loadDetails ? (
+        <>
+          {steps.error ? (
+            <div className="mt-4">
+              <ErrorState error={steps.error} retry={() => steps.refetch()} />
+            </div>
+          ) : null}
+          {steps.isPending && !steps.data ? (
+            <p className="mt-4 text-xs text-muted-foreground" role="status">
+              Loading saved steps…
+            </p>
+          ) : savedSteps?.length ? (
+            <div className="mt-4 space-y-2">
+              {savedSteps.map((step) => {
+                const specialist = step.specialist
+                  ? `${label(step.specialist)} specialist`
+                  : step.role === "assistant"
+                    ? "Assistant"
+                    : label(step.role);
+                return (
+                  <div key={step.id}>
+                    <p className="mb-1 text-[11px] text-muted-foreground">
+                      {specialist}
+                      {step.summary ? ` · ${step.summary}` : ""}
+                    </p>
+                    <Tool className="mb-0">
+                      <ToolHeader
+                        type="dynamic-tool"
+                        toolName={step.name}
+                        title={label(step.name)}
+                        state={step.state}
+                      />
+                      <ToolContent>
+                        {step.output ? (
+                          <ToolOutput
+                            output={
+                              step.state === "output-error"
+                                ? undefined
+                                : step.output
+                            }
+                            errorText={
+                              step.state === "output-error"
+                                ? step.output
+                                : undefined
+                            }
+                          />
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            {active
+                              ? "Waiting for the result…"
+                              : "No result was recorded for this step."}
+                          </p>
+                        )}
+                      </ToolContent>
+                    </Tool>
+                  </div>
+                );
+              })}
+            </div>
+          ) : steps.data && liveToolIds.size === 0 ? (
+            <p className="mt-4 text-xs text-muted-foreground">
+              No saved steps for this run.
+            </p>
+          ) : null}
+
+          {artifacts.error ? (
+            <div className="mt-4">
+              <ErrorState
+                error={artifacts.error}
+                retry={() => artifacts.refetch()}
+              />
+            </div>
+          ) : null}
+          {artifacts.isPending && !artifacts.data ? (
+            <p className="mt-4 text-xs text-muted-foreground" role="status">
+              Loading saved outputs…
+            </p>
+          ) : artifacts.data?.items.length ? (
+            <div
+              className="mt-4 flex flex-wrap gap-2"
+              aria-label="Saved outputs"
             >
-              <FileText />
-              {artifact.title} · v{artifact.version}
-            </Button>
-          ))}
-        </div>
-      ) : artifacts.data ? (
-        <p className="mt-4 text-xs text-muted-foreground">
-          No saved outputs for this run.
-        </p>
+              {artifacts.data.items.map((artifact) => (
+                <Button
+                  key={artifact.version_id}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  title={`Open immutable version ${artifact.version}`}
+                  onClick={() =>
+                    context?.open("artifacts", artifact.id, {
+                      tab: "content",
+                      versionId: artifact.version_id,
+                    })
+                  }
+                >
+                  <FileText />
+                  {artifact.title} · v{artifact.version}
+                </Button>
+              ))}
+            </div>
+          ) : artifacts.data ? (
+            <p className="mt-4 text-xs text-muted-foreground">
+              No saved outputs for this run.
+            </p>
+          ) : null}
+        </>
       ) : null}
 
       {showOutput && run.output ? (

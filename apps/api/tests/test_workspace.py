@@ -58,8 +58,12 @@ def test_library_searches_current_owned_content_and_document_types(client, engin
             "text": "Synthetic skills",
         },
     )
-    post(client, "artifacts", {"title": "Hidden snapshot", "kind": "source", "text": "Rare needle"})
-    post(client, "artifacts", {"title": "Hidden email", "kind": "message", "text": "Rare needle"})
+    source = post(
+        client, "artifacts", {"title": "Saved source", "kind": "source", "text": "Rare needle"}
+    ).json()
+    message = post(
+        client, "artifacts", {"title": "Saved draft", "kind": "message", "text": "Rare needle"}
+    ).json()
     with Session(engine) as db, db.begin():
         owner = Actor(id=uuid4(), kind="human", display_name="Another synthetic owner")
         db.add(owner)
@@ -77,7 +81,8 @@ def test_library_searches_current_owned_content_and_document_types(client, engin
         )
     base = "/api/v1/artifacts"
     found = client.get(base, params={"collection": "library", "q": "rare NEEDLE"}).json()
-    assert found["total"] == 1 and found["items"][0]["id"] == note["id"]
+    assert found["total"] == 3
+    assert {item["id"] for item in found["items"]} == {note["id"], source["id"], message["id"]}
     assert "payload" not in found["items"][0]
     assert (
         client.get(base, params={"collection": "library", "q": "100%_value"}).json()["total"] == 1
@@ -93,7 +98,7 @@ def test_library_searches_current_owned_content_and_document_types(client, engin
     )
     assert client.get("/api/v1/artifacts?collection=notes").json()["total"] == 1
     first = client.get(base, params={"collection": "library", "sort": "title", "limit": 1}).json()
-    assert first["total"] == 2 and first["items"][0]["id"] == note["id"]
+    assert first["total"] == 4 and first["items"][0]["id"] == note["id"]
     version_id = client.get(f"/api/v1/artifacts/{note['id']}/version-history").json()["items"][0][
         "id"
     ]
@@ -108,7 +113,7 @@ def test_library_searches_current_owned_content_and_document_types(client, engin
     )
     assert appended.status_code == 201, appended.text
     assert (
-        client.get(base, params={"collection": "library", "q": "Rare needle"}).json()["total"] == 0
+        client.get(base, params={"collection": "library", "q": "Rare needle"}).json()["total"] == 2
     )
     assert (
         client.get(base, params={"collection": "library", "q": "Current body"}).json()["total"] == 1

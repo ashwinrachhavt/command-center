@@ -1,16 +1,16 @@
 """Job-lead capture and public evidence controllers."""
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import Field
+from pydantic import EmailStr, Field, HttpUrl, StringConstraints, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from command_center.api import schemas as s
-from command_center.api.workspace import Database, Limit, Offset, WriteKey, owned
+from command_center.api.workspace import Database, Limit, Offset, WriteKey, owned, write
 from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity
 from command_center.core.public_urls import normalize_public_url
@@ -49,6 +49,119 @@ class LeadCaptureRead(s.ResponseContract):
     company_id: UUID
     created: bool
     source: LeadSourceRead
+
+
+class IntakeContact(s.Contract):
+    name: s.Name
+    email: EmailStr | None = None
+    title: s.Name | None = None
+    linkedin_url: HttpUrl | None = None
+    notes: s.Notes | None = None
+
+
+class IntakeJob(s.Contract):
+    title: s.Title
+    url: HttpUrl
+    location: str | None = Field(default=None, max_length=200)
+
+
+class LeadIntakeRequest(s.Contract):
+    title: s.Title
+    company_id: UUID | None = None
+    company_name: s.Name | None = None
+    company_domain: str | None = Field(default=None, max_length=253, pattern=r"^[a-zA-Z0-9.-]+$")
+    contact_id: UUID | None = None
+    contact: IntakeContact | None = None
+    opportunity_id: UUID | None = None
+    job_id: UUID | None = None
+    job: IntakeJob | None = None
+    notes: s.Notes | None = None
+    source_text: Annotated[str, StringConstraints(strip_whitespace=False)] | None = Field(
+        default=None, min_length=1, max_length=50000
+    )
+    source_version_id: UUID | None = None
+    source_message_id: UUID | None = None
+    source_url: HttpUrl | None = None
+
+    @model_validator(mode="after")
+    def validate_intake(self) -> "LeadIntakeRequest":
+        if not self.company_id and not self.company_name:
+            raise ValueError("Provide company_name or an existing company_id for the opportunity")
+        if self.job_id and self.job:
+            raise ValueError("Provide either an existing job_id or job details, not both")
+        if (
+            sum(
+                value is not None
+                for value in (self.source_text, self.source_version_id, self.source_message_id)
+            )
+            != 1
+        ):
+            raise ValueError(
+                "Provide exactly one of source_text, owned source_version_id or source_message_id"
+            )
+        if self.source_text is not None and not self.source_text.strip():
+            raise ValueError("Source text cannot be blank")
+        return self
+
+
+class LeadIntakeRead(s.ResponseContract):
+    opportunity_id: UUID
+    company_id: UUID
+    contact_id: UUID | None
+    job_id: UUID | None
+    created: dict[str, bool]
+    source: LeadSourceRead
+    links: dict[str, str]
+    warnings: list[str]
+
+
+@router.post("/leads/intake", response_model=LeadIntakeRead, status_code=201)
+def intake_lead(
+    body: LeadIntakeRequest,
+    identity: CurrentIdentity,
+    db: Database,
+    key: WriteKey,
+    request: Request,
+) -> dict[str, Any]:
+    """Save private pasted or saved page content and its linked CRM records atomically."""
+
+    def change(record_id: UUID) -> dict[str, Any]:
+        opportunity, job, company, contact, source, created = Opportunity.capture_content(
+            db,
+            record_id=record_id,
+            owner_id=identity.id,
+            data=body.model_dump(mode="json"),
+            request_id=UUID(request.state.request_id),
+        )
+        saved_source = source_read(db, source)
+        links = {
+            "opportunity": f"/opportunities?inspect=opportunities:{opportunity.id}",
+            "company": f"/companies?inspect=companies:{company.id}",
+            "source": (
+                f"/library?inspect=artifacts:{saved_source.artifact_id}"
+                f":content:{saved_source.version_id}"
+            ),
+        }
+        if contact is not None:
+            links["contact"] = f"/contacts?inspect=contacts:{contact.id}"
+        warnings = []
+        if contact is not None and contact.company_id not in {None, company.id}:
+            warnings.append(
+                "The existing contact has a different saved company; their fields were preserved."
+            )
+        return LeadIntakeRead(
+            opportunity_id=opportunity.id,
+            company_id=company.id,
+            contact_id=contact.id if contact else None,
+            job_id=job.id if job else None,
+            created=created,
+            source=saved_source,
+            links=links,
+            warnings=warnings,
+        ).model_dump(mode="json")
+
+    fence_agent_write(request, db)
+    return write(db, identity.id, key, "POST:leads:intake", body, change)
 
 
 def source_read(session: Session, source: SourceRecord) -> LeadSourceRead:

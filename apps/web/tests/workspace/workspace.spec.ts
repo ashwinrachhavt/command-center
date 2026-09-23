@@ -61,7 +61,7 @@ for (const viewport of [
       await page.getByRole("button", { name: "Toggle Sidebar" }).click();
     await page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Overview", exact: true })
+      .getByRole("link", { name: "Home", exact: true })
       .click();
     await expect(page).toHaveURL(/\/$/);
     expect(errors).toEqual([]);
@@ -74,6 +74,7 @@ test("AI Elements renders a saved run with formatted text", async ({
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/agents");
+  await page.getByText("Earlier runs", { exact: true }).click();
   await page.getByRole("button", { name: /Northstar research/ }).click();
   await expect(
     page.getByRole("heading", { name: "Company brief" }),

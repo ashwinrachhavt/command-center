@@ -14,7 +14,7 @@ from command_center.api.application_preparations import human_only
 from command_center.api.applications import owned_track
 from command_center.api.workspace import Database, Limit, Offset, WriteKey, write
 from command_center.core.capabilities import fence_agent_write
-from command_center.core.identity import CurrentIdentity
+from command_center.core.identity import CurrentIdentity, require_workspace_tool
 from command_center.db.agents import AgentRun
 from command_center.db.application_materials import ApplicationMaterial, MaterialKind
 from command_center.db.artifacts import Artifact, ArtifactVersion
@@ -158,7 +158,7 @@ def list_materials(
     limit: Limit = 10,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    human_only(identity)
+    require_workspace_tool(identity, "cc_application_materials_list_materials")
     owned_track(db, identity.id, task_id)
     query = select(ApplicationMaterial).where(
         ApplicationMaterial.task_id == task_id,

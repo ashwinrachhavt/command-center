@@ -33,6 +33,14 @@ router = APIRouter(prefix="/api/v1", tags=["workspace"])
 def transaction(request: Request) -> Iterator[Session]:
     with Session(request.app.state.engine) as session, session.begin():
         session.info["agent_run_id"] = getattr(request.state, "agent_run_id", None)
+        session.info["mcp_client_id"] = getattr(request.state, "mcp_client_id", None)
+        if session.info["mcp_client_id"] and request.method not in {"GET", "HEAD"}:
+            from command_center.db.mcp_clients import MCPClientCredential
+
+            try:
+                MCPClientCredential.active(session, session.info["mcp_client_id"], lock=True)
+            except ValueError as exc:
+                raise HTTPException(401, "Local MCP credential expired or revoked") from exc
         yield session
 
 
@@ -501,12 +509,22 @@ def list_contacts(
     offset: Offset = 0,
     company_id: UUID | None = None,
 ) -> dict[str, Any]:
-    return listing(Contact, db, identity.id, q, limit, offset, company_id=company_id)
+    page = listing(Contact, db, identity.id, q, limit, offset, company_id=company_id)
+    outreach = RecordWork.contact_outreach(
+        db, owner_id=identity.id, contact_ids=[UUID(row["id"]) for row in page["items"]]
+    )
+    for row in page["items"]:
+        row["outreach"] = outreach.get(UUID(row["id"]))
+    return page
 
 
 @router.get("/contacts/{record_id}", response_model=s.ContactRead)
-def get_contact(record_id: UUID, identity: CurrentIdentity, db: Database) -> Contact:
-    return owned(db, Contact, record_id, identity.id)
+def get_contact(record_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
+    row = serialize(owned(db, Contact, record_id, identity.id))
+    row["outreach"] = RecordWork.contact_outreach(
+        db, owner_id=identity.id, contact_ids=[record_id]
+    ).get(record_id)
+    return row
 
 
 @router.post("/contacts", response_model=s.ContactRead, status_code=201)

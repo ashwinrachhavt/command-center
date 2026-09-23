@@ -30,6 +30,14 @@ const card: Schema["RateCardRead"] = {
   sha256: "a".repeat(64),
   created_at: "2026-09-21T10:00:00Z",
 };
+const linkedinAccount: Schema["AccountRead"] = {
+  ...account,
+  id: "77777777-7777-4777-8777-777777777777",
+  toolkit: "linkedin",
+  display_name: "Alex Synthetic · LinkedIn",
+  provider_identity: { sub: "synthetic-member" },
+  selected_purpose: null,
+};
 const cards = [card];
 let spending: Schema["SpendingSummary"] = {
   currency: "USD",
@@ -235,7 +243,7 @@ export async function workflowFixture(
   }
   if (route === "spending") return Response.json(spending);
   if (route === "integrations/composio/accounts")
-    return Response.json([account]);
+    return Response.json([account, linkedinAccount]);
   if (route === "integrations/composio/accounts/sync")
     return Response.json([account]);
   if (route.endsWith("/select")) return Response.json(account);
@@ -247,13 +255,20 @@ export async function workflowFixture(
       limit: 20,
     });
   if (route === "reviewed-actions" && method === "POST") {
+    const linkedin =
+      (body.payload as { kind: string }).kind === "linkedin_post";
     const created: Schema["ActionRead"] = {
       ...actions[0],
       id: crypto.randomUUID(),
       state: "proposed",
+      kind: linkedin ? "linkedin_post" : actions[0].kind,
+      account: linkedin ? linkedinAccount : account,
       current: {
         ...actions[0].current,
         id: crypto.randomUUID(),
+        tool_slug: linkedin
+          ? "LINKEDIN_CREATE_LINKED_IN_POST"
+          : actions[0].current.tool_slug,
         payload: body.payload as Record<string, unknown>,
         reason: String(body.reason),
       },

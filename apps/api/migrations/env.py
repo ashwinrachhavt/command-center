@@ -17,6 +17,7 @@ from command_center.db import (  # noqa: F401
     document_imports,
     evidence,
     idempotency,
+    mcp_clients,
     memory,
     models,
     pdf_exports,

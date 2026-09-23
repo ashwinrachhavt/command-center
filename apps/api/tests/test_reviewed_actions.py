@@ -210,6 +210,55 @@ def test_revision_does_not_inherit_prior_approval(action_client):
     assert revised.json()["current"]["version"] == 2
 
 
+def test_linkedin_post_requires_review_of_exact_text_audience_and_account(action_client, engine):
+    with Session(engine) as db, db.begin():
+        account = db.get(ExternalAccount, action_client.account_id)
+        account.toolkit = "linkedin"
+        account.provider_identity = {"sub": "member-synthetic"}
+    body = proposal_body(
+        action_client,
+        payload={
+            "kind": "linkedin_post",
+            "commentary": "Synthetic post",
+            "visibility": "CONNECTIONS",
+        },
+    )
+    response = request(action_client, "POST", "reviewed-actions", body)
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["state"] == "proposed"
+    assert created["approved_revision_id"] is None
+    assert created["current"]["tool_slug"] == "LINKEDIN_CREATE_LINKED_IN_POST"
+    assert created["account"]["id"] == str(action_client.account_id)
+    approved = request(
+        action_client,
+        "POST",
+        f"reviewed-actions/{created['id']}/reviews",
+        {
+            "expected_version": created["row_version"],
+            "revision_id": created["current"]["id"],
+            "decision": "approved",
+            "reason": "Approve the synthetic post for connections.",
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["state"] == "queued"
+    revised = request(
+        action_client,
+        "PATCH",
+        f"reviewed-actions/{created['id']}",
+        {
+            "expected_version": approved.json()["row_version"],
+            "payload": body["payload"] | {"visibility": "PUBLIC"},
+            "attachment_version_ids": [],
+            "reason": "Change the audience.",
+        },
+    )
+    assert revised.status_code == 200, revised.text
+    assert revised.json()["state"] == "proposed"
+    assert revised.json()["approved_revision_id"] is None
+
+
 def test_review_projection_links_exact_attachment_and_notion_source_versions(action_client, engine):
     attachment_bytes = f"synthetic reviewed attachment {uuid4()}".encode()
     attachment_sha = hashlib.sha256(attachment_bytes).hexdigest()

@@ -3,6 +3,7 @@
 import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import (
@@ -15,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    or_,
     select,
 )
 from sqlalchemy import text as sql_text
@@ -22,6 +24,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, declared_attr, mapped_column, object_session
 
 from command_center.db.base import Base, UTCDateTime, utc_now
+from command_center.db.errors import RecordConflict, RecordNotFound
 from command_center.db.models import AuditEvent
 
 if TYPE_CHECKING:
@@ -39,6 +42,9 @@ def record_event(
 ) -> None:
     if session.info.get("agent_run_id"):
         details["agent_run_id"] = str(session.info["agent_run_id"])
+    if session.info.get("mcp_client_id"):
+        details["mcp_client_id"] = str(session.info["mcp_client_id"])
+        details["initiator"] = "local_mcp"
     session.add(
         AuditEvent(
             actor_id=actor_id,
@@ -411,6 +417,365 @@ class Opportunity(OwnedRecord, Base):
                 request_id=request_id,
             )
         return opportunity, job, company, source, created
+
+    @classmethod
+    def capture_content(
+        cls,
+        session: Session,
+        *,
+        record_id: UUID,
+        owner_id: UUID,
+        data: dict[str, Any],
+        request_id: UUID,
+    ) -> tuple["Opportunity", Job | None, Company, Contact | None, "SourceRecord", dict[str, bool]]:
+        """Capture a private lead without replacing existing human-authored CRM facts."""
+        from command_center.core.public_urls import normalize_public_url
+        from command_center.db.artifacts import Artifact, ArtifactVersion
+        from command_center.db.conversations import AgentMessage
+        from command_center.db.evidence import SourceRecord
+
+        # Intake is small and owner-local. Serializing its identity matching prevents
+        # overlapping requests with different receipts from creating duplicate people.
+        lock = int.from_bytes(
+            hashlib.sha256(f"intake:{owner_id}".encode()).digest()[:8], signed=True
+        )
+        session.execute(sql_text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock})
+        created = dict.fromkeys(("company", "contact", "job", "opportunity", "source"), False)
+
+        def owned_record(model: Any, value: str) -> Any:
+            row = session.get(model, UUID(value))
+            if row is None or row.owner_id != owner_id or row.archived_at is not None:
+                raise RecordNotFound("The referenced record is unavailable in this workspace")
+            return row
+
+        def unique_match(rows: list[Any], entity: str) -> Any:
+            if len(rows) > 1:
+                raise RecordConflict(
+                    f"Multiple {entity} records match; select an existing {entity}_id"
+                )
+            return rows[0] if rows else None
+
+        def save_new(row: Any, entity: str) -> Any:
+            session.add(row)
+            record_event(
+                session,
+                owner_id,
+                request_id,
+                f"{row.__tablename__}.created",
+                row.__tablename__,
+                row.id,
+            )
+            created[entity] = True
+            session.flush()
+            return row
+
+        source_version_id = (
+            UUID(data["source_version_id"]) if data.get("source_version_id") else None
+        )
+        source_message_id = (
+            UUID(data["source_message_id"]) if data.get("source_message_id") else None
+        )
+        text = data.get("source_text")
+        if source_version_id:
+            version = session.get(ArtifactVersion, source_version_id)
+            artifact = session.get(Artifact, version.artifact_id) if version else None
+            if artifact is None or artifact.owner_id != owner_id or artifact.archived_at:
+                raise RecordNotFound("The source version is unavailable in this workspace")
+            text = (version.payload or {}).get("text") if version else None
+        if source_message_id:
+            message = session.get(AgentMessage, source_message_id)
+            if (
+                message is None
+                or message.owner_id != owner_id
+                or message.author != "user"
+                or message.archived_at is not None
+            ):
+                raise RecordNotFound("The source user message is unavailable in this workspace")
+            text = message.content
+        if not isinstance(text, str) or not text.strip() or len(text) > 50000:
+            raise ValueError("Choose a text source between 1 and 50,000 characters")
+        text_digest = hashlib.sha256(text.encode()).hexdigest()
+        locator = data.get("source_url") or (
+            f"urn:command-center:message:{source_message_id}"
+            if source_message_id
+            else f"urn:command-center:pasted:{text_digest}"
+        )
+        if data.get("source_url"):
+            parsed = urlsplit(locator)
+            if parsed.username or parsed.password:
+                raise ValueError("Source URLs cannot contain credentials")
+        title = str(data["title"]).strip()
+        company_name = str(data.get("company_name") or "").strip()
+        domain = str(data.get("company_domain") or "").lower().strip().rstrip(".") or None
+        if domain:
+            labels = domain.split(".")
+            if len(labels) < 2 or any(
+                not label
+                or len(label) > 63
+                or not label[0].isalnum()
+                or not label[-1].isalnum()
+                or any(not (char.isascii() and (char.isalnum() or char == "-")) for char in label)
+                for label in labels
+            ):
+                raise ValueError("Use a valid company domain, or omit it when unknown")
+        if data.get("company_id"):
+            company = owned_record(Company, data["company_id"])
+        else:
+            if not company_name:
+                raise ValueError("A company name or existing company is required")
+            conditions = [func.lower(func.btrim(Company.name)) == company_name.lower()]
+            if domain:
+                conditions.append(func.lower(Company.domain) == domain)
+            matches = list(
+                session.scalars(
+                    select(Company).where(
+                        Company.owner_id == owner_id,
+                        Company.archived_at.is_(None),
+                        or_(*conditions),
+                    )
+                )
+            )
+            company = unique_match(matches, "company")
+            if (
+                company is not None
+                and domain
+                and company.domain
+                and company.domain.lower() != domain
+            ):
+                raise RecordConflict("The company name and domain conflict; select company_id")
+            if company is None:
+                company = save_new(
+                    Company(
+                        id=uuid5(record_id, "company"),
+                        owner_id=owner_id,
+                        name=company_name,
+                        domain=domain,
+                    ),
+                    "company",
+                )
+
+        contact = None
+        contact_data = data.get("contact") or {}
+        if data.get("contact_id"):
+            contact = owned_record(Contact, data["contact_id"])
+        elif contact_data:
+            name = str(contact_data["name"]).strip()
+            email = str(contact_data.get("email") or "").strip().lower() or None
+            linkedin = contact_data.get("linkedin_url")
+            if linkedin:
+                parsed = urlsplit(linkedin)
+                host = (parsed.hostname or "").lower().removeprefix("www.")
+                if (
+                    host != "linkedin.com"
+                    or not parsed.path.startswith("/in/")
+                    or not parsed.path.removeprefix("/in/").strip("/")
+                    or "/" in parsed.path.removeprefix("/in/").rstrip("/")
+                    or parsed.username
+                    or parsed.password
+                ):
+                    raise ValueError("Use a LinkedIn /in/ profile URL for a contact")
+                linkedin = urlunsplit(
+                    ("https", "www.linkedin.com", parsed.path.rstrip("/").lower(), "", "")
+                )
+            identity_conditions = []
+            if email:
+                identity_conditions.append(func.lower(Contact.email) == email)
+            if linkedin:
+                saved_link = func.regexp_replace(
+                    func.lower(
+                        func.rtrim(
+                            func.split_part(func.split_part(Contact.linkedin_url, "?", 1), "#", 1),
+                            "/",
+                        )
+                    ),
+                    r"^https?://(www\.)?",
+                    "",
+                )
+                identity_conditions.append(saved_link == linkedin.removeprefix("https://www."))
+            if identity_conditions:
+                contact = unique_match(
+                    list(
+                        session.scalars(
+                            select(Contact).where(
+                                Contact.owner_id == owner_id,
+                                Contact.archived_at.is_(None),
+                                or_(*identity_conditions),
+                            )
+                        )
+                    ),
+                    "contact",
+                )
+            else:
+                # An exact replay of an identifier-free source may reuse its own
+                # deterministic contact; another same-named person is ambiguous.
+                contact = session.get(
+                    Contact, uuid5(owner_id, f"intake-contact:{text_digest}:{name.lower()}")
+                )
+                if contact is not None and contact.archived_at is not None:
+                    raise RecordConflict("The captured contact was archived; select contact_id")
+                names = list(
+                    session.scalars(
+                        select(Contact.id).where(
+                            Contact.owner_id == owner_id,
+                            Contact.archived_at.is_(None),
+                            func.lower(func.btrim(Contact.name)) == name.lower(),
+                        )
+                    )
+                )
+                if contact is None and names:
+                    raise RecordConflict(
+                        "A same-named contact exists; supply email, LinkedIn URL or contact_id"
+                    )
+            if contact is not None:
+                if email and contact.email and contact.email.lower() != email:
+                    raise RecordConflict("Contact identifiers conflict; select contact_id")
+                if linkedin and contact.linkedin_url:
+                    parsed_saved = urlsplit(contact.linkedin_url)
+                    if parsed_saved.path.rstrip("/").lower() != urlsplit(linkedin).path:
+                        raise RecordConflict("Contact identifiers conflict; select contact_id")
+            if contact is None:
+                identity_key = (
+                    f"intake-contact:{text_digest}:{name.lower()}:{email or ''}:{linkedin or ''}"
+                    if identity_conditions
+                    else f"intake-contact:{text_digest}:{name.lower()}"
+                )
+                contact_record_id = uuid5(owner_id, identity_key)
+                if session.get(Contact, contact_record_id) is not None:
+                    raise RecordConflict("The captured contact was archived; select contact_id")
+                contact = save_new(
+                    Contact(
+                        id=contact_record_id,
+                        owner_id=owner_id,
+                        company_id=company.id,
+                        name=name,
+                        email=email,
+                        linkedin_url=linkedin,
+                        title=contact_data.get("title"),
+                        notes=contact_data.get("notes"),
+                    ),
+                    "contact",
+                )
+
+        job = None
+        job_data = data.get("job")
+        if data.get("job_id"):
+            if job_data:
+                raise ValueError("Provide either job_id or job details")
+            job = owned_record(Job, data["job_id"])
+            if job.company_id != company.id:
+                raise RecordConflict("The saved job belongs to another company")
+        elif job_data:
+            job_url = normalize_public_url(job_data["url"])
+            job = unique_match(
+                list(
+                    session.scalars(
+                        select(Job).where(
+                            Job.owner_id == owner_id,
+                            Job.archived_at.is_(None),
+                            Job.source_url == job_url,
+                        )
+                    )
+                ),
+                "job",
+            )
+            if job is not None and job.company_id != company.id:
+                raise RecordConflict(
+                    "The saved job belongs to another company; select its company_id"
+                )
+            if job is None:
+                job = save_new(
+                    Job(
+                        id=uuid5(record_id, "job"),
+                        owner_id=owner_id,
+                        company_id=company.id,
+                        title=job_data["title"],
+                        source_url=job_url,
+                        location=job_data.get("location"),
+                        status="unknown",
+                    ),
+                    "job",
+                )
+
+        contact_id = contact.id if contact else None
+        job_id = job.id if job else None
+        if data.get("opportunity_id"):
+            opportunity = owned_record(cls, data["opportunity_id"])
+            if (
+                opportunity.company_id != company.id
+                or opportunity.contact_id != contact_id
+                or opportunity.job_id != job_id
+            ):
+                raise RecordConflict(
+                    "The selected opportunity has different links; "
+                    "supply its existing contact/job context"
+                )
+        else:
+            conditions = [
+                cls.owner_id == owner_id,
+                cls.archived_at.is_(None),
+                cls.company_id == company.id,
+            ]
+            if job:
+                conditions.append(cls.job_id == job.id)
+            else:
+                conditions += [
+                    cls.job_id.is_(None),
+                    cls.contact_id == contact_id,
+                    func.lower(func.btrim(cls.title)) == title.lower(),
+                ]
+            opportunity = unique_match(
+                list(session.scalars(select(cls).where(*conditions).with_for_update())),
+                "opportunity",
+            )
+            if (
+                opportunity is not None
+                and opportunity.contact_id is None
+                and contact_id is not None
+            ):
+                opportunity.revise({"contact_id": contact_id}, request_id=request_id)
+            if opportunity is not None and opportunity.contact_id != contact_id:
+                raise RecordConflict(
+                    "The saved opportunity has a different contact; select its existing contact_id"
+                )
+            if opportunity is None:
+                opportunity = save_new(
+                    cls(
+                        id=record_id,
+                        owner_id=owner_id,
+                        company_id=company.id,
+                        job_id=job_id,
+                        contact_id=contact_id,
+                        title=title,
+                        notes=data.get("notes"),
+                        stage="researching",
+                    ),
+                    "opportunity",
+                )
+
+        source_identity = hashlib.sha256(
+            f"{locator}\n{text}\n{source_version_id or ''}\n{source_message_id or ''}".encode()
+        ).hexdigest()
+        source_id = uuid5(opportunity.id, f"private-lead-source:{source_identity}")
+        source = session.get(SourceRecord, source_id)
+        if source is None:
+            source = SourceRecord.capture_for_opportunity(
+                session,
+                record_id=source_id,
+                opportunity_id=opportunity.id,
+                owner_id=owner_id,
+                title=title,
+                url=locator,
+                text=text,
+                provider="user",
+                extraction_method="private_lead_intake",
+                request_id=request_id,
+                sensitivity="private",
+                account_scope="private",
+                source_version_ids=[source_version_id] if source_version_id else None,
+                source_message_id=source_message_id,
+            )
+            created["source"] = True
+        return opportunity, job, company, contact, source, created
 
     def revise(self, changes: dict[str, Any], *, request_id: UUID) -> None:
         previous = self.stage

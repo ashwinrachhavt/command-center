@@ -400,9 +400,7 @@ def test_worker_creates_one_derived_version_without_completing_review_task(
             job.extraction_artifact_id,
         }
 
-    found = client.get(
-        "/api/v1/artifacts", params={"collection": "library", "q": "extracted resume"}
-    )
+    found = client.get("/api/v1/artifacts", params={"collection": "vault", "q": "extracted resume"})
     assert found.status_code == 200, found.text
     assert {row["id"] for row in found.json()["items"]} == {imported["artifact_id"]}
     # A replacement original must not continue matching an older extraction.
@@ -416,7 +414,7 @@ def test_worker_creates_one_derived_version_without_completing_review_task(
     assert replacement.status_code == 202, replacement.text
     assert (
         client.get(
-            "/api/v1/artifacts", params={"collection": "library", "q": "extracted resume"}
+            "/api/v1/artifacts", params={"collection": "vault", "q": "extracted resume"}
         ).json()["total"]
         == 0
     )

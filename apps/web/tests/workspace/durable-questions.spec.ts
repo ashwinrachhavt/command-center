@@ -46,6 +46,8 @@ test("restores branch questions and retries one answer without losing its draft"
 
   await page.evaluate(async () => {
     await fetch("/api/backend/test/fail-question-refresh", { method: "POST" });
+    window.dispatchEvent(new Event("offline"));
+    window.dispatchEvent(new Event("online"));
   });
   await expect(
     page.getByText(
@@ -81,6 +83,8 @@ test("restores branch questions and retries one answer without losing its draft"
 
   await page.evaluate(async () => {
     await fetch("/api/backend/test/wait-for-next-question", { method: "POST" });
+    window.dispatchEvent(new Event("offline"));
+    window.dispatchEvent(new Event("online"));
   });
   await expect(
     application.getByRole("button", { name: "Answer", exact: true }),

@@ -158,6 +158,8 @@ it("keeps the mounted settings draft when a background profile refetch fails", a
             ),
       );
     }
+    if (route.endsWith("/mcp-clients"))
+      return Promise.resolve(Response.json([]));
     if (route.endsWith("/integrations")) {
       return Promise.resolve(
         Response.json({

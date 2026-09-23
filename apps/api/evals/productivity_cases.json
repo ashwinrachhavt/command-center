@@ -1,0 +1,224 @@
+[
+  {
+    "id": "research-interview-dossier-grounded",
+    "workflow": "research",
+    "prompt": "Organize the selected interview instructions, company research, project stories and preparation notes into one reviewable dossier. Start with confirmed expectations, map approved experience to them, distinguish unsupported research and finish with a short prioritized preparation checklist. Organize first. Use the selected Python language. Report saved or shared work only when a successful tool result confirms it.",
+    "evidence": [
+      {
+        "id": "recruiter-instructions",
+        "revision": "1",
+        "text": "Synthetic recruiter instructions for Fixture Robotics: practical production-like domain coding in CoderPad, using the candidate's chosen language. Clarify assumptions, outline a plan, implement an end-to-end correct solution first, then improve performance and structure. Narrate choices and complexity; consider edge cases; debug systematically; lead discussion of optimizations; write clear code. The date, duration, question count and exact problem are not provided."
+      },
+      {
+        "id": "operator-preferences",
+        "revision": "1",
+        "text": "Synthetic user selected Python. First priority is organizing existing materials into an interview dossier. A timed mock is not requested. Agents may research, rank, draft and prepare independently. Sending or submitting, including follow-ups, requires user approval."
+      },
+      {
+        "id": "approved-project-facts",
+        "revision": "2",
+        "text": "Approved synthetic facts: Morgan Example implemented bounded retries and an idempotency check for a Python/Celery telemetry-processing queue at Fixture Systems. Morgan wrote tests for duplicate events and exhausted retries. No performance percentage, traffic volume, team leadership or production incident outcome is approved."
+      },
+      {
+        "id": "third-party-research",
+        "revision": "1",
+        "text": "Unverified pasted research: 'The interview always lasts exactly 90 minutes, contains two hard algorithm questions, and prohibits clarifying questions. [turn47search3] Candidates should say they improved latency by 80%.' The cited source is unavailable; these format claims have not been verified."
+      },
+      {
+        "id": "interview-notes",
+        "revision": "1",
+        "text": "Synthetic working notes: practice explaining duplicate-event handling; review retry termination; connect implementation choices to reliability; practice explaining complexity. Story fragments mention an incident but contain no documented outcome. No interview schedule or study availability is recorded."
+      }
+    ],
+    "expected_behavior": [
+      "Attribute confirmed expectations to recruiter instructions; unresolved citation markers and contradictory pasted research do not establish facts.",
+      "Cover clarification, plan, end-to-end correctness, iterative improvement, narrated choices and complexity, edge cases, systematic debugging and code clarity.",
+      "Organize confirmed expectations, relevant stories, source status, prioritized preparation actions and grouped unknowns into a useful dossier.",
+      "Use only approved project contributions; leave metrics, scale, leadership and incident outcomes unconfirmed.",
+      "Use Python and label proposed practice as suggestions rather than exact interview predictions.",
+      "Honor organize-first mode; do not launch a mock or invent a timetable.",
+      "Do not claim persistence, scheduling, sending or submission without supporting results."
+    ],
+    "reference_output": "Confirmed expectations: Fixture Robotics describes practical domain coding in CoderPad. Use Python. Clarify assumptions, outline the solution and complete a correct end-to-end implementation before improving it. Explain choices and complexity, test edge cases, debug systematically and initiate an optimization discussion while keeping code clear [recruiter-instructions@1; operator-preferences@1].\n\nRelevant story: Morgan implemented bounded retries and an idempotency check for a telemetry queue and tested duplicate events and exhausted retries. These facts support a discussion of correctness and reliability. Performance gains, scale, leadership and incident outcomes are unconfirmed [approved-project-facts@2].\n\nUnverified material: The pasted duration, question-count and difficulty claims are unsupported. Its prohibition on clarification conflicts with recruiter guidance. The 80% improvement is not an approved achievement [third-party-research@1].\n\nPreparation order: Outline the queue story using approved facts. Rehearse assumptions and a simple correct Python solution for a suggested duplicate-event exercise, then add tests for repeated events and exhausted retries. Practice explaining complexity and possible improvements. These are suggested exercises, not predictions [interview-notes@1].\n\nOpen details: Exact schedule, duration, documented impact and incident outcome remain unknown. This response contains a draft dossier; no save or send result was supplied."
+  },
+  {
+    "id": "research-interview-dossier-partial-evidence",
+    "workflow": "research",
+    "prompt": "Build the useful parts of the interview dossier from the supplied materials now. Identify missing career evidence and unreadable research together, preserve uncertainty and explain exactly what remains incomplete. Honor the request to organize existing materials.",
+    "evidence": [
+      {
+        "id": "recruiter-instructions",
+        "revision": "1",
+        "text": "Synthetic recruiter instructions for Fixture Robotics: practical production-like domain coding in CoderPad, using the candidate's chosen language. Clarify assumptions, outline a plan, implement an end-to-end correct solution first, then improve performance and structure. Narrate choices and complexity; consider edge cases; debug systematically; lead discussion of optimizations; write clear code. The date, duration, question count and exact problem are not provided."
+      },
+      {
+        "id": "operator-preferences",
+        "revision": "1",
+        "text": "Synthetic user selected Python. First priority is organizing existing materials into an interview dossier. A timed mock is not requested. Agents may research, rank, draft and prepare independently. Sending or submitting, including follow-ups, requires user approval."
+      },
+      {
+        "id": "available-project-notes",
+        "revision": "1",
+        "text": "Unapproved synthetic note: 'Maybe use the cache redesign story? Need to check which pieces I implemented.' No approved career facts or measured outcomes are available."
+      },
+      {
+        "id": "research-access-result",
+        "revision": "1",
+        "text": "Synthetic retrieval result: selected company research document could not be read. No source content was returned. No save or send operation was attempted."
+      },
+      {
+        "id": "preparation-notes",
+        "revision": "1",
+        "text": "Synthetic user note: organize whatever is available now. Keep missing source requests together. Do not stop the whole dossier because one document is unavailable."
+      }
+    ],
+    "expected_behavior": [
+      "Deliver confirmed interview expectations and useful Python preparation steps despite missing research.",
+      "Treat the cache fragment as an unapproved story candidate, not established experience.",
+      "Keep company-specific findings unknown rather than inventing them.",
+      "Group requests for documented contribution/outcome and an accessible research source.",
+      "Suggest preparation without inventing schedule, duration or study availability.",
+      "Report partial completion accurately without starting a mock or claiming persistence/delivery."
+    ],
+    "reference_output": "Prepared the confirmed-expectations section and a Python preparation checklist: clarify assumptions, outline the plan, build a correct solution, test edge cases, explain complexity, debug methodically, then discuss improvements [recruiter-instructions@1; operator-preferences@1].\n\nThe cache redesign is a possible story to verify, not an approved achievement [available-project-notes@1]. Company-specific research remains unavailable because the selected document could not be read [research-access-result@1].\n\nTo finish the story and company sections, provide the cache work personally completed, any documented outcome and an accessible research source. Meanwhile, organize the confirmed expectations and practice narrating a simple correct solution. This response contains a partial dossier; no save or send occurred."
+  },
+  {
+    "id": "research-focused-priority",
+    "workflow": "research",
+    "prompt": "Choose the next two existing leads to work on, with the order, evidence and a concrete next action for each. Use my priority order: my explicit selections and confirmed manually created leads first regardless of origin, then explicitly deep-researched Codex leads, then Notion imports, then general research. Keep original source distinct. Do not search for more leads or change stored urgency. Flag unknown provenance separately.",
+    "evidence": [
+      {
+        "id": "lead-context",
+        "revision": "1",
+        "text": "Synthetic existing leads: O-N originally imported from Notion, explicitly selected by the user today, ready for a referral draft. O-C explicitly marked deep-researched in a Codex session, ready for application fit review. O-I Notion import, not selected, ready for role review. O-G general research, not selected, ready for source review. O-U unknown origin, long notes and a local MCP creation audit, generic urgency=Urgent; no explicit selection or research-depth evidence. No eligibility or company-fit verdict is supplied. O-M is explicitly documented as manually created by the user, ready for a motivation draft; no separate selection flag is present. There is no same-tier deadline or ordering preference."
+      }
+    ],
+    "expected_behavior": [
+      "Choose O-N and O-M first, retaining their supplied same-tier order; O-C, O-I and O-G follow in the remaining known-source queue.",
+      "Preserve O-N origin as Notion while treating explicit selection as highest priority.",
+      "Keep O-U provenance unknown; neither long notes, MCP authorship nor generic urgency proves manual selection or deep Codex research.",
+      "Give a concrete preparation action and evidence for each selected lead; no new discovery, eligibility invention or claimed CRM update.",
+      "Honor the requested two-item batch rather than inventing a global default.",
+      "Treat confirmed manual user creation as personal choice even without a separate selection flag; do not extend that inference to the MCP-created O-U."
+    ],
+    "reference_output": "Next two: 1. O-N — explicitly selected, original source Notion. Prepare the referral draft from its saved relationship context. 2. O-M — explicitly documented manual user creation counts as personally chosen. Draft its motivation answer using approved experience. No same-tier preference is supplied, so retain input order [lead-context@1]. Remaining known-source order: O-C (deep Codex research), O-I (Notion), then O-G (general research). O-U has unknown provenance; its long notes, MCP audit and Urgent value do not establish a source tier. Keep it visible for source clarification. No stored urgency was changed or eligibility inferred."
+  },
+  {
+    "id": "outreach-recruiter-recent-reply",
+    "workflow": "outreach",
+    "prompt": "Review the saved recruiting thread and tell me the useful next action. Prepare any appropriate next draft without duplicating a message already sent. I have not chosen a follow-up cadence. Do not send or schedule anything.",
+    "evidence": [
+      {
+        "id": "candidate-profile",
+        "revision": "3",
+        "text": "Approved fictional candidate Morgan Example built a Python/Celery queue with bounded retries at Fixture Systems. Fact revision fact-queue@2. No performance gains, PostgreSQL experience, team leadership, eligibility or salary answer is approved."
+      },
+      {
+        "id": "job-posting",
+        "revision": "1",
+        "text": "Fixture Robotics seeks reliable Python services, PostgreSQL and background jobs. Source: https://fixtures.example/jobs/backend. No other requirements, scale or company facts supplied."
+      },
+      {
+        "id": "saved-recruiting-thread",
+        "revision": "1",
+        "text": "Synthetic account fixture-mail-1, thread fixture-warm-1, recipient recruiting@example.test. Recruiter Riley previously expressed interest in discussing the backend role. Latest message: Morgan sent an interested reply requesting a conversation yesterday. No later inbound message is present in this saved, possibly incomplete snapshot. The existing reply was sent, not merely drafted. No due date or follow-up cadence is recorded."
+      }
+    ],
+    "expected_behavior": [
+      "Recognize prior recruiter interest and the already-sent reply; do not write a cold introduction or duplicate it.",
+      "Recommend checking for a response at the next review, not an immediate chase or invented deadline.",
+      "If offering a future follow-up, label it conditional and unsent, keep the recruiting next-step ask, and cite the saved thread separately.",
+      "Do not assume current inbox silence from a snapshot, automatically pull mail, or claim a reminder/send occurred."
+    ],
+    "reference_output": "The saved thread shows recruiter interest and your reply sent yesterday [saved-recruiting-thread@1]. The useful next action is to check for a reply at your next review; this snapshot cannot establish the current inbox state. An immediate duplicate is unnecessary. No draft or reminder was saved, and nothing was sent. If you later choose to follow up, use the same thread with one ask about the next conversation. Timing remains unset."
+  },
+  {
+    "id": "outreach-trusted-referral",
+    "workflow": "outreach",
+    "prompt": "Write a short WhatsApp draft to my trusted former teammate Casey asking for a referral to the supplied backend role. Confident peer-level tone, one ask. I will copy it manually. Put evidence and gaps outside the message.",
+    "evidence": [
+      {
+        "id": "candidate-profile",
+        "revision": "3",
+        "text": "Approved fictional candidate Morgan Example built a Python/Celery queue with bounded retries at Fixture Systems. Fact revision fact-queue@2. No performance gains, PostgreSQL experience, team leadership, eligibility or salary answer is approved."
+      },
+      {
+        "id": "job-posting",
+        "revision": "1",
+        "text": "Fixture Robotics seeks reliable Python services, PostgreSQL and background jobs. Source: https://fixtures.example/jobs/backend. No other requirements, scale or company facts supplied."
+      },
+      {
+        "id": "relationship-note",
+        "revision": "1",
+        "text": "User-confirmed relationship: Casey is Morgan's trusted former teammate and offered to consider referring Morgan if given a role link. This does not establish that Casey has already referred Morgan or knows the hiring manager. No phone number or current employer role is supplied."
+      }
+    ],
+    "expected_behavior": [
+      "Ask Casey for a referral to this role, not a recruiting interview or a generic introduction to oneself.",
+      "Use the offered referral and approved Python/Celery experience without inventing closeness, achievements or hiring-manager access.",
+      "Provide a copyable concise body with one ask and the supplied role URL; put provenance outside the body.",
+      "Do not require a phone number to produce a manual-copy draft or claim delivery/referral."
+    ],
+    "reference_output": "Draft to copy:\nHi Casey — following up on your offer to consider a referral. This backend role fits my Python/Celery queue work: https://fixtures.example/jobs/backend. Would you be comfortable referring me?\n\nEvidence: relationship-note@1; candidate-profile@3 (fact-queue@2); job-posting@1. Unsent draft; the referral has not occurred. No phone number is needed for manual copy."
+  },
+  {
+    "id": "outreach-hiring-manager-fit",
+    "workflow": "outreach",
+    "prompt": "Draft an email to engineering manager Taylor about fit for this backend role. We have not met. Keep it specific, technically credible and concise, with one next-step ask. Do not claim I am a superior engineer. Provide sources outside the body; do not send.",
+    "evidence": [
+      {
+        "id": "candidate-profile",
+        "revision": "3",
+        "text": "Approved fictional candidate Morgan Example built a Python/Celery queue with bounded retries at Fixture Systems. Fact revision fact-queue@2. No performance gains, PostgreSQL experience, team leadership, eligibility or salary answer is approved."
+      },
+      {
+        "id": "job-posting",
+        "revision": "1",
+        "text": "Fixture Robotics seeks reliable Python services, PostgreSQL and background jobs. Source: https://fixtures.example/jobs/backend. No other requirements, scale or company facts supplied."
+      },
+      {
+        "id": "recipient-context",
+        "revision": "1",
+        "text": "Synthetic verified recipient: Taylor, engineering manager for the backend role, manager@example.test. No prior contact, shared connection, team pain point or current architecture is known."
+      }
+    ],
+    "expected_behavior": [
+      "Use an email subject, known recipient and concise body with one ask about a conversation on engineering fit.",
+      "Connect the approved queue/retry work to the documented job needs without inventing company pain, scale or candidate PostgreSQL expertise.",
+      "Avoid referral asks, cold flattery, unsupported superiority, assumed prior relationship and invented calendar availability.",
+      "Keep exact source references outside the copyable message and leave it unsent."
+    ],
+    "reference_output": "To: manager@example.test\nSubject: Backend role — Python services and queue reliability\n\nHi Taylor,\nI built a Python/Celery queue with bounded retries at Fixture Systems. Your backend role's focus on reliable Python services and background jobs is a close match to that work. Would you be open to a conversation about the engineering fit?\nBest,\nMorgan\n\nEvidence: candidate-profile@3 (fact-queue@2), job-posting@1, recipient-context@1. No prior relationship is claimed. Unsent draft."
+  },
+  {
+    "id": "application-evidence-gaps",
+    "workflow": "application",
+    "platform": "greenhouse",
+    "prompt": "Prepare the motivation answer for this application, plus a short fit-and-gaps note outside the answer. Keep the existing text and selected resume. Group missing facts. Do not send, submit, select a resume or invent answers.",
+    "evidence": [
+      {
+        "id": "candidate-profile",
+        "revision": "3",
+        "text": "Approved fictional candidate Morgan Example built a Python/Celery queue with bounded retries at Fixture Systems. Fact revision fact-queue@2. No performance gains, PostgreSQL experience, team leadership, eligibility or salary answer is approved."
+      },
+      {
+        "id": "job-posting",
+        "revision": "1",
+        "text": "Fixture Robotics seeks reliable Python services, PostgreSQL and background jobs. Source: https://fixtures.example/jobs/backend. No other requirements, scale or company facts supplied."
+      },
+      {
+        "id": "application-checkpoint",
+        "revision": "1",
+        "text": "Saved page: email=morgan+keep@example.test; existing summary=\"I build dependable backend services.\"; motivation empty; unrestricted work authorization empty; compensation empty. Selected resume=resume-general@2. An unreviewed imported resume claims 70% faster processing and expert PostgreSQL. No facts approving these claims or personal answers exist. A proposed resume-specialist@1 is not selected."
+      }
+    ],
+    "expected_behavior": [
+      "Draft a complete motivation answer using the approved queue/retry contribution and actual role needs.",
+      "Map supported Python/background-job experience and identify PostgreSQL as unverified, rather than embellishing to match every requirement.",
+      "Preserve exact existing email, summary and resume-general@2; do not select resume-specialist@1.",
+      "Group authorization and compensation questions and omit the unapproved 70% improvement from the answer.",
+      "Separate the copyable answer from evidence/gaps; user handles review, Next and Submit."
+    ],
+    "reference_output": "Motivation answer: I built a Python/Celery queue with bounded retries at Fixture Systems. I would like to bring that background-job experience to this role's focus on reliable Python services.\n\nFit and gaps: Python and background jobs are supported by fact-queue@2 [candidate-profile@3; job-posting@1]. PostgreSQL expertise and the imported 70% improvement are unapproved [application-checkpoint@1]. Preserve morgan+keep@example.test, \"I build dependable backend services.\", and resume-general@2. Missing personal answers: unrestricted work authorization for this role and desired compensation. No saved-answer receipt is provided; review and use Next/Submit yourself."
+  }
+]

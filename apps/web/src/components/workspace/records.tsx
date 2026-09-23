@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -58,7 +59,13 @@ import type { RecordDetailProps } from "./record-detail";
 import { LeadDiscovery } from "./lead-discovery";
 import { DocumentIntake } from "./document-intake";
 import { RecordWorkButton } from "./record-agent-work";
+import {
+  ContactOutreach,
+  defaultOutreachBrief,
+  outreachActive,
+} from "./contact-outreach";
 import { useWorkspaceContext } from "./context";
+import { ContactBatchEnrich } from "./contact-batch-enrich";
 import type { ContactDiscoveryProps } from "./contact-discovery";
 const DeferredContactDiscovery = deferView<ContactDiscoveryProps>(
   () =>
@@ -91,6 +98,7 @@ export function Records({ resource }: { resource: Resource }) {
   const [ascending, setAscending] = useState(false);
   const [creating, setCreating] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [outreachBrief, setOutreachBrief] = useState(defaultOutreachBrief);
   const limit = 20;
   const params = new URLSearchParams({
     q,
@@ -103,6 +111,13 @@ export function Records({ resource }: { resource: Resource }) {
     queryKey: [resource, params.toString()],
     queryFn: ({ signal }) =>
       api<Page<WorkspaceRecord>>(`${resource}?${params}`, { signal }),
+    refetchInterval: (query) =>
+      resource === "contacts" &&
+      query.state.data?.items.some((row) =>
+        outreachActive((row as Resources["contacts"]).outreach?.state),
+      )
+        ? 2500
+        : false,
   });
   const companyIds = [
     ...new Set(
@@ -279,6 +294,41 @@ export function Records({ resource }: { resource: Resource }) {
               {ascending ? "Name A–Z (page)" : "Newest first"}
             </Button>
           </div>
+          {resource === "contacts" && !selected && (
+            <div className="flex flex-wrap items-start gap-3 border-t border-border px-5 py-3 md:px-9">
+              <details className="min-w-0 flex-1">
+                <summary className="cursor-pointer text-xs font-medium">
+                  LinkedIn connection notes{" "}
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    200 characters · Work opportunities · Customize brief
+                  </span>
+                </summary>
+                <label className="mt-3 block max-w-2xl space-y-2 text-xs text-muted-foreground">
+                  <span>
+                    Your goal and writing style. Add a sample of your voice if
+                    you like.
+                  </span>
+                  <Textarea
+                    aria-label="Outreach brief"
+                    value={outreachBrief}
+                    maxLength={3000}
+                    rows={3}
+                    onChange={(event) => setOutreachBrief(event.target.value)}
+                  />
+                  <span className="block">
+                    Quick notes use saved context and at most one targeted
+                    lookup. Enrich contact runs deeper research when you need
+                    it.
+                  </span>
+                </label>
+              </details>
+              <ContactBatchEnrich
+                key={params.toString()}
+                contacts={rows as Resources["contacts"][]}
+                instructions={outreachBrief}
+              />
+            </div>
+          )}
           {query.isPending ? (
             <LoadingRows />
           ) : query.error ? (
@@ -322,6 +372,8 @@ export function Records({ resource }: { resource: Resource }) {
           ) : (
             <Table
               className={cn(
+                resource === "contacts" &&
+                  "max-md:block max-md:[&_thead]:sr-only max-md:[&_tbody]:block max-md:[&_tr]:flex max-md:[&_tr]:h-auto max-md:[&_tr]:flex-wrap max-md:[&_tr]:px-3 max-md:[&_td:nth-child(1)]:hidden max-md:[&_td:nth-child(2)]:order-1 max-md:[&_td:nth-child(2)]:w-[calc(100%-2rem)] max-md:[&_td:nth-child(3)]:hidden max-md:[&_td:nth-child(4)]:hidden max-md:[&_td:nth-child(5)]:order-3 max-md:[&_td:nth-child(5)]:w-full max-md:[&_td:nth-child(6)]:order-2 max-md:[&_td:nth-child(6)]:w-8 max-md:[&_td:nth-child(6)]:p-0",
                 selected &&
                   "[&_th:not(:nth-child(2))]:hidden [&_td:not(:nth-child(2))]:hidden [&_td]:max-w-[256px] [&_td]:px-4",
               )}
@@ -360,7 +412,7 @@ export function Records({ resource }: { resource: Resource }) {
                     {["tasks", "opportunities"].includes(resource)
                       ? "Priority"
                       : resource === "contacts"
-                        ? "Email"
+                        ? "LinkedIn outreach"
                         : resource === "companies"
                           ? "Research"
                           : "Updated"}
@@ -471,7 +523,10 @@ export function Records({ resource }: { resource: Resource }) {
                       {["tasks", "opportunities"].includes(resource) ? (
                         <Priority value={Number(field(row, "priority"))} />
                       ) : resource === "contacts" ? (
-                        field(row, "email") || "—"
+                        <ContactOutreach
+                          contact={row as Resources["contacts"]}
+                          instructions={outreachBrief}
+                        />
                       ) : resource === "companies" ? (
                         (row as Resources["companies"]).latest_research ? (
                           <button

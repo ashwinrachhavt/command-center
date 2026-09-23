@@ -46,7 +46,7 @@ export async function connectionsFixture(url: URL, init?: RequestInit) {
       services: [],
       model_providers: [],
       composio_configured: true,
-      composio_toolkits: ["gmail", "googlecalendar", "linear"],
+      composio_toolkits: ["gmail", "googlecalendar", "linear", "linkedin"],
       auth: "clerk",
     });
   if (!route.startsWith("integrations/composio/")) return null;
@@ -54,8 +54,24 @@ export async function connectionsFixture(url: URL, init?: RequestInit) {
     requests.push({ route, body: JSON.parse(String(init?.body ?? "{}")) });
   if (route === "integrations/composio/accounts")
     return Response.json(accounts);
-  if (route === "integrations/composio/accounts/sync")
+  if (route === "integrations/composio/accounts/sync") {
+    if (
+      new URLSearchParams(location.search).get("toolkit") === "linkedin" &&
+      !accounts.some((account) => account.toolkit === "linkedin")
+    ) {
+      accounts.push({
+        id: "44444444-4444-4444-8444-444444444444",
+        row_version: 1,
+        toolkit: "linkedin",
+        display_name: "Alex Synthetic",
+        provider_identity: { sub: "member-synthetic" },
+        connection_status: "ACTIVE",
+        identity_verified_at: "2026-09-23T10:00:00Z",
+        selected_purpose: null,
+      });
+    }
     return Response.json(accounts);
+  }
   const selection = route.match(
     /^integrations\/composio\/accounts\/([^/]+)\/select$/,
   );

@@ -2,14 +2,26 @@
 
 import type { Resource } from "@/lib/api";
 import { deferView } from "./deferred-view";
+import { OpportunityNavigation } from "./opportunity-navigation";
 
 const Records = deferView<{ resource: Resource }>(
   () => import("./records").then((module) => ({ default: module.Records })),
   "records",
 );
-const Library = deferView<{ notes?: boolean }>(
+const Library = deferView<{ notes?: boolean; vault?: boolean }>(
   () => import("./library").then((module) => ({ default: module.Library })),
   "library",
+);
+const AgentSettings = deferView<Record<string, never>>(
+  () =>
+    import("./agent-settings").then((module) => ({
+      default: module.AgentSettings,
+    })),
+  "agent settings",
+);
+const Overview = deferView<Record<string, never>>(
+  () => import("./overview").then((module) => ({ default: module.Overview })),
+  "daily overview",
 );
 const Agents = deferView<Record<string, never>>(
   () => import("./agents").then((module) => ({ default: module.Agents })),
@@ -60,6 +72,9 @@ export type WorkspaceSection =
   | "settings"
   | "connections"
   | "library"
+  | "documents"
+  | "agent-settings"
+  | "overview"
   | "notes"
   | "memory"
   | "browser"
@@ -71,6 +86,12 @@ export function SectionView({ section }: { section: WorkspaceSection }) {
   switch (section) {
     case "library":
       return <Library />;
+    case "documents":
+      return <Library key="vault" vault />;
+    case "agent-settings":
+      return <AgentSettings />;
+    case "overview":
+      return <Overview />;
     case "notes":
       return <Library key="notes" notes />;
     case "agents":
@@ -84,7 +105,20 @@ export function SectionView({ section }: { section: WorkspaceSection }) {
     case "browser":
       return <Browser />;
     case "applications":
-      return <Applications />;
+      return (
+        <>
+          <OpportunityNavigation />
+          <Applications />
+        </>
+      );
+    case "opportunities":
+    case "jobs":
+      return (
+        <>
+          <OpportunityNavigation />
+          <Records key={section} resource={section} />
+        </>
+      );
     case "activity":
       return <Activity />;
     case "actions":

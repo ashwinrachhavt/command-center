@@ -17,6 +17,7 @@ from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity
 from command_center.db.agents import AgentRun
 from command_center.db.artifacts import Artifact
+from command_center.db.contact_research import ContactResearch
 from command_center.db.conversations import AgentSession
 from command_center.db.models import Task
 from command_center.db.record_work import RecordResource, RecordWork
@@ -26,6 +27,8 @@ router = APIRouter(prefix="/api/v1", tags=["record work"])
 
 
 class WorkCreate(s.Contract):
+    research_requested: bool = False
+    connection_note: bool = False
     instructions: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(
         default="", max_length=3000
     )
@@ -33,6 +36,7 @@ class WorkCreate(s.Contract):
 
 
 class WorkOutput(s.Contract):
+    contact_research: ContactResearch | None = None
     text: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(
         min_length=1, max_length=30000
     )
@@ -107,10 +111,23 @@ def start_work(
     _human(identity)
 
     def change(record_id: UUID) -> dict[str, Any]:
-        profile_slug = "outreach" if resource == "contacts" else "research"
+        profile_slug = (
+            "connection"
+            if resource == "contacts" and body.connection_note and not body.research_requested
+            else "outreach"
+            if resource == "contacts"
+            else "research"
+        )
         profile, revision = available_profile(request, profile_slug)
         if not {"record_work_context", "save_record_work"}.issubset(profile.tools):
             raise HTTPException(503, "The selected agent profile needs record-work tools enabled")
+        if body.research_requested and not {
+            "research_search",
+            "capture_research_source",
+            "document_read",
+            "approved_profile",
+        }.issubset(profile.tools):
+            raise HTTPException(503, "The outreach profile needs public research and profile tools")
         ensure_default_spending_policy(db, identity.id)
         work = RecordWork.start(
             db,
@@ -124,6 +141,8 @@ def start_work(
             profile=profile_slug,
             configuration=profile.model_dump(mode="json"),
             revision=revision,
+            research_requested=body.research_requested,
+            connection_note=body.connection_note,
         )
         return work_read(db, work)
 
@@ -167,6 +186,7 @@ def save_work(
             text=body.text,
             subject=body.subject,
             source_version_ids=body.source_version_ids,
+            contact_research=body.contact_research,
         )
         return work_read(db, work)
 

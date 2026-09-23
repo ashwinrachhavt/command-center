@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 from pydantic import ValidationError
 
-from .contracts import Allowance, AllowanceExceeded, Captures, Plan, RunReport
+from .contracts import METRICS, Allowance, AllowanceExceeded, Captures, Plan, RunReport
 from .dataset import load_suite, reference_captures
 from .judge import BoundedJudge, EvaluatorError, evaluate_case
 
@@ -23,6 +23,7 @@ def no_network(mocker):
 
 @pytest.fixture
 def plan():
+    calls = len(load_suite().cases) * len(METRICS)
     return Plan.model_validate(
         {
             "schema_version": 1,
@@ -37,8 +38,8 @@ def plan():
             "thresholds": {"grounding": 1, "relevance": 0.8, "completion": 0.8},
             "max_input_tokens": 32768,
             "max_output_tokens": 2048,
-            "max_calls": 21,
-            "max_cost_micro_usd": 300000,
+            "max_calls": calls,
+            "max_cost_micro_usd": calls * 12288,
         }
     )
 
@@ -83,9 +84,9 @@ class OfflineJudge(BaseChatModel):
 
 def test_suite_requires_all_workflows_and_platforms():
     suite = load_suite()
-    assert len(suite.cases) == 7
+    assert len({case.id for case in suite.cases}) == len(suite.cases)
     invalid = suite.model_dump(mode="json")
-    invalid["cases"] = invalid["cases"][1:]
+    invalid["cases"] = [case for case in invalid["cases"] if case["platform"] != "greenhouse"]
     with pytest.raises(ValidationError, match="five application"):
         type(suite).model_validate(invalid)
 
@@ -97,7 +98,7 @@ def test_reference_outputs_and_stale_or_incomplete_captures_are_rejected():
         captures.bind(suite)
     data = captures.model_dump(mode="json")
     data["origin"] = "recorded_model"
-    assert len(Captures.model_validate(data).bind(suite)) == 7
+    assert len(Captures.model_validate(data).bind(suite)) == len(suite.cases)
     data["cases"][0]["input_sha256"] = "1" * 64
     with pytest.raises(ValueError, match="Capture input changed"):
         Captures.model_validate(data).bind(suite)
@@ -110,8 +111,13 @@ def test_spending_requires_explicit_opt_in_prices_and_sufficient_allowance(plan)
     with pytest.raises(ValueError, match="allow-paid"):
         plan.validate_run(load_suite(), allow_paid=False)
     plan.validate_run(load_suite(), allow_paid=True)
-    assert plan.upper_bound() == 258048
-    for changes in ({"max_cost_micro_usd": 0}, {"max_cost_micro_usd": 1}, {"max_calls": 20}):
+    # Independently calculated from this test's synthetic prices/token limits.
+    assert plan.upper_bound() == len(load_suite().cases) * len(METRICS) * 12288
+    for changes in (
+        {"max_cost_micro_usd": 0},
+        {"max_cost_micro_usd": plan.upper_bound() - 1},
+        {"max_calls": plan.max_calls - 1},
+    ):
         with pytest.raises(ValueError):
             plan.model_copy(update=changes).validate_run(load_suite(), allow_paid=True)
 

@@ -39,6 +39,21 @@ def profile(provider="openai", model="gpt-5-mini", **changes):
     )
 
 
+def test_cohere_native_errors_are_classified_without_exposing_provider_details():
+    from cohere.core.api_error import ApiError
+
+    from command_center.agents.models import model_failure_code
+
+    assert (
+        model_failure_code(ApiError(status_code=400, body="private upstream detail"))
+        == "model_request_rejected"
+    )
+    assert (
+        model_failure_code(ApiError(status_code=429, body="private upstream detail"))
+        == "model_rate_limited"
+    )
+
+
 def configured_settings(settings):
     return settings.model_copy(
         update={
@@ -48,6 +63,96 @@ def configured_settings(settings):
             "cohere_api_key": SecretStr("synthetic-cohere"),
         }
     )
+
+
+def test_quick_note_uses_low_reasoning_and_bounded_tools_without_reducing_company_research(
+    settings,
+):
+    profiles, _ = load_profiles(Path("agents/profiles.toml"), Path("agents/skills"))
+    quick, research = profiles["connection"], profiles["research"]
+    assert quick.max_output_tokens == 800
+    assert quick.max_tool_calls == 8
+    assert quick.tool_call_limits["research_search"] == 1
+    assert quick.tool_call_limits["capture_research_source"] == 1
+    assert not quick.skill_files
+    assert research.max_steps == 12
+    assert research.max_output_tokens == 2500
+    model = create_chat_model(configured_settings(settings), quick)
+    assert model.reasoning_effort == "low"
+    assert (
+        create_chat_model(
+            configured_settings(settings), quick.model_copy(update={"model": "gpt-4.1-mini"})
+        ).reasoning_effort
+        is None
+    )
+
+
+def test_quick_note_real_graph_fits_its_context_budget(settings, scripted_model, mocker):
+    from command_center.agents.tools import ToolRegistry
+
+    profiles, _ = load_profiles(Path("agents/profiles.toml"), Path("agents/skills"))
+    quick = profiles["connection"]
+    registry = ToolRegistry(settings, quick, uuid4(), uuid4(), "synthetic")
+    task_id = str(uuid4())
+    execute = mocker.AsyncMock(
+        side_effect=[
+            '{"record":{"name":"Synthetic Casey","notes":"Developer tools"},'
+            '"research_requested":false,"connection_note":true}' + " " * 6000,
+            '{"output_artifact_id":"synthetic-note"}',
+        ],
+    )
+
+    class SyntheticTools:
+        schemas = registry.schemas
+        aexecute = execute
+
+    model = scripted_model(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "record_work_context", "args": {"task_id": task_id}, "id": "context"}
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "save_record_work",
+                        "args": {
+                            "task_id": task_id,
+                            "text": "Hi Casey, I’m exploring developer tools. Could we connect?",
+                            "source_version_ids": [],
+                        },
+                        "id": "save",
+                    }
+                ],
+            ),
+            AIMessage(content="Your connection note is saved."),
+        ]
+    )
+    snapshots = []
+
+    async def persist(state):
+        snapshots.append(state)
+
+    output = asyncio.run(
+        run_graph(
+            quick,
+            "Write a short note from saved context." + " " * 3000,
+            SyntheticTools(),
+            persist,
+            model=model,
+            checkpointer=InMemorySaver(),
+            thread_id=str(uuid4()),
+        )
+    )
+    assert output == "Your connection note is saved."
+    assert [call.args[0] for call in execute.await_args_list] == [
+        "record_work_context",
+        "save_record_work",
+    ]
+    assert snapshots[-1]["steps"] == 3
 
 
 def request_for(settings):

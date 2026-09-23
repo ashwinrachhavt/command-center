@@ -55,6 +55,7 @@ def context_client(settings, engine, mocker):
         },
         "linear": {"id": "linear-user", "organization_id": "linear-org"},
         "notion": {"id": "notion-user", "name": "Synthetic Notion", "type": "person"},
+        "linkedin": {"sub": "linkedin-member"},
     }
     account_ids = {toolkit: uuid4() for toolkit in identities}
     foreign_account_id = uuid4()
@@ -138,6 +139,8 @@ def context_client(settings, engine, mocker):
             "calendar_event": "GOOGLECALENDAR_EVENTS_GET",
             "linear_issue": "LINEAR_GET_LINEAR_ISSUE",
             "notion_page": "NOTION_RETRIEVE_PAGE",
+            "linkedin_profile": "LINKEDIN_WHO_AM_I",
+            "linkedin_post": "LINKEDIN_GET_POST_CONTENT",
         }[query.kind]
         kwargs["reserve_budget"](slug, kwargs["charge"].operation_id).settle()
         return ConnectedContextResult(
@@ -173,6 +176,37 @@ def post(context_client, body, *, key=None):
         json=body,
         headers={"Idempotency-Key": str(key or uuid4())},
     )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {"kind": "linkedin_profile"},
+        {"kind": "linkedin_post", "post_id": "urn:li:share:123"},
+    ],
+)
+def test_linkedin_context_is_saved_and_rejects_the_wrong_account(context_client, engine, query):
+    response = post(
+        context_client,
+        {
+            "account_id": str(context_client.account_ids["linkedin"]),
+            "query": query,
+        },
+    )
+    assert response.status_code == 200, response.text
+    with Session(engine) as db:
+        observation = db.get(ProviderObservation, UUID(response.json()["observation_id"]))
+        assert observation.kind == query["kind"]
+    calls = list(context_client.provider_calls)
+    denied = post(
+        context_client,
+        {
+            "account_id": str(context_client.account_ids["linear"]),
+            "query": query,
+        },
+    )
+    assert denied.status_code == 422
+    assert context_client.provider_calls == calls
 
 
 def test_context_read_is_bounded_owned_audited_and_idempotent(context_client, engine):

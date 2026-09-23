@@ -36,6 +36,7 @@ router = APIRouter(prefix="/api/v1", tags=["agents"])
 
 
 class RunCreate(s.Contract):
+    continue_run_id: UUID | None = None
     profile: str = Field(max_length=100)
     prompt: str = Field(min_length=1, max_length=20000)
     provider: Literal["openai", "gemini", "mistral", "cohere"] | None = None
@@ -103,6 +104,17 @@ def available_profile(
     missing = missing_profile_configuration(request, profile)
     if missing:
         raise HTTPException(503, "Add " + ", ".join(missing) + " to run this profile")
+    from command_center.agents.models import cohere_tool_model
+
+    if any(
+        selected.provider == "cohere" and not cohere_tool_model(selected.model)
+        for selected in [profile, *profile.specialists.values()]
+    ):
+        raise HTTPException(
+            422,
+            "This Cohere model does not support agent tools. "
+            "Choose a Command R or Command A model.",
+        )
     return profile, revision
 
 
@@ -207,22 +219,39 @@ def queue_run(
     body: RunCreate, identity: CurrentIdentity, db: Database, key: WriteKey, request: Request
 ) -> dict[str, Any]:
     def change(record_id: UUID) -> dict[str, Any]:
+        from command_center.db.conversations import AgentSession
         from command_center.db.spending import ensure_default_spending_policy
 
         ensure_default_spending_policy(db, identity.id)
         profile, revision = available_profile(
             request, body.profile, provider=body.provider, model=body.model
         )
-        run = AgentRun.enqueue(
-            db,
-            record_id=record_id,
-            owner_id=identity.id,
-            prompt=body.prompt,
+        request_id = UUID(request.state.request_id)
+        conversation = (
+            AgentSession.for_run(
+                db,
+                run=owned(db, AgentRun, body.continue_run_id, identity.id),
+                request_id=request_id,
+            )
+            if body.continue_run_id
+            else AgentSession.open_chat(
+                db,
+                record_id=record_id,
+                owner_id=identity.id,
+                title=body.prompt,
+                request_id=request_id,
+            )
+        )
+        message = conversation.receive(
+            content=body.prompt,
             profile=body.profile,
             configuration=profile.model_dump(mode="json"),
             revision=revision,
-            request_id=UUID(request.state.request_id),
+            request_id=request_id,
         )
+        run = db.get(AgentRun, message.run_id)
+        assert run is not None
+        run.title = conversation.title
         db.flush()
         return serialize(run)
 
@@ -301,10 +330,15 @@ def connect_composio(
         raise HTTPException(422, "Configure this toolkit in CC_COMPOSIO_AUTH_CONFIGS first")
     try:
         client = Composio(api_key=settings.composio_api_key.get_secret_value())
-        connection = client.connected_accounts.initiate(
+        connection = client.connected_accounts.link(
             user_id=str(identity.id),
             auth_config_id=config_id,
-            callback_url=settings.web_origin + "/connections?connected=1",
+            callback_url=(
+                settings.web_origin
+                + "/agent-settings?tab=connectors&connected=1&toolkit="
+                + body.toolkit
+            ),
+            allow_multiple=True,
         )
         redirect_url = str(connection.redirect_url)
         parsed = urlsplit(redirect_url)

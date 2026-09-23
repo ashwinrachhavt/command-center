@@ -123,3 +123,59 @@ it("fences a late read when switching runs and starts the new cursor at zero", a
   expect(result.current.connection).toBe("complete");
   unmount();
 });
+
+it("reconnects only event delivery from its cursor, deduplicates replay and pauses retries while hidden", async () => {
+  const first = openStream();
+  const second = openStream();
+  const fetch = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(first.response)
+    .mockResolvedValueOnce(second.response);
+  const { result, unmount } = renderHook(() => useRunEvents("run-a", true));
+  await waitFor(() => expect(result.current.connection).toBe("live"));
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      first.send("run-a", 1, "text-delta", {
+        message_id: "reply",
+        delta: "Hello",
+      });
+      first.close();
+    });
+    expect(result.current.connection).toBe("disconnected");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(String(fetch.mock.calls[1][0])).toContain("after_sequence=1");
+    expect(
+      fetch.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET",
+      ),
+    ).toBe(true);
+    await act(async () => {
+      second.send("run-a", 1, "text-delta", {
+        message_id: "reply",
+        delta: "Hello",
+      });
+      second.send("run-a", 2, "text-delta", {
+        message_id: "reply",
+        delta: " again",
+      });
+      second.send("run-a", 3, "run-status", { state: "completed" });
+      second.close();
+    });
+    expect(result.current.messages).toEqual([
+      { id: "reply", content: "Hello again" },
+    ]);
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});

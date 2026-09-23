@@ -19,6 +19,20 @@ class Identity:
     id: UUID
     subject: str
     run_id: UUID | None = None
+    client_id: UUID | None = None
+    tool_grants: frozenset[str] = frozenset()
+
+    @property
+    def is_human(self) -> bool:
+        return self.run_id is None and self.client_id is None
+
+
+def require_workspace_tool(identity: Identity, *names: str) -> None:
+    """An owned workspace read/write is broader than an arbitrary scoped run."""
+    if identity.is_human or identity.client_id is not None:
+        return
+    if not identity.tool_grants.intersection({"catalog_execute", *names}):
+        raise HTTPException(403, "This workspace operation requires an explicit tool grant")
 
 
 @lru_cache(maxsize=8)
@@ -37,12 +51,23 @@ def authenticate(
         )
     settings = request.app.state.settings
     token = credentials.credentials
+    if token.startswith(("cc_local.", "cc_client.")):
+        from command_center.core.local_credentials import authenticate_client_api
+
+        actor_id, client_id = authenticate_client_api(request, token)
+        request.state.mcp_client_id = client_id
+        return Identity(id=actor_id, subject=f"mcp-client:{client_id}", client_id=client_id)
     if token.startswith("cc_agent."):
         from command_center.core.capabilities import authenticate_run
 
         actor_id, run_id = authenticate_run(request, token)
         request.state.agent_run_id = run_id
-        return Identity(id=actor_id, subject=f"agent:{run_id}", run_id=run_id)
+        return Identity(
+            id=actor_id,
+            subject=f"agent:{run_id}",
+            run_id=run_id,
+            tool_grants=frozenset(request.state.agent_tools),
+        )
     if settings.auth_mode == "local":
         if not compare_digest(token.encode(), settings.api_token.get_secret_value().encode()):
             raise HTTPException(401, "Invalid local credential")

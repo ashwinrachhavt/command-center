@@ -6,6 +6,20 @@
 
 This is the canonical design specification for navigation, page composition, interactions, visual language and accessibility. Product Spec owns user outcomes and scope; Tech Spec owns data, runtime and API contracts; Engineering owns delivery evidence. Do not create competing design requirements in a root DESIGN.md. Requirements below describe the intended experience. [Engineering](../tech/engineering.md#accepted-workspace-hardening) distinguishes accepted fixes from implemented behavior; dated checks live there.
 
+## Calm workbench cleanup — confirmed 2026-09-22
+
+The user selected a calm workbench: spacious content and compact navigation, guided by the supplied Loan Labs and Perplexity screenshots. Home is the agent conversation workspace. Main navigation is Home, Opportunities, Tasks, Library, Document Vault, Contacts and Companies, followed by workspace tools. Applications and saved roles sit under Opportunities. Notes is a Library collection. Reviewed actions and Jobs are removed from the main sidebar; existing contextual flows and old links remain usable.
+
+Library contains authored notes and saved outputs, including message drafts. All work, Notes and Agent outputs organize existing records. Review status always refers to the current immutable version; saving a new version restores Needs review. The Agent outputs collection uses recorded run provenance, never an inference from writing style. Document Vault contains uploaded originals, their type/metadata, and existing local extraction/retry controls. Extracted text stays with its original; it is not a second Library entry. This is an interface split over one artifact/version lifecycle.
+
+Document links open a centered, scrollable canvas up to 1152px wide, filling the viewport on mobile. Content opens first. The originating selection and filters remain underneath; Back, Close, Escape and browser history restore the context and trigger focus. Related non-document records retain the contextual inspector. Reading text uses a comfortable measure and larger line spacing. Home keeps its composer in the first desktop viewport; secondary controls and conversation history must not obscure the main action.
+
+Structured artifacts display saved fields and nested values instead of a false empty state. Written artifacts keep the text primary and expose other saved fields under Saved details. Zero, false and missing values remain distinguishable. Stored data never creates executable markup or actions. Structured packages keep their existing domain-specific edit path rather than being rewritten through the text editor.
+
+Agents groups current profiles, Connectors, Skills, Workflows and Memory using the reference's understated tabs and catalogue layout. Profile tool/skill assignments are inspectable; model selection remains in conversations. Workflow cards lead to existing actions. Scheduled workflows and editable persistent grant configuration are not implied by the scaffold. Keep Geist, existing Graphite/light/dark/accent choices, 4px spacing increments, 6–12px control/surface radii, visible keyboard focus and restrained motion.
+
+The companion defaults to This browser, reading the active Chrome tab without a separate helper. An explicitly saved AgentBrowser choice is preserved and stays an advanced option. The setup page gives three steps; capture settings and optional cover letters use progressive disclosure. Permission failures identify the next action. No silent reader fallback, automatic Next or Submit is introduced.
+
 ## Direction and existing components
 
 Use the user's CRM screenshots in `mockups/` and [trycrm.ai](https://trycrm.ai) as references. The user requested the restraint and attention to detail associated with Jony Ive and Steve Jobs, with maximum appropriate reuse of prebuilt shadcn components. This is an operating workspace: records and next actions carry the hierarchy. Dark surfaces follow the selected mockups and the personal desktop-work setting; they are not a category default.
@@ -18,7 +32,7 @@ Use official shadcn/Radix Nova primitives and installed Vercel AI Elements. Geis
 
 A lead should lead directly to a useful action: open the person/company, inspect context, write a follow-up, save it and choose how to use it. Person detail exposes Follow up and a Follow-ups tab; the composer is contextual and uses shared Tiptap, visible autosave, recoverable drafts and deliberate version checkpoints. Closing a writer preserves unfinished work. Copy, LinkedIn and mail-app actions use saved text; preparing an email pins the exact saved source and opens a separate reviewable message. No send is inferred from copying or opening another app.
 
-Notes, document content, task details and CRM writing share the writer foundation. Documents keep original bytes, selected-version reading and paginated metadata history. Earlier drafts are recovery copies, separate from durable artifact checkpoints and approvals. Notes and Library are dedicated full-page destinations. Notes keeps the selectable list beside a persistent writer on desktop and provides an explicit, focus-restoring All notes action on mobile. Saving a checkpoint leaves the live editor mounted and preserves newer typing. Library uses saved-content search, document-type filters and deterministic sorting; it groups uploaded originals with their pinned extracted text. Document/task links open in context. Company enrichment and contact discovery have contextual actions; broader layout refinement remains active work. Use the supplied `mockups/platform-mockups` connection/settings references; routine controls shown there are references, not evidence of implemented scheduling.
+Notes, document content, task details and CRM writing share the writer foundation. Documents keep original bytes, selected-version reading and paginated metadata history. Earlier drafts are recovery copies, separate from durable artifact checkpoints and approvals. Library is the full-page destination for notes and generated work; the older Notes route remains supported. Notes keeps the selectable list beside a persistent writer on desktop and provides an explicit, focus-restoring All notes action on mobile. Saving a checkpoint leaves the live editor mounted and preserves newer typing. Library and Document Vault use saved-content search, document-type filters and deterministic sorting; the Vault groups uploaded originals with their pinned extracted text. Document/task links open in context. Company enrichment and contact discovery have contextual actions; broader layout refinement remains active work. Use the supplied `mockups/platform-mockups` connection/settings references; routine controls shown there are references, not evidence of implemented scheduling.
 
 ## Application companion
 
@@ -40,11 +54,11 @@ Career form answers show their section heading beside each field so repeated com
 
 ## Navigation and context contract
 
-**Confirmed user clarification:** full screen means the selected section occupies the main workspace with the persistent navigation/header; it does not request the browser fullscreen API or removal of navigation. Overview is a peer destination.
+**Confirmed user clarification:** full screen means the selected section occupies the main workspace with the persistent navigation/header; it does not request the browser fullscreen API or removal of navigation. Home opens agent conversations; the previous Overview remains available as a secondary route.
 
 | Entry/action | Required presentation | Context and exit |
 | --- | --- | --- |
-| Main sidebar: Overview, Opportunities, Contacts, Companies, Roles, Tasks, Artifacts, Agents, Browser companion, Memory, Activity or Settings | Navigate to that full section route; update the active item and page heading | No previous section or inspector pinned behind the destination; browser Back/Forward behaves normally |
+| Main sidebar: Home, Opportunities, Tasks, Library, Document Vault, Contacts, Companies, Agents, Browser companion, Activity or Settings | Navigate to that full section route; update the active item and page heading | No previous section or inspector pinned behind the destination; browser Back/Forward behaves normally |
 | Record row within a section | Existing adjacent detail pane, or responsive single detail pane | Retain the list/filter/selection context; Back to list on narrow screens |
 | Related record, body directory shortcut, task/output preview or contextual search result | Side inspector/drawer; modal when a short focused task fits better | Keep originating route and selection; explicit Back/Close and focus return |
 | Create/edit form, confirmation or bounded review | Labelled dialog or suitable contextual pane | Retain entered values on failure; dismiss without unintended mutation; nested Escape closes the active surface first |
@@ -91,7 +105,7 @@ The isolated daily-workspace Overview prioritizes tasks by day and saved attenti
 
 Accepted interaction fixes: retain dirty record/profile drafts and their original revisions across refresh and failed saves (T1); keep displayed artifact content, reason and submitted review bound to the opened immutable version until an explicit switch (T2, still pending); gate private content while identity resolves and isolate cache/UI state when the signed-in user changes (T3). These outcomes are already approved, not new design choices.
 
-Tasks and opportunities expose persistent Conversation tabs with a lead or selected specialist. New messages can steer active work; Received/Applied reflects whether a run has consumed the message. Saved activity includes specialist/tool outcomes and links to exact immutable output versions in the related inspector. Standalone requests remain available on the Agents page. State comes from the durable ledger. Generated Markdown uses AI Elements `MessageResponse`; it does not execute HTML or load remote images. Tool panels show execution evidence, not hidden reasoning or the system prompt. Missing provider credentials have an explicit configuration action. Skills and tool access are pinned when a run is created. Memory is user-editable context, visibly marked human/agent, and is never represented as verified candidate facts or permission.
+Tasks and opportunities expose persistent Conversation tabs with a lead or selected specialist. New messages can steer active work; Received/Applied reflects whether a run has consumed the message. Saved activity includes specialist/tool outcomes and links to exact immutable output versions in the related inspector. Standalone requests are available on Home; Agents contains configuration and capability inspection. State comes from the durable ledger. Generated Markdown uses AI Elements `MessageResponse`; it does not execute HTML or load remote images. Tool panels show execution evidence, not hidden reasoning or the system prompt. Missing provider credentials have an explicit configuration action. Skills and tool access are pinned when a run is created. Memory is user-editable context, visibly marked human/agent, and is never represented as verified candidate facts or permission.
 
 ## Interaction states
 
@@ -123,7 +137,7 @@ Within five seconds, navigation and the current task should be evident. Within f
 
 ## Responsive and accessibility contract
 
-At desktop widths, retain the 224px sidebar and a 260px record list beside the detail. At 1280px and above, related content docks in a 360px pane. Below 1280px, it overlays from the right beneath the header, with an explicit origin label, trapped keyboard focus and an inert parent. Below 768px, the list/detail uses one panel at a time with Back to list; related content uses the available width and the navigation uses the prebuilt off-canvas sidebar. Keep table overflow inside its region rather than widening the page. Forms use one column on mobile and text inputs use 16px to avoid browser zoom. Primary controls have at least 44px touch height on mobile. Sidebars scroll on shorter screens so account controls remain reachable.
+At desktop widths, retain the 224px sidebar and a 260px record list beside the detail. At 1280px and above, related non-document records dock in a 360px pane. Documents use the centered canvas defined above at every width. Below 1280px, it overlays from the right beneath the header, with an explicit origin label, trapped keyboard focus and an inert parent. Below 768px, the list/detail uses one panel at a time with Back to list; related content uses the available width and the navigation uses the prebuilt off-canvas sidebar. Keep table overflow inside its region rather than widening the page. Forms use one column on mobile and text inputs use 16px to avoid browser zoom. Primary controls have at least 44px touch height on mobile. Sidebars scroll on shorter screens so account controls remain reachable.
 
 Use semantic landmarks, real buttons/links, visible field labels, dialog/sheet titles and descriptions, keyboard dismissal/focus restoration supplied by Radix, and visible focus states. Status always includes text, not color alone. Announce mutation feedback through the toaster; keep durable errors inline. Respect reduced motion; content remains visible without animation. Theme selection and scrollbars use semantic colors. Source links in generated prose distinguish visited state. Readable contrast takes precedence over decorative subtlety.
 
@@ -301,3 +315,27 @@ Contact discovery lives in a contextual dialog from Contacts and Company details
 CRM agent work stays beside its source record: Enrich company on a row opens the company inspector; generated follow-ups appear in the person’s saved-draft workflow. Show queued, working, waiting, failed and saved states honestly; link to the canonical task conversation and exact research versions. Older useful research survives failed refreshes. Manual company notes remain separate from sourced agent claims.
 
 Streaming replies belong in the conversation timeline. Keep scrolling pinned only while the reader is at the bottom, expose an accessible Scroll to latest message button, and preserve typed instructions while output arrives. Use short word fades without a long artificial typing delay; respect reduced motion for both text and scrolling. External source previews must trap focus as dialogs and return it to the originating link.
+
+### Contacts: researched LinkedIn connection notes — 2026-09-22
+
+Extend the existing Contacts table with a LinkedIn outreach column. Empty rows offer Draft connection note; active rows show queue/progress or an input request with Open work. Ready rows display the entire short note, Copy note, Edit, LinkedIn and an N/200 counter. Identity uncertainty and unconfirmed employment remain visible beneath researched notes. Sources opens a contextual dialog with the research summary, caveats, exact quotations and captured-source links. The connection-note editor uses a plain textarea and live character count; oversized drafts stay editable but cannot be saved. The existing working-copy recovery and immutable save flow remain intact. A collapsible page brief lets the user tailor the purpose and voice for subsequent requests. Keep sending manual and preserve the table position during editing.
+
+**Speed and depth clarification — confirmed 2026-09-23:** quick notes use saved context, with at most one targeted search and one public-page capture when a necessary detail is missing. Optional background must not trigger elaborate enrichment. Enrich contact is a separate deliberate action. Batch enrich opens a selection dialog for up to ten contacts on the current page, shows each queue result and lets failed requests retry without repeating successful ones. Changing the search or page starts a fresh selection. The batch uses the shared outreach brief and queues independently tracked research tasks. Company research remains detailed and sourced.
+
+
+Agents conversations retain the full user/assistant transcript across turns. The
+sidebar shows one entry per conversation, and New chat explicitly starts another.
+Enter sends; Shift+Enter adds a line; IME composition does not submit. The Contacts
+outreach controls stack below the contact name on narrow screens so the full note
+and copy action remain visible.
+
+## Generic Home conversations — 2026-09-23
+
+Home starts with the Command Center supervisor and a general-purpose composer; lead intake is an example rather than the identity of the chat. Session selection is URL-addressable. Searchable paginated conversation history stays separate from recent run activity, and selecting an existing conversation preserves its configured profile. Stream token/tool activity, show saved questions in place and distinguish waiting from cancellation. Load transcript deltas, defer older run detail and stop rapid polling when idle.
+
+Show cached-answer provenance and an explicit fresh-answer option. Settings → Local AI clients creates named, revocable credentials and shows each token once, with copy/hide controls and setup instructions. Keep token values out of query caches, URLs and browser persistence. Lead-intake results link to the saved records and exact source version; private pasted-source identifiers are not external web links.
+
+
+### Home chat layout — confirmed 2026-09-23
+
+Navigation and conversation history collapse independently with visible controls; desktop choices persist across reloads. On mobile, history opens in a dismissible drawer and restores focus to its trigger. Home chat fills the available dynamic viewport: a compact toolbar, one message scroll region, and a bounded composer. Long pasted drafts scroll within the textarea, and long saved messages remain reachable without page or nested transcript scrolling. Changing panel visibility preserves the selected conversation and unsent text.
