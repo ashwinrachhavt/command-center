@@ -8,7 +8,8 @@ ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
-RUN npm run build
+# Keep builds from starving the local database and research containers.
+RUN NODE_OPTIONS="--max-old-space-size=1536" RAYON_NUM_THREADS=2 npm run build -- --webpack
 
 FROM node:24-alpine AS runtime
 WORKDIR /app

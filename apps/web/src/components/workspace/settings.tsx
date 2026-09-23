@@ -1,5 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, KeyRound, Plug, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +18,6 @@ import {
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
 import { ProfileFacts } from "./profile-facts";
-import { ConnectedAccounts } from "./connected-accounts";
 import { SpendingSettings } from "./spending";
 
 type ProfileValues = Pick<
@@ -226,19 +226,6 @@ export function Settings() {
     queryKey: ["integrations"],
     queryFn: () => api<Integrations>("integrations"),
   });
-  const connect = useMutation({
-    mutationFn: (toolkit: string) =>
-      api<{ redirect_url: string }>("integrations/composio/connect", {
-        method: "POST",
-        body: { toolkit },
-      }),
-    onSuccess: (data) => {
-      const url = new URL(data.redirect_url);
-      if (url.protocol === "https:") window.location.assign(url.href);
-      else toast.error("The provider returned an invalid connection URL");
-    },
-    onError: (e) => toast.error(e.message),
-  });
   return (
     <>
       <PageHeading
@@ -276,12 +263,26 @@ export function Settings() {
         </section>
         <ProfileFacts />
         <SpendingSettings />
-        <ConnectedAccounts />
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-6">
+          <div>
+            <h2 className="text-sm font-medium">Connected apps</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Manage your app connections, verified accounts and outreach
+              mailbox.
+            </p>
+          </div>
+          <Button asChild variant="outline">
+            <Link href="/connections">
+              <Plug data-icon="inline-start" />
+              Manage connected apps
+            </Link>
+          </Button>
+        </section>
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border p-6">
             <h2 className="flex items-center gap-2 text-sm font-medium">
               <Plug className="size-4" />
-              Connections
+              Workspace services
             </h2>
             <p className="mt-2 text-xs text-muted-foreground">
               Research services and the tools your agents can use.
@@ -362,21 +363,6 @@ export function Settings() {
                   </Badge>
                 </div>
               ))}
-              {integrations.data.composio_toolkits.map((toolkit) => (
-                <div
-                  key={toolkit}
-                  className="flex items-center justify-between border-t border-border px-6 py-4"
-                >
-                  <span className="text-sm">{label(toolkit)}</span>
-                  <Button
-                    variant="outline"
-                    disabled={connect.isPending}
-                    onClick={() => connect.mutate(toolkit)}
-                  >
-                    Connect account
-                  </Button>
-                </div>
-              ))}
             </>
           )}
         </section>
@@ -387,9 +373,9 @@ export function Settings() {
           </h2>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
             Put model provider and Composio keys in the root <code>.env</code>.
-            Clerk’s publishable and secret keys go in <code>apps/web/.env</code>
-            ; the API verifies the matching issuer. Run{" "}
-            <code>make auth-check</code> after changing your Clerk application.
+            Keep Clerk keys there too; <code>make env-sync</code> generates the
+            web configuration. Run <code>make auth-sync</code> after changing
+            your Clerk application.
           </p>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
             Customize agent models, tools and skills in{" "}

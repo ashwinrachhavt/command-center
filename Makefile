@@ -2,7 +2,7 @@ UV = uv run --project apps/api
 ALEMBIC = $(UV) alembic -c apps/api/alembic.ini
 EVAL_UV = env UV_PROJECT_ENVIRONMENT=$(CURDIR)/.local/evals-venv PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --project apps/api/evals
 
-.PHONY: setup up down db migrate migration schema-check api web worker beat env-sync env-check agent-ready contracts-check test-browser auth-check auth-sync contracts test test-db lint format check smoke eval-check eval-plan eval-paid
+.PHONY: companion-setup companion-browser setup up down db migrate migration schema-check api web worker beat env-sync env-check agent-ready contracts-check test-browser auth-check auth-sync contracts test test-db lint format check smoke eval-check eval-plan eval-paid
 
 setup:
 	python3 scripts/bootstrap.py
@@ -70,6 +70,12 @@ contracts-check:
 
 test-browser:
 	npm run test:browser --prefix apps/web
+
+companion-setup:
+	python3 scripts/companion_bridge.py install
+
+companion-browser:
+	python3 scripts/companion_bridge.py launch
 
 test-db:
 	docker compose --profile test up -d --wait db-test

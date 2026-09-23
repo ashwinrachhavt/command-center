@@ -2,7 +2,8 @@
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from uuid import NAMESPACE_URL, uuid5
@@ -289,49 +290,73 @@ async def run_graph(
     else:
         final = {}
 
-        async for streamed in graph.astream(
-            graph_input,
-            config,
-            stream_mode=["messages", "values"],
-            subgraphs=True,
-        ):
-            namespace, mode, value = cast(tuple[tuple[str, ...], str, Any], streamed)
-            if mode == "values":
-                if not namespace:
-                    final = value
-                continue
-            chunk, metadata = value
-            if not isinstance(chunk, AIMessageChunk):
-                continue
-            # Only public agent replies are streamed. Framework summaries and other
-            # internal model calls may share the graph stream but are not UI messages.
-            if metadata.get("langgraph_node") != "model":
-                continue
-            delta = str(chunk.text)
-            if not delta:
-                continue
-            role = str(metadata.get("lc_agent_name") or root_role)[:100]
-            identity = ":".join(
-                [
-                    *(str(part) for part in namespace),
-                    str(metadata.get("langgraph_node", "model")),
-                    str(metadata.get("langgraph_step", "")),
-                    str(chunk.id or ""),
-                ]
-            )
-            message_id = str(uuid5(NAMESPACE_URL, f"{thread_id}:{identity}"))
-            key = (role, message_id)
-            now = time.monotonic()
-            async with delta_lock:
-                buffered, started = pending.get(key, ("", now))
-                pending[key] = (buffered + delta, started)
-                if len(pending[key][0]) >= 512 or now - started >= 0.1:
-                    buffered, _ = pending.pop(key)
-                    await activity(
-                        "text-delta",
-                        role,
-                        {"message_id": message_id, "delta": buffered},
-                    )
+        async def streamed_messages() -> AsyncGenerator[Any, None]:
+            # A small chunk must become visible even when the provider pauses before
+            # its next token. Never cancel an in-flight graph read on a flush timeout.
+            async with aclosing(
+                cast(
+                    AsyncGenerator[Any, None],
+                    graph.astream(
+                        graph_input, config, stream_mode=["messages", "values"], subgraphs=True
+                    ),
+                )
+            ) as events:
+                reading: asyncio.Future[Any] | None = None
+                try:
+                    while True:
+                        reading = asyncio.ensure_future(anext(events))
+                        while not reading.done():
+                            ready, _ = await asyncio.wait({reading}, timeout=0.08)
+                            if not ready:
+                                await flush_pending()
+                        try:
+                            yield reading.result()
+                        except StopAsyncIteration:
+                            return
+                finally:
+                    if reading is not None:
+                        reading.cancel()
+                        await asyncio.gather(reading, return_exceptions=True)
+
+        async with aclosing(streamed_messages()) as streamed_events:
+            async for streamed in streamed_events:
+                namespace, mode, value = cast(tuple[tuple[str, ...], str, Any], streamed)
+                if mode == "values":
+                    if not namespace:
+                        final = value
+                    continue
+                chunk, metadata = value
+                if not isinstance(chunk, AIMessageChunk):
+                    continue
+                # Only public agent replies are streamed. Framework summaries and other
+                # internal model calls may share the graph stream but are not UI messages.
+                if metadata.get("langgraph_node") != "model":
+                    continue
+                delta = str(chunk.text)
+                if not delta:
+                    continue
+                role = str(metadata.get("lc_agent_name") or root_role)[:100]
+                identity = ":".join(
+                    [
+                        *(str(part) for part in namespace),
+                        str(metadata.get("langgraph_node", "model")),
+                        str(metadata.get("langgraph_step", "")),
+                        str(chunk.id or ""),
+                    ]
+                )
+                message_id = str(uuid5(NAMESPACE_URL, f"{thread_id}:{identity}"))
+                key = (role, message_id)
+                now = time.monotonic()
+                async with delta_lock:
+                    buffered, started = pending.get(key, ("", now))
+                    pending[key] = (buffered + delta, started)
+                    if len(pending[key][0]) >= 512 or now - started >= 0.08:
+                        buffered, _ = pending.pop(key)
+                        await activity(
+                            "text-delta",
+                            role,
+                            {"message_id": message_id, "delta": buffered},
+                        )
         await flush_pending()
     snapshot = await graph.aget_state(config)
     if pending_interrupt_ids():

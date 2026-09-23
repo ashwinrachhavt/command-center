@@ -5,6 +5,10 @@ import { expect, it, vi } from "vitest";
 import type { Schema } from "@/lib/api";
 import { ActionEditor } from "./reviewed-actions";
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({ isLoaded: true, userId: "synthetic-test" }),
+}));
+
 const account: Schema["AccountRead"] = {
   id: "11111111-1111-4111-8111-111111111111",
   row_version: 2,
@@ -69,12 +73,32 @@ it.each([
 ])(
   "preserves the pinned proposal and $button intent after an error",
   async ({ code, button, fresh }) => {
+    sessionStorage.clear();
     let writes = 0;
+    let draft = {
+      scope_key: `action-${existing.id}`,
+      data: null as unknown,
+      row_version: 0,
+      updated_at: null,
+      last_save_key: null as string | null,
+    };
     const close = vi.fn();
     const fetch = vi
       .spyOn(global, "fetch")
       .mockImplementation((input, init) => {
         const path = String(input);
+        if (path.includes("/writing-drafts/")) {
+          if (init?.method !== "GET") {
+            const body = JSON.parse(String(init?.body));
+            draft = {
+              ...draft,
+              data: body.data ?? null,
+              row_version: draft.row_version + 1,
+              last_save_key: new Headers(init?.headers).get("Idempotency-Key"),
+            };
+          }
+          return Promise.resolve(Response.json(draft));
+        }
         if (
           init?.method === "GET" &&
           path.endsWith("/integrations/composio/accounts")
@@ -99,6 +123,11 @@ it.each([
       });
     mount(close);
 
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Save proposal" }),
+      ).toBeEnabled(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save proposal" }));
     fireEvent.click(await screen.findByRole("button", { name: button }));
     await waitFor(() => expect(writes).toBe(2));
@@ -112,3 +141,67 @@ it.each([
     await waitFor(() => expect(close).toHaveBeenCalledOnce());
   },
 );
+
+it("keeps later writing and advances only the acknowledged proposal base", async () => {
+  sessionStorage.clear();
+  const close = vi.fn();
+  let finish!: (response: Response) => void;
+  let draft = {
+    scope_key: `action-${existing.id}`,
+    data: null as unknown,
+    row_version: 0,
+    updated_at: null,
+    last_save_key: null as string | null,
+  };
+  const writes: Record<string, unknown>[] = [];
+  vi.spyOn(global, "fetch").mockImplementation((input, init) => {
+    const path = String(input);
+    if (path.includes("/writing-drafts/")) {
+      if (init?.method !== "GET") {
+        const body = JSON.parse(String(init?.body));
+        draft = {
+          ...draft,
+          data: body.data ?? null,
+          row_version: draft.row_version + 1,
+          last_save_key: new Headers(init?.headers).get("Idempotency-Key"),
+        };
+      }
+      return Promise.resolve(Response.json(draft));
+    }
+    if (path.endsWith("/integrations/composio/accounts"))
+      return Promise.resolve(Response.json([account]));
+    if (
+      path.endsWith(`/reviewed-actions/${existing.id}`) &&
+      init?.method === "PATCH"
+    ) {
+      writes.push(JSON.parse(String(init.body)));
+      if (writes.length === 1)
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      return Promise.resolve(Response.json({ ...existing, row_version: 9 }));
+    }
+    throw new Error(`Unexpected request ${path}`);
+  });
+  mount(close);
+  const save = screen.getByRole("button", { name: "Save proposal" });
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(writes).toHaveLength(1));
+  fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), {
+    target: { value: "Still writing after checkpoint" },
+  });
+  finish(Response.json({ ...existing, row_version: 8 }));
+  await waitFor(() => expect(save).toBeEnabled());
+  expect(close).not.toHaveBeenCalled();
+  expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue(
+    "Still writing after checkpoint",
+  );
+  fireEvent.click(save);
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(writes[0].expected_version).toBe(7);
+  expect(writes[1]).toMatchObject({
+    expected_version: 8,
+    payload: { subject: "Still writing after checkpoint" },
+  });
+});

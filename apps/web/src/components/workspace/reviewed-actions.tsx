@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -26,8 +27,15 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { RichWriter } from "@/components/writing/rich-writer";
+import { EmailPreview } from "@/components/writing/email-preview";
+import { DraftStatus } from "@/components/writing/draft-status";
+import { useWorkingDraft } from "@/components/writing/use-working-draft";
+import { MailPull } from "./mail-pull";
+import { useArtifactHistory } from "@/components/writing/use-artifact-history";
 import {
   api,
+  ApiError,
   apiDownload,
   dateLabel,
   label,
@@ -161,7 +169,7 @@ const fields: Record<Kind, FormField[]> = {
 function VersionPicker({
   choose,
 }: {
-  choose: (version: Schema["VersionRead"], title: string) => void;
+  choose: (version: Schema["VersionSummary"], title: string) => void;
 }) {
   const [artifactId, setArtifactId] = useState("");
   const [versionId, setVersionId] = useState("");
@@ -169,12 +177,7 @@ function VersionPicker({
     queryKey: ["action-artifacts"],
     queryFn: () => api<Page<Schema["ArtifactRead"]>>("artifacts?limit=100"),
   });
-  const versions = useQuery({
-    queryKey: ["versions", artifactId],
-    queryFn: () =>
-      api<Schema["VersionRead"][]>(`artifacts/${artifactId}/versions`),
-    enabled: !!artifactId,
-  });
+  const versions = useArtifactHistory(artifactId);
   return (
     <div className="flex flex-wrap gap-2">
       <select
@@ -201,7 +204,7 @@ function VersionPicker({
         onChange={(e) => setVersionId(e.target.value)}
       >
         <option value="">Choose version</option>
-        {versions.data?.map((version) => (
+        {versions.items.map((version) => (
           <option key={version.id} value={version.id}>
             Version {version.version} · {dateLabel(version.created_at)}
           </option>
@@ -212,7 +215,7 @@ function VersionPicker({
         variant="outline"
         disabled={!versionId}
         onClick={() => {
-          const version = versions.data?.find((item) => item.id === versionId);
+          const version = versions.items.find((item) => item.id === versionId);
           if (version)
             choose(
               version,
@@ -223,6 +226,17 @@ function VersionPicker({
       >
         Use version
       </Button>
+      {versions.hasNextPage && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={versions.isFetchingNextPage}
+          onClick={() => void versions.fetchNextPage()}
+        >
+          Load older versions
+        </Button>
+      )}
       {(artifacts.error || versions.error) && (
         <p role="alert" className="w-full text-xs text-destructive">
           {(artifacts.error ?? versions.error)?.message}
@@ -234,54 +248,136 @@ function VersionPicker({
 
 export function ActionEditor({
   existing,
+  seed,
   close,
 }: {
   existing?: Action;
+  seed?: {
+    sourceVersionId: string;
+    sourceTitle: string;
+    values: Record<string, string>;
+  };
+  close: () => void;
+}) {
+  const { isLoaded, userId } = useAuth();
+  if (!isLoaded || !userId) return <p role="status">Opening your writer…</p>;
+  return (
+    <ActionEditorForm
+      key={`${userId}-${existing?.id ?? seed?.sourceVersionId ?? "new"}`}
+      actor={userId}
+      existing={existing}
+      seed={seed}
+      close={close}
+    />
+  );
+}
+
+type ActionDraft = {
+  kind: Kind;
+  accountId: string;
+  targetId: string;
+  baseVersion: number;
+  values: Record<string, string>;
+  source: string;
+  sourceTitle: string;
+  attachments: { id: string; title: string }[];
+  reason: string;
+};
+
+function ActionEditorForm({
+  actor,
+  existing,
+  seed,
+  close,
+}: {
+  actor: string;
+  existing?: Action;
+  seed?: {
+    sourceVersionId: string;
+    sourceTitle: string;
+    values: Record<string, string>;
+  };
   close: () => void;
 }) {
   const client = useQueryClient();
-  const [kind, setKind] = useState<Kind>(
-    (existing?.kind as Kind) ?? "gmail_send",
+  const writing = useWorkingDraft<ActionDraft>(
+    actor,
+    existing
+      ? `action-${existing.id}`
+      : seed
+        ? `action-from-${seed.sourceVersionId}`
+        : "action-new",
+    {
+      kind: (existing?.kind as Kind) ?? "gmail_send",
+      accountId: existing?.account.id ?? "",
+      targetId: existing?.id ?? "",
+      baseVersion: existing?.row_version ?? 0,
+      values: Object.fromEntries(
+        Object.entries(
+          existing?.current.payload ??
+            seed?.values ?? {
+              calendar_id: "primary",
+              send_updates: "all",
+            },
+        ).map(([key, value]) => [
+          key,
+          Array.isArray(value)
+            ? value.join(", ")
+            : value === null
+              ? ""
+              : String(value),
+        ]),
+      ),
+      source:
+        existing?.current.source_version_id ?? seed?.sourceVersionId ?? "",
+      sourceTitle: existing?.current.source_version_id
+        ? `Version ${existing.current.source_version_id.slice(0, 8)}`
+        : (seed?.sourceTitle ?? ""),
+      attachments: (existing?.current.attachments ?? []).map((item) => ({
+        id: item.artifact_version_id,
+        title: `Version ${item.artifact_version_id.slice(0, 8)}`,
+      })),
+      reason: existing?.current.reason ?? "Prepared for review",
+    },
   );
-  const [accountId, setAccountId] = useState(existing?.account.id ?? "");
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      Object.entries(
-        existing?.current.payload ?? {
-          calendar_id: "primary",
-          send_updates: "all",
-        },
-      ).map(([key, value]) => [
-        key,
-        Array.isArray(value)
-          ? value.join(", ")
-          : value === null
-            ? ""
-            : String(value),
-      ]),
-    ),
-  );
-  const [source, setSource] = useState(
-    existing?.current.source_version_id ?? "",
-  );
-  const [sourceTitle, setSourceTitle] = useState(
-    source ? `Version ${source.slice(0, 8)}` : "",
-  );
-  const [attachments, setAttachments] = useState(
-    (existing?.current.attachments ?? []).map((item) => ({
-      id: item.artifact_version_id,
-      title: `Version ${item.artifact_version_id.slice(0, 8)}`,
-    })),
-  );
-  const [reason, setReason] = useState(existing?.current.reason ?? "");
+  const { draft } = writing;
+  const {
+    kind,
+    accountId,
+    values,
+    source,
+    sourceTitle,
+    attachments,
+    reason,
+    targetId,
+  } = writing.data;
+  function set<K extends keyof ActionDraft>(key: K, value: ActionDraft[K]) {
+    draft.edit((current) => ({ ...current, [key]: value }));
+  }
+  const setKind = (value: Kind) => set("kind", value);
+  const setAccountId = (value: string) => set("accountId", value);
+  const setValues = (value: Record<string, string>) => set("values", value);
+  const setSource = (value: string) => set("source", value);
+  const setSourceTitle = (value: string) => set("sourceTitle", value);
+  const setAttachments = (value: ActionDraft["attachments"]) =>
+    set("attachments", value);
+  const setReason = (value: string) => set("reason", value);
   const [picking, setPicking] = useState<"source" | "attachment" | null>(null);
-  const [intent] = useState(() => new RetainedRequestIntent());
+  const [showCopies, setShowCopies] = useState(false);
   const accounts = useQuery({
     queryKey: ["connected-accounts"],
     queryFn: () => api<Account[]>("integrations/composio/accounts"),
   });
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      const snapshot = draft.getSnapshot().data;
+      const { kind, values, source, attachments, reason, accountId } = snapshot;
+      if (
+        kind === "gmail_send" &&
+        !(values.body ?? "").replace(/<[^>]*>/g, "").trim()
+      )
+        throw new Error("Write a message before saving this proposal.");
+      await draft.flush();
       const payload: Record<string, unknown> = {
         ...(existing?.current.payload ?? {}),
         kind,
@@ -304,33 +400,60 @@ export function ActionEditor({
                 ? value === "true"
                 : value;
       }
+      if (kind === "gmail_send") payload.is_html = values.is_html === "true";
       const body = {
         payload,
         source_version_id: source || null,
         attachment_version_ids: attachments.map((item) => item.id),
         reason,
-        ...(existing
-          ? { expected_version: existing.row_version }
+        ...(snapshot.targetId
+          ? { expected_version: snapshot.baseVersion }
           : { account_id: accountId }),
       };
-      const target = existing
-        ? `reviewed-actions/${existing.id}`
+      const target = snapshot.targetId
+        ? `reviewed-actions/${snapshot.targetId}`
         : "reviewed-actions";
-      const method = existing ? "PATCH" : "POST";
-      const request = intent.forRequest(method, target, body);
-      return api<Action>(target, { method, body, key: request.key }).then(
-        (result) => ({ result, target, method, body }),
-      );
+      const method = snapshot.targetId ? "PATCH" : "POST";
+      const request = draft.request(method, target, body, snapshot);
+      return api<Action>(request.target, {
+        method: request.method,
+        body: request.body,
+        key: request.key,
+      }).then((result) => ({ result, snapshot: request.snapshot }));
     },
-    onSuccess: ({ target, method, body }) => {
-      intent.confirmRequest(method, target, body);
+    onError: (error) => {
+      if (error instanceof ApiError && [400, 413, 422].includes(error.status))
+        draft.resetIntent();
+    },
+    onSuccess: async ({ result, snapshot }) => {
       void client.invalidateQueries({ queryKey: ["reviewed-actions"] });
-      close();
-      toast.success("Proposal saved for review");
+      try {
+        if (await draft.clearIfUnchanged(snapshot)) {
+          draft.resetIntent();
+          close();
+          toast.success("Proposal saved for review");
+        } else {
+          draft.resetIntent();
+          draft.edit((current) => ({
+            ...current,
+            ...(current.kind === snapshot.kind &&
+            current.accountId === snapshot.accountId
+              ? { targetId: result.id, baseVersion: result.row_version }
+              : {}),
+          }));
+          toast.success(
+            "Proposal saved. Your newer writing remains in the draft.",
+          );
+        }
+      } catch {
+        toast.message(
+          "Proposal saved for review. Keep this writer open to finish saving its draft state.",
+        );
+      }
     },
   });
   const retrySave = () => {
-    if (canStartFreshConnectedRequest(save.error)) intent.reset();
+    if (canStartFreshConnectedRequest(save.error)) draft.resetIntent();
     save.reset();
     save.mutate();
   };
@@ -353,214 +476,292 @@ export function ActionEditor({
             save.mutate();
           }}
         >
-          <Field>
-            <FieldLabel htmlFor="action-kind">Action</FieldLabel>
-            <select
-              id="action-kind"
-              className={selectStyle}
-              disabled={!!existing}
-              value={kind}
-              onChange={(e) => {
-                setKind(e.target.value as Kind);
-                setAccountId("");
-                setValues({ calendar_id: "primary", send_updates: "all" });
-                setSource("");
-                setAttachments([]);
-              }}
-            >
-              {Object.entries(kinds).map(([key, value]) => (
-                <option key={key} value={key}>
-                  {value.title}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="action-account">Account</FieldLabel>
-            <select
-              id="action-account"
-              className={selectStyle}
-              disabled={!!existing}
-              value={accountId}
-              required
-              onChange={(e) => setAccountId(e.target.value)}
-            >
-              <option value="">Choose a verified account</option>
-              {accounts.data
-                ?.filter(
-                  (account) =>
-                    account.toolkit === kinds[kind].toolkit &&
-                    account.connection_status === "ACTIVE",
-                )
-                .map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.display_name}
-                    {account.selected_purpose ? " · outreach" : ""}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          {accounts.error && <ErrorState error={accounts.error} />}
-          {fields[kind].map((field) => (
-            <Field key={field.key}>
-              <FieldLabel htmlFor={`action-${field.key}`}>
-                {field.title}
-              </FieldLabel>
-              {field.format === "text" ? (
-                <Textarea
-                  id={`action-${field.key}`}
-                  rows={6}
-                  required={field.required}
-                  value={values[field.key] ?? ""}
-                  onChange={(e) =>
-                    setValues({ ...values, [field.key]: e.target.value })
-                  }
-                />
-              ) : field.format === "boolean" ? (
-                <input
-                  id={`action-${field.key}`}
-                  type="checkbox"
-                  checked={values[field.key] === "true"}
-                  onChange={(e) =>
-                    setValues({
-                      ...values,
-                      [field.key]: String(e.target.checked),
-                    })
-                  }
-                />
-              ) : (
-                <Input
-                  id={`action-${field.key}`}
-                  required={field.required}
-                  value={values[field.key] ?? ""}
-                  placeholder={
-                    field.format === "list"
-                      ? "Separate values with commas"
-                      : undefined
-                  }
-                  onChange={(e) =>
-                    setValues({ ...values, [field.key]: e.target.value })
-                  }
-                />
-              )}
-              {field.hint && (
-                <p className="text-xs text-muted-foreground">{field.hint}</p>
-              )}
-            </Field>
-          ))}
-          <div className="space-y-3 rounded-lg border border-border p-4">
-            <p className="text-sm font-medium">Exact source & attachments</p>
-            <p className="text-xs text-muted-foreground">
-              Notion publishes the selected source text. Attachments use the
-              exact file version selected here.
-            </p>
-            {source && (
-              <p className="flex items-center justify-between text-sm">
-                Source: {sourceTitle}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Remove source"
-                  onClick={() => setSource("")}
+          <DraftStatus
+            draft={draft}
+            state={writing}
+            disabled={save.isPending}
+            preview={(copy) =>
+              Object.entries(copy.values)
+                .filter(([key]) => key !== "is_html")
+                .map(([key, value]) => `${label(key)}: ${value}`)
+                .join("\n\n")
+            }
+          />
+          <fieldset
+            disabled={writing.status === "loading"}
+            className="min-w-0 space-y-4"
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="action-kind">Action</FieldLabel>
+                <select
+                  id="action-kind"
+                  className={selectStyle}
+                  disabled={!!targetId || save.isPending}
+                  value={kind}
+                  onChange={(e) => {
+                    setKind(e.target.value as Kind);
+                    setAccountId("");
+                    setValues({ calendar_id: "primary", send_updates: "all" });
+                    setSource("");
+                    setAttachments([]);
+                  }}
                 >
-                  <X />
-                </Button>
-              </p>
-            )}
-            {attachments.map((item) => (
-              <p
-                key={item.id}
-                className="flex items-center justify-between text-sm"
-              >
-                {item.title}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove ${item.title}`}
-                  onClick={() =>
-                    setAttachments(
-                      attachments.filter(
-                        (attachment) => attachment.id !== item.id,
-                      ),
+                  {Object.entries(kinds).map(([key, value]) => (
+                    <option key={key} value={key}>
+                      {value.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="action-account">Account</FieldLabel>
+                <select
+                  id="action-account"
+                  className={selectStyle}
+                  disabled={!!targetId || save.isPending}
+                  value={accountId}
+                  required
+                  onChange={(e) => setAccountId(e.target.value)}
+                >
+                  <option value="">Choose a verified account</option>
+                  {accounts.data
+                    ?.filter(
+                      (account) =>
+                        account.toolkit === kinds[kind].toolkit &&
+                        account.connection_status === "ACTIVE",
                     )
-                  }
-                >
-                  <X />
-                </Button>
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.display_name}
+                        {account.selected_purpose ? " · outreach" : ""}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            </div>
+            {accounts.error && <ErrorState error={accounts.error} />}
+            {fields[kind]
+              .filter(
+                (field) =>
+                  kind !== "gmail_send" ||
+                  !["cc", "bcc"].includes(field.key) ||
+                  showCopies ||
+                  !!values.cc ||
+                  !!values.bcc,
+              )
+              .map((field) => (
+                <Field key={field.key}>
+                  <div className="flex items-center justify-between">
+                    <FieldLabel htmlFor={`action-${field.key}`}>
+                      {field.title}
+                    </FieldLabel>
+                    {kind === "gmail_send" && field.key === "to" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        aria-expanded={
+                          showCopies || !!values.cc || !!values.bcc
+                        }
+                        onClick={() => setShowCopies(!showCopies)}
+                      >
+                        Cc / Bcc
+                      </Button>
+                    )}
+                  </div>
+                  {kind === "gmail_send" && field.key === "body" ? (
+                    <RichWriter
+                      id="action-body"
+                      label="Message"
+                      revision={writing.editorRevision}
+                      value={values.body ?? ""}
+                      format={values.is_html === "true" ? "html" : "text"}
+                      disabled={writing.status === "loading"}
+                      placeholder="Write something worth sending…"
+                      onChange={(body, format) =>
+                        draft.edit((current) => ({
+                          ...current,
+                          values: {
+                            ...current.values,
+                            body,
+                            is_html: String(format === "html"),
+                          },
+                        }))
+                      }
+                    />
+                  ) : field.format === "text" ? (
+                    <Textarea
+                      id={`action-${field.key}`}
+                      rows={6}
+                      required={field.required}
+                      value={values[field.key] ?? ""}
+                      onChange={(e) =>
+                        setValues({ ...values, [field.key]: e.target.value })
+                      }
+                    />
+                  ) : field.format === "boolean" ? (
+                    <input
+                      id={`action-${field.key}`}
+                      type="checkbox"
+                      checked={values[field.key] === "true"}
+                      onChange={(e) =>
+                        setValues({
+                          ...values,
+                          [field.key]: String(e.target.checked),
+                        })
+                      }
+                    />
+                  ) : (
+                    <Input
+                      id={`action-${field.key}`}
+                      required={field.required}
+                      value={values[field.key] ?? ""}
+                      placeholder={
+                        field.format === "list"
+                          ? "Separate values with commas"
+                          : undefined
+                      }
+                      onChange={(e) =>
+                        setValues({ ...values, [field.key]: e.target.value })
+                      }
+                    />
+                  )}
+                  {field.hint && (
+                    <p className="text-xs text-muted-foreground">
+                      {field.hint}
+                    </p>
+                  )}
+                </Field>
+              ))}
+            <details
+              className="space-y-3 rounded-lg border border-border p-3"
+              open={
+                kind.startsWith("notion_") || !!source || attachments.length > 0
+              }
+            >
+              <summary className="cursor-pointer text-sm font-medium">
+                Sources, attachments and review note
+              </summary>
+              <p className="text-xs text-muted-foreground">
+                Notion publishes the selected source text. Attachments use the
+                exact file version selected here.
               </p>
-            ))}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setPicking("source")}
-              >
-                Choose source
-              </Button>
-              {kind === "gmail_send" && (
+              {source && (
+                <p className="flex items-center justify-between text-sm">
+                  Source: {sourceTitle}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove source"
+                    onClick={() => setSource("")}
+                  >
+                    <X />
+                  </Button>
+                </p>
+              )}
+              {attachments.map((item) => (
+                <p
+                  key={item.id}
+                  className="flex items-center justify-between text-sm"
+                >
+                  {item.title}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove ${item.title}`}
+                    onClick={() =>
+                      setAttachments(
+                        attachments.filter(
+                          (attachment) => attachment.id !== item.id,
+                        ),
+                      )
+                    }
+                  >
+                    <X />
+                  </Button>
+                </p>
+              ))}
+              <div className="flex gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPicking("attachment")}
+                  onClick={() => setPicking("source")}
                 >
-                  Attach file version
+                  Choose source
                 </Button>
+                {kind === "gmail_send" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPicking("attachment")}
+                  >
+                    Attach file version
+                  </Button>
+                )}
+              </div>
+              {picking && (
+                <VersionPicker
+                  choose={(version, title) => {
+                    if (picking === "source") {
+                      setSource(version.id);
+                      setSourceTitle(`${title} · v${version.version}`);
+                    } else if (
+                      !attachments.some((item) => item.id === version.id)
+                    )
+                      setAttachments([
+                        ...attachments,
+                        {
+                          id: version.id,
+                          title: `${title} · v${version.version}`,
+                        },
+                      ]);
+                    setPicking(null);
+                  }}
+                />
               )}
-            </div>
-            {picking && (
-              <VersionPicker
-                choose={(version, title) => {
-                  if (picking === "source") {
-                    setSource(version.id);
-                    setSourceTitle(`${title} · v${version.version}`);
-                  } else if (
-                    !attachments.some((item) => item.id === version.id)
-                  )
-                    setAttachments([
-                      ...attachments,
-                      {
-                        id: version.id,
-                        title: `${title} · v${version.version}`,
-                      },
-                    ]);
-                  setPicking(null);
-                }}
-              />
+              <Field>
+                <FieldLabel htmlFor="proposal-reason">Reason</FieldLabel>
+                <Textarea
+                  id="proposal-reason"
+                  required
+                  maxLength={2000}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </Field>
+            </details>
+            {save.error && (
+              <div role="alert" className="space-y-2 text-sm text-destructive">
+                <p>{save.error.message}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={save.isPending}
+                  onClick={retrySave}
+                >
+                  {canStartFreshConnectedRequest(save.error)
+                    ? "Start a fresh proposal save"
+                    : "Retry the same proposal save"}
+                </Button>
+              </div>
             )}
-          </div>
-          <Field>
-            <FieldLabel htmlFor="proposal-reason">Reason</FieldLabel>
-            <Textarea
-              id="proposal-reason"
-              required
-              maxLength={2000}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
-          {save.error && (
-            <div role="alert" className="space-y-2 text-sm text-destructive">
-              <p>{save.error.message}</p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={save.isPending}
-                onClick={retrySave}
-              >
-                {canStartFreshConnectedRequest(save.error)
-                  ? "Start a fresh proposal save"
-                  : "Retry the same proposal save"}
-              </Button>
-            </div>
-          )}
-          <Button disabled={save.isPending}>
-            {save.isPending ? <Spinner /> : <FileCheck />}Save proposal
-          </Button>
+            <Button
+              disabled={
+                save.isPending ||
+                writing.status === "loading" ||
+                writing.status === "conflict"
+              }
+            >
+              {save.isPending ? <Spinner /> : <FileCheck />}Save proposal
+            </Button>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -768,17 +969,26 @@ function ActionReview({
                     (key === "is_html" ? "Message format" : label(key))}
                 </dt>
                 <dd className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-sm leading-6">
-                  {Array.isArray(value)
-                    ? value.join(", ")
-                    : typeof value === "boolean"
-                      ? key === "is_html"
-                        ? value
-                          ? "HTML"
-                          : "Plain text"
-                        : value
-                          ? "Yes"
-                          : "No"
-                      : String(value)}
+                  {key === "body" &&
+                  current.current.payload.is_html === true ? (
+                    <EmailPreview html={String(value)} />
+                  ) : Array.isArray(value) ? (
+                    value.join(", ")
+                  ) : typeof value === "boolean" ? (
+                    key === "is_html" ? (
+                      value ? (
+                        "HTML"
+                      ) : (
+                        "Plain text"
+                      )
+                    ) : value ? (
+                      "Yes"
+                    ) : (
+                      "No"
+                    )
+                  ) : (
+                    String(value)
+                  )}
                 </dd>
               </div>
             ))}
@@ -968,6 +1178,46 @@ function ActionReview({
   );
 }
 
+export function ReviewedActionDialog({
+  actionId,
+  close,
+}: {
+  actionId: string;
+  close: () => void;
+}) {
+  const action = useQuery({
+    queryKey: ["reviewed-actions", actionId],
+    queryFn: ({ signal }) =>
+      api<Action>(`reviewed-actions/${actionId}`, { signal }),
+  });
+
+  if (action.data)
+    return <ActionReview key={actionId} initial={action.data} close={close} />;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Review action</DialogTitle>
+          <DialogDescription>
+            Open the saved proposal and its exact review requirements.
+          </DialogDescription>
+        </DialogHeader>
+        {action.error ? (
+          <ErrorState error={action.error} retry={() => action.refetch()} />
+        ) : (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <Spinner /> Loading reviewed action…
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ReviewedActions() {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Action | null>(null);
@@ -984,10 +1234,13 @@ export function ReviewedActions() {
         title="Reviewed actions"
         description="Decide exactly what your connected apps will do."
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus />
-            New proposal
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <MailPull />
+            <Button onClick={() => setCreating(true)}>
+              <Plus />
+              New proposal
+            </Button>
+          </div>
         }
       />
       <div className="mx-5 space-y-4 md:mx-9">

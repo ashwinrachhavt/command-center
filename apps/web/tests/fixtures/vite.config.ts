@@ -6,6 +6,7 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [react()],
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": fileURLToPath(new URL("../../src", import.meta.url)),
       "next/navigation": fileURLToPath(
@@ -20,6 +21,10 @@ export default defineConfig({
   // update its dependency graph.
   optimizeDeps: {
     include: [
+      "@tiptap/react",
+      "@tiptap/starter-kit",
+      "@tiptap/extension-placeholder",
+      "@tiptap/markdown",
       "@streamdown/cjk",
       "@streamdown/code",
       "@streamdown/math",

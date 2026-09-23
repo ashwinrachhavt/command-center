@@ -6,11 +6,92 @@ const stored = await chrome.storage.local.get([
   "connection",
   "applicationDraft",
   "claimedCommands",
+  "pageReader",
 ]);
 let connection = stored.connection;
 let draft = stored.applicationDraft;
 let claimedCommands = new Set(stored.claimedCommands ?? []);
 let generationTimer;
+let resumeChoice;
+let coverLetterChoice;
+let autofillBusy = false;
+let actionBusy = false;
+element("page-reader").value = stored.pageReader ?? "agent-browser";
+renderReaderChoice();
+
+function renderReaderChoice() {
+  element("reader-status").textContent =
+    element("page-reader").value === "agent-browser"
+      ? "AgentBrowser uses the local companion browser."
+      : "Direct browser reads this tab through the extension.";
+}
+
+function syncAutofillControls() {
+  const pending = draft?.autofill && draft.autofill.stage !== "done";
+  const choosing = draft?.autofill?.stage === "choose_application";
+  const busy = actionBusy || autofillBusy;
+  const manualPending = Boolean(draft?.reviewedCommand || draft?.recapture);
+  const historyMessage = draft?.autofill?.historyResult?.message;
+  element("history-status").hidden = !historyMessage;
+  element("history-status").textContent = historyMessage ?? "";
+  element("fields").inert = busy || Boolean(pending) || manualPending;
+  element("proposals").inert = busy || Boolean(pending) || manualPending;
+  for (const id of [
+    "resume",
+    "auto-resume",
+    "cover-letter",
+    "auto-cover-letter",
+    "page-reader",
+    "share",
+    "prepare",
+    "generate",
+    "propose",
+    "reload-preparation",
+    "refresh",
+  ])
+    element(id).disabled =
+      busy ||
+      Boolean(pending) ||
+      (manualPending && id !== "propose") ||
+      (id === "auto-cover-letter" && !coverLetterChoice) ||
+      (["generate", "propose"].includes(id) && generationPending());
+  element("discard-draft").hidden = !draft;
+  element("discard-draft").disabled = busy;
+  element("disconnect").disabled = busy || choosing;
+  element("autofill").hidden = choosing;
+  element("autofill").disabled = busy || manualPending;
+  const choiceWasHidden = element("application-choice").hidden;
+  element("application-choice").hidden = !choosing;
+  element("continue-application").disabled = busy || !choosing;
+  element("new-application").disabled = busy || !choosing;
+  if (choosing) {
+    const previous = draft.autofill.previousApplication;
+    element("application-choice-context").textContent =
+      `Previous application: ${previous.title} · ${new URL(previous.pageUrl).hostname}`;
+    autofillStatus(
+      "This is a different page. Choose whether it belongs to your previous application before preparing answers.",
+    );
+    if (choiceWasHidden) element("application-choice-title").focus();
+  }
+  element("autofill").textContent = autofillBusy
+    ? "Autofilling…"
+    : pending
+      ? "Continue autofill"
+      : "Autofill this page →";
+  if (pending) {
+    element("resume").value = draft.autofill.resumeVersionId ?? "";
+    element("auto-resume").checked = draft.autofill.attachResume;
+    element("cover-letter").value = draft.autofill.coverLetterVersionId ?? "";
+    element("auto-cover-letter").checked =
+      draft.autofill.attachCoverLetter ?? false;
+  }
+}
+
+element("page-reader").addEventListener("change", async () => {
+  const pageReader = element("page-reader").value;
+  await chrome.storage.local.set({ pageReader });
+  renderReaderChoice();
+});
 
 function validate(name, value) {
   if (!contracts[name](value))
@@ -91,6 +172,7 @@ async function api(path, options = {}) {
     throw new Error("Choose a supported local API address.");
   const method =
     options.method ?? (options.body === undefined ? "GET" : "POST");
+  if (options.key && draft) await saveDraft();
   const response = await fetch(`${base}/api/v1/browser/${path}`, {
     method,
     credentials: "omit",
@@ -147,14 +229,19 @@ async function activeTab() {
 }
 
 async function action(button, work) {
+  if (actionBusy) return;
+  actionBusy = true;
+  syncAutofillControls();
   button.disabled = true;
   try {
     await work();
   } catch (error) {
     message(error.message ?? "Something went wrong. Please try again.");
   } finally {
+    actionBusy = false;
     button.disabled = false;
     if (draft?.preparation) renderGeneration();
+    syncAutofillControls();
   }
 }
 
@@ -207,6 +294,17 @@ function fieldById(id) {
   return draft.snapshot.fields.find((field) => field.id === id);
 }
 
+function fieldHasValue(field) {
+  const result =
+    draft.lastAttempt?.command.snapshot_id === draft.snapshot.id
+      ? draft.lastAttempt.result?.field_results?.[field.id]
+      : null;
+  return (
+    field.value_state === "present" ||
+    ["filled", "uploaded", "preserved"].includes(result?.status)
+  );
+}
+
 function preparedById(id) {
   return draft.preparation?.fields.find((field) => field.field_id === id);
 }
@@ -232,7 +330,7 @@ function appendChoice(container, field, value, label) {
   container.append(row);
 }
 
-function editorFor(field, prepared) {
+function editorFor(field) {
   const current = draft.values[field.id] ?? "";
   let control;
   if (field.type === "select" || field.type === "checkbox") {
@@ -248,10 +346,7 @@ function editorFor(field, prepared) {
     appendChoice(group, field, "", "Leave blank");
     for (const value of field.options)
       appendChoice(group, field, value, field.option_labels[value] ?? value);
-    if (
-      prepared?.status === "preserved" &&
-      !draft.replaceFields.includes(field.id)
-    )
+    if (fieldHasValue(field) && !draft.replaceFields.includes(field.id))
       for (const input of group.querySelectorAll("input"))
         input.disabled = true;
     return group;
@@ -263,12 +358,11 @@ function editorFor(field, prepared) {
     if (control instanceof HTMLInputElement) control.type = field.type;
     control.value = current;
     control.maxLength = 5000;
-    if (field.type === "number" && field.numeric_constraints) {
-      if (field.numeric_constraints.minimum !== null)
-        control.min = field.numeric_constraints.minimum;
-      if (field.numeric_constraints.maximum !== null)
-        control.max = field.numeric_constraints.maximum;
-      control.step = field.numeric_constraints.step;
+    const constraints = field.temporal_constraints ?? field.numeric_constraints;
+    if (constraints) {
+      if (constraints.minimum !== null) control.min = constraints.minimum;
+      if (constraints.maximum !== null) control.max = constraints.maximum;
+      control.step = constraints.step;
     }
   }
   control.addEventListener("input", async () => {
@@ -277,16 +371,19 @@ function editorFor(field, prepared) {
     await saveDraft();
   });
   control.setAttribute("aria-label", field.label);
-  if (
-    prepared?.status === "preserved" &&
-    !draft.replaceFields.includes(field.id)
-  )
+  if (field.history)
+    control.setAttribute(
+      "aria-label",
+      `${field.history.label} · ${field.label}`,
+    );
+  if (fieldHasValue(field) && !draft.replaceFields.includes(field.id))
     control.disabled = true;
   return control;
 }
 
 function renderFields() {
   const container = element("fields");
+  const wasOpen = container.querySelector("details")?.open ?? false;
   container.replaceChildren();
   if (!draft?.preparation) {
     element("prepared-actions").hidden = true;
@@ -294,12 +391,21 @@ function renderFields() {
   }
   element("prepared-actions").hidden = false;
   element("prepare").hidden = true;
+  const completed = document.createElement("details");
+  completed.className = "completed-fields";
+  completed.open = wasOpen;
+  const summary = document.createElement("summary");
+  completed.append(summary);
+  let completedCount = 0;
   for (const field of draft.snapshot.fields) {
     const prepared = preparedById(field.id);
     const row = document.createElement("div");
     row.className = "field-review";
     const label = document.createElement("label");
-    label.textContent = field.label + (field.required ? " · required" : "");
+    label.textContent =
+      (field.history ? `${field.history.label} · ` : "") +
+      field.label +
+      (field.required ? " · required" : "");
     row.append(label);
     if (field.type === "unsupported") {
       const reason = document.createElement("small");
@@ -308,35 +414,44 @@ function renderFields() {
         "Complete this control manually on the page.";
       row.append(reason);
     } else if (field.type === "file") {
-      const choice = document.createElement("div");
-      choice.className = "choice";
-      const input = document.createElement("input");
-      input.type = "checkbox";
+      const input = document.createElement("select");
       input.id = `upload-${field.id}`;
-      input.checked = draft.uploadFields.includes(field.id);
-      input.disabled = !draft.resumeVersionId;
+      input.setAttribute(
+        "aria-label",
+        `Document to upload to ${field.label || field.id}`,
+      );
+      label.htmlFor = input.id;
+      input.append(new Option("Leave this file field unchanged", ""));
+      const resume = new Option("Attach selected résumé", "resume");
+      resume.disabled = !draft.resumeVersionId;
+      const letter = new Option("Attach selected cover letter", "cover-letter");
+      letter.disabled = !draft.coverLetterVersionId;
+      input.append(resume, letter);
+      input.value = draft.uploadFields.includes(field.id)
+        ? "resume"
+        : draft.coverLetterUploadFields.includes(field.id)
+          ? "cover-letter"
+          : "";
       input.addEventListener("change", async () => {
         draft.uploadTouched[field.id] = true;
-        draft.uploadFields = input.checked
-          ? [...new Set([...draft.uploadFields, field.id])]
-          : draft.uploadFields.filter((id) => id !== field.id);
+        draft.uploadFields = draft.uploadFields.filter((id) => id !== field.id);
+        draft.coverLetterUploadFields = draft.coverLetterUploadFields.filter(
+          (id) => id !== field.id,
+        );
+        if (input.value === "resume") draft.uploadFields.push(field.id);
+        if (input.value === "cover-letter")
+          draft.coverLetterUploadFields.push(field.id);
         await saveDraft();
       });
-      const choiceLabel = document.createElement("label");
-      choiceLabel.htmlFor = input.id;
-      choiceLabel.textContent = draft.resumeVersionId
-        ? "Attach the selected exact resume"
-        : "Select a resume version first";
-      choice.append(input, choiceLabel);
-      row.append(choice);
-      if (field.value_state === "present") {
+      row.append(input);
+      if (fieldHasValue(field)) {
         const replacement = document.createElement("div");
         replacement.className = "choice";
         const replace = document.createElement("input");
         replace.type = "checkbox";
         replace.id = `replace-${field.id}`;
         replace.checked = draft.replaceFields.includes(field.id);
-        input.disabled ||= !replace.checked;
+        input.disabled = !replace.checked;
         replace.addEventListener("change", async () => {
           draft.replacementTouched[field.id] = true;
           draft.replaceFields = replace.checked
@@ -346,9 +461,12 @@ function renderFields() {
             draft.uploadFields = draft.uploadFields.filter(
               (id) => id !== field.id,
             );
-            input.checked = false;
+            draft.coverLetterUploadFields =
+              draft.coverLetterUploadFields.filter((id) => id !== field.id);
+            draft.uploadTouched[field.id] = true;
+            input.value = "";
           }
-          input.disabled = !draft.resumeVersionId || !replace.checked;
+          input.disabled = !replace.checked;
           await saveDraft();
         });
         const replaceLabel = document.createElement("label");
@@ -358,8 +476,8 @@ function renderFields() {
         row.append(replacement);
       }
     } else {
-      const editor = editorFor(field, prepared);
-      if (prepared?.status === "preserved") {
+      const editor = editorFor(field);
+      if (fieldHasValue(field)) {
         const choice = document.createElement("div");
         choice.className = "choice";
         const replace = document.createElement("input");
@@ -390,15 +508,28 @@ function renderFields() {
       hint.textContent = prepared.reason;
       row.append(hint);
     }
-    container.append(row);
+    if (fieldHasValue(field)) {
+      completedCount += 1;
+      completed.append(row);
+    } else container.append(row);
+  }
+  if (completedCount) {
+    summary.textContent = `${completedCount} filled or existing fields`;
+    container.append(completed);
   }
 }
 
 async function loadResumes() {
-  const resumes = validResumes(await api("device/resumes"));
-  draft.resumes = resumes;
-  if (draft.resumeVersionId === undefined)
-    draft.resumeVersionId = resumes.default_version_id;
+  const [resumes, letters] = await Promise.all([
+    api("device/resumes").then(validResumes),
+    api("device/cover-letters").then(validResumes),
+  ]);
+  if (draft) draft.resumes = resumes;
+  if (draft?.resumeVersionId !== undefined)
+    resumeChoice = draft.resumeVersionId;
+  if (resumeChoice === undefined) resumeChoice = resumes.default_version_id;
+  if (draft && draft.resumeVersionId === undefined)
+    draft.resumeVersionId = resumeChoice;
   const select = element("resume");
   select.replaceChildren(new Option("No resume selected", ""));
   for (const resume of resumes.items)
@@ -408,8 +539,35 @@ async function loadResumes() {
         resume.version_id,
       ),
     );
-  select.value = draft.resumeVersionId ?? "";
-  await saveDraft();
+  select.value = resumeChoice ?? "";
+  if (draft?.coverLetterVersionId !== undefined)
+    coverLetterChoice = draft.coverLetterVersionId;
+  coverLetterChoice ??= null;
+  if (draft && draft.coverLetterVersionId === undefined)
+    draft.coverLetterVersionId = coverLetterChoice;
+  const letterSelect = element("cover-letter");
+  letterSelect.replaceChildren(new Option("No cover letter selected", ""));
+  for (const letter of letters.items)
+    letterSelect.append(
+      new Option(
+        `${letter.title} · v${letter.version} · ${letter.filename}`,
+        letter.version_id,
+      ),
+    );
+  if (
+    coverLetterChoice &&
+    !letters.items.some((item) => item.version_id === coverLetterChoice)
+  ) {
+    const unavailable = new Option(
+      "Selected cover letter unavailable — choose another",
+      coverLetterChoice,
+    );
+    unavailable.disabled = true;
+    letterSelect.append(unavailable);
+  }
+  letterSelect.value = coverLetterChoice ?? "";
+  syncAutofillControls();
+  if (draft) await saveDraft();
 }
 
 function mergePreparation(preparation) {
@@ -422,6 +580,8 @@ function mergePreparation(preparation) {
   const localReplacements = new Set(draft.replaceFields ?? []);
   const serverUploads = new Set(preparation.upload_fields ?? []);
   const localUploads = new Set(draft.uploadFields ?? []);
+  const serverLetters = new Set(preparation.cover_letter_upload_fields ?? []);
+  const localLetters = new Set(draft.coverLetterUploadFields ?? []);
   draft.replaceFields = draft.snapshot.fields
     .filter((field) =>
       draft.replacementTouched[field.id]
@@ -436,13 +596,28 @@ function mergePreparation(preparation) {
         : serverUploads.has(field.id),
     )
     .map((field) => field.id);
+  draft.coverLetterUploadFields = draft.snapshot.fields
+    .filter((field) =>
+      draft.uploadTouched[field.id]
+        ? localLetters.has(field.id)
+        : serverLetters.has(field.id),
+    )
+    .map((field) => field.id);
   for (const prepared of preparation.fields) {
-    if (!draft.touched[prepared.field_id] && prepared.value !== null)
-      draft.values[prepared.field_id] = prepared.value;
+    if (!draft.touched[prepared.field_id]) {
+      if (prepared.value !== null)
+        draft.values[prepared.field_id] = prepared.value;
+      else delete draft.values[prepared.field_id];
+    }
   }
   if (preparation.resume?.version_id && !draft.resumeTouched)
     draft.resumeVersionId = preparation.resume.version_id;
   element("resume").value = draft.resumeVersionId ?? "";
+  if (!draft.coverLetterTouched)
+    draft.coverLetterVersionId = preparation.cover_letter?.version_id ?? null;
+  element("cover-letter").value = draft.coverLetterVersionId ?? "";
+  element("manage-letters").href =
+    `http://localhost:3001/applications?application=${encodeURIComponent(preparation.task_id)}`;
   element("conversation").href =
     `http://localhost:3001/tasks?record=${encodeURIComponent(preparation.task_id)}&tab=conversation`;
   element("conversation").hidden = false;
@@ -456,15 +631,18 @@ function scheduleGenerationPoll() {
 
 async function pollGeneration() {
   if (!draft?.preparation) return;
+  const currentDraft = draft;
   try {
     const generation = validGeneration(
       await api(`device/preparations/${draft.preparation.id}/generation`),
     );
+    if (draft !== currentDraft) return;
     draft.generation = generation;
     if (generation.state === "completed") {
       const latest = validPreparation(
         await api(`device/preparations/${draft.preparation.id}`),
       );
+      if (draft !== currentDraft) return;
       mergePreparation(latest);
       message("Grounded drafts are ready. Your local edits were kept.");
     } else if (generation.state === "failed") {
@@ -478,6 +656,7 @@ async function pollGeneration() {
     renderGeneration();
     scheduleGenerationPoll();
   } catch (error) {
+    if (draft !== currentDraft) return;
     message(error.message ?? "Generation status is temporarily unavailable.");
     clearTimeout(generationTimer);
     if (draft?.generation?.run_id)
@@ -487,13 +666,23 @@ async function pollGeneration() {
 
 async function renderDraft() {
   element("preparation").hidden = !draft?.snapshot;
-  if (!draft?.snapshot) return;
+  element("application-title").textContent =
+    draft?.snapshot?.title || "Your next opportunity.";
+  element("page-location").hidden = !draft?.snapshot;
+  element("page-location").textContent = draft?.snapshot
+    ? new URL(draft.snapshot.page_url).hostname
+    : "";
+  if (!draft?.snapshot) {
+    await loadResumes();
+    return;
+  }
   draft.values ??= {};
   draft.touched ??= {};
   draft.replacementTouched ??= {};
   draft.uploadTouched ??= {};
   draft.replaceFields ??= [];
   draft.uploadFields ??= [];
+  draft.coverLetterUploadFields ??= [];
   await loadResumes();
   if (draft.preparation) {
     element("conversation").href =
@@ -502,6 +691,16 @@ async function renderDraft() {
   }
   renderFields();
   renderGeneration();
+  if (draft.lastAttempt?.result) {
+    const card = document.createElement("article");
+    card.className = "proposal";
+    renderResult(card, draft.lastAttempt.command, draft.lastAttempt.result);
+    element("proposals").replaceChildren(card);
+    message(draft.lastAttempt.result.message);
+  }
+  syncAutofillControls();
+  if (draft.autofill?.newJob)
+    autofillStatus("Saved separately from the previous application.");
   if (draft.preparation) void pollGeneration();
 }
 
@@ -534,10 +733,17 @@ function revisionFields() {
 }
 
 function reviewedUploads() {
-  if (!draft.resumeVersionId) return {};
-  return Object.fromEntries(
-    draft.uploadFields.map((fieldId) => [fieldId, draft.resumeVersionId]),
-  );
+  return Object.fromEntries([
+    ...(draft.resumeVersionId
+      ? draft.uploadFields.map((id) => [id, draft.resumeVersionId])
+      : []),
+    ...(draft.coverLetterVersionId
+      ? draft.coverLetterUploadFields.map((id) => [
+          id,
+          draft.coverLetterVersionId,
+        ])
+      : []),
+  ]);
 }
 
 async function digestHex(bytes) {
@@ -589,6 +795,89 @@ function renderResult(card, command, result) {
   card.append(list);
 }
 
+async function applyCommand(command, tab, card, apply) {
+  if (
+    draft?.lastAttempt?.command.id === command.id &&
+    draft.lastAttempt.result
+  ) {
+    const result = draft.lastAttempt.result;
+    await reportResult(command, result);
+    renderResult(card, command, result);
+    return result;
+  }
+  if (claimedCommands.has(command.id))
+    throw new Error("This command was already claimed and will not replay.");
+  validate(
+    "ClaimResult",
+    await api(`device/commands/${command.id}/claim`, {
+      method: "POST",
+      body: {},
+    }),
+  );
+  claimedCommands.add(command.id);
+  await chrome.storage.local.set({ claimedCommands: [...claimedCommands] });
+  let result;
+  try {
+    const files = await reviewedFiles(command);
+    result = validate(
+      "ApplyResult",
+      await chrome.tabs.sendMessage(tab.id, {
+        version: 2,
+        action: "apply",
+        command: {
+          snapshot_id: command.snapshot_id,
+          page_url: command.page_url,
+          fields: command.fields,
+          uploads: command.uploads,
+          replace_fields: command.replace_fields,
+          preparation_version_id: command.preparation_version_id,
+        },
+        files,
+      }),
+    );
+  } catch {
+    result = {
+      state: "outcome_unknown",
+      field_results: Object.fromEntries(
+        [...Object.keys(command.fields), ...Object.keys(command.uploads)].map(
+          (id) => [
+            id,
+            {
+              status: "outcome_unknown",
+              detail: "Claimed; page or exact file became unavailable.",
+            },
+          ],
+        ),
+      ),
+      message:
+        "The claimed command had an uncertain outcome. Review the page; it will not replay.",
+    };
+  }
+  if (draft) {
+    draft.lastAttempt = { command, result };
+    draft.needsRecapture = true;
+    await saveDraft();
+    renderFields();
+  }
+  try {
+    await reportResult(command, result);
+  } finally {
+    apply?.remove();
+  }
+
+  renderResult(card, command, result);
+  message(result.message);
+  return result;
+}
+
+async function reportResult(command, result) {
+  await api(`device/commands/${command.id}/result`, {
+    method: "POST",
+    key: draft ? receipt(`result-${command.id}`) : undefined,
+    body: { state: result.state, field_results: result.field_results },
+  });
+}
+
 function renderProposal(command, tab) {
   const card = document.createElement("article");
   card.className = "proposal";
@@ -621,67 +910,7 @@ function renderProposal(command, tab) {
   apply.textContent = "Apply reviewed values and files";
   apply.addEventListener("click", () =>
     action(apply, async () => {
-      if (claimedCommands.has(command.id))
-        throw new Error(
-          "This command was already claimed and will not replay.",
-        );
-      validate(
-        "ClaimResult",
-        await api(`device/commands/${command.id}/claim`, {
-          method: "POST",
-          body: {},
-        }),
-      );
-      claimedCommands.add(command.id);
-      await chrome.storage.local.set({ claimedCommands: [...claimedCommands] });
-      let result;
-      try {
-        const files = await reviewedFiles(command);
-        result = validate(
-          "ApplyResult",
-          await chrome.tabs.sendMessage(tab.id, {
-            version: 2,
-            action: "apply",
-            command: {
-              snapshot_id: command.snapshot_id,
-              page_url: command.page_url,
-              fields: command.fields,
-              uploads: command.uploads,
-              replace_fields: command.replace_fields,
-              preparation_version_id: command.preparation_version_id,
-            },
-            files,
-          }),
-        );
-      } catch {
-        result = {
-          state: "outcome_unknown",
-          field_results: Object.fromEntries(
-            [
-              ...Object.keys(command.fields),
-              ...Object.keys(command.uploads),
-            ].map((id) => [
-              id,
-              {
-                status: "outcome_unknown",
-                detail: "Claimed; page or exact file became unavailable.",
-              },
-            ]),
-          ),
-          message:
-            "The claimed command had an uncertain outcome. Review the page; it will not replay.",
-        };
-      }
-      try {
-        await api(`device/commands/${command.id}/result`, {
-          method: "POST",
-          body: { state: result.state, field_results: result.field_results },
-        });
-      } finally {
-        apply.remove();
-      }
-      renderResult(card, command, result);
-      message(result.message);
+      return applyCommand(command, tab, card, apply);
     }),
   );
   const note = document.createElement("small");
@@ -703,6 +932,7 @@ element("pair-form").addEventListener("submit", (event) => {
     await chrome.storage.local.set({ connection });
     element("code").value = "";
     renderConnection();
+    await renderDraft();
     message("Connected. Open a form to get started.");
   });
 });
@@ -724,40 +954,157 @@ element("disconnect").addEventListener("click", async () => {
   );
 });
 
+function readerStructure(structure, tab, reader, allowEmpty) {
+  const url = new URL(tab.url);
+  if (
+    structure?.engine !== "agent-browser" ||
+    structure.page_url !== url.origin + url.pathname ||
+    structure.full_url !== tab.url ||
+    typeof structure.title !== "string" ||
+    structure.title.length > 300 ||
+    !Array.isArray(structure.controls) ||
+    structure.controls.length > 100 ||
+    (!structure.controls.length && !allowEmpty) ||
+    structure.controls.some(
+      (control) =>
+        !control ||
+        typeof control !== "object" ||
+        Array.isArray(control) ||
+        (control.label !== undefined &&
+          (typeof control.label !== "string" || control.label.length > 500)) ||
+        (control.type !== undefined &&
+          (typeof control.type !== "string" || control.type.length > 50)),
+    )
+  )
+    throw new Error(`${reader} found no usable form structure on this page.`);
+  element("reader-status").textContent =
+    `Read by ${reader} · ${structure.controls.length} controls`;
+  return reader === "Direct browser"
+    ? { ...structure, engine: "direct-browser" }
+    : structure;
+}
+
+async function directBrowserStructure(tab, allowEmpty = false) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ["page-structure.js"],
+  });
+  return readerStructure(
+    Array.isArray(results) && results.length === 1 && results[0]?.frameId === 0
+      ? results[0].result
+      : null,
+    tab,
+    "Direct browser",
+    allowEmpty,
+  );
+}
+
+async function agentBrowserStructure(tab, allowEmpty = false) {
+  const nonce = crypto.randomUUID();
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (value) =>
+      document.documentElement.setAttribute(
+        "data-command-center-inspection",
+        value,
+      ),
+    args: [nonce],
+  });
+  try {
+    const reply = await chrome.runtime.sendNativeMessage(
+      "com.commandcenter.agent_browser",
+      {
+        action: "inspect",
+        url: tab.url,
+        nonce,
+      },
+    );
+    if (!reply?.ok)
+      throw new Error(
+        reply?.error ?? "AgentBrowser could not inspect this page.",
+      );
+    return readerStructure(reply.structure, tab, "AgentBrowser", allowEmpty);
+  } catch (error) {
+    if (
+      /native messaging|native host|specified native|receiving end/i.test(
+        error.message ?? "",
+      )
+    )
+      throw new Error(
+        "Set up AgentBrowser with make companion-setup, then make companion-browser. Direct browser is also available above.",
+      );
+    throw error;
+  } finally {
+    await chrome.scripting
+      .executeScript({
+        target: { tabId: tab.id },
+        func: (value) => {
+          if (
+            document.documentElement.getAttribute(
+              "data-command-center-inspection",
+            ) === value
+          )
+            document.documentElement.removeAttribute(
+              "data-command-center-inspection",
+            );
+        },
+        args: [nonce],
+      })
+      .catch(() => {});
+  }
+}
+
+async function inspectForm(useReader = false) {
+  const tab = await activeTab();
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ["contracts.js", "content.js"],
+  });
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    version: 2,
+    action: "inspect",
+  });
+  if (response?.state === "rejected" && typeof response.message === "string")
+    throw new Error(response.message.slice(0, 300));
+  const { history_expandable: historyExpandable, ...snapshot } = validate(
+    "InspectResult",
+    response,
+  );
+  if (
+    !snapshot.fields.some((field) => field.type !== "unsupported") &&
+    !historyExpandable
+  ) {
+    const workday = /(^|\.)myworkdayjobs\.com$/.test(new URL(tab.url).hostname);
+    throw new Error(
+      workday
+        ? "Open the Workday application step after signing in, then share the form again. This page is not ready for filling."
+        : "No supported application controls were found. Open the application step, then share again.",
+    );
+  }
+  const structure = useReader
+    ? element("page-reader").value === "agent-browser"
+      ? await agentBrowserStructure(tab, Boolean(historyExpandable))
+      : await directBrowserStructure(tab, Boolean(historyExpandable))
+    : null;
+  if (structure) snapshot.title = structure.title.slice(0, 300);
+  return { tab, snapshot, structure };
+}
+
 element("share").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     clearTimeout(generationTimer);
-    const tab = await activeTab();
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["contracts.js", "content.js"],
-    });
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      version: 2,
-      action: "inspect",
-    });
-    if (response?.state === "rejected" && typeof response.message === "string")
-      throw new Error(response.message.slice(0, 300));
-    const snapshot = validate("SnapshotCreate", response);
-    if (!snapshot.fields.some((field) => field.type !== "unsupported")) {
-      const workday = /(^|\.)myworkdayjobs\.com$/.test(
-        new URL(tab.url).hostname,
-      );
-      throw new Error(
-        workday
-          ? "Open the Workday application step after signing in, then share the form again. This page is not ready for filling."
-          : "No supported application controls were found. Open the application step, then share again.",
-      );
-    }
+    const { tab, snapshot } = await inspectForm();
     await api("snapshots", { method: "POST", body: snapshot });
     draft = {
       snapshot,
+      pageUrl: tab.url,
       values: {},
       touched: {},
       replacementTouched: {},
       uploadTouched: {},
       replaceFields: [],
       uploadFields: [],
+      coverLetterUploadFields: [],
       receipts: {},
     };
     await renderDraft();
@@ -768,10 +1115,466 @@ element("share").addEventListener("click", (event) =>
   }),
 );
 
+function autofillStatus(text) {
+  element("autofill-status").textContent =
+    text && draft?.autofill?.newJob
+      ? `Different job detected. Starting a new application. ${text}`
+      : text;
+}
+
+function jobIdentity(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !["greenhouse", "lever", "ashby", "workday", "icims"].includes(
+      value.platform,
+    ) ||
+    ["organization", "posting_id"].some(
+      (key) =>
+        typeof value[key] !== "string" ||
+        !value[key].trim() ||
+        value[key].length > 200 ||
+        value[key] !== value[key].trim(),
+    ) ||
+    typeof value.canonical_url !== "string" ||
+    value.canonical_url.length > 2000 ||
+    value.canonical_url !== value.canonical_url.trim()
+  )
+    return null;
+  try {
+    const url = new URL(value.canonical_url);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.port && url.port !== "443")
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  return {
+    platform: value.platform,
+    organization: value.organization,
+    posting_id: value.posting_id,
+    canonical_url: value.canonical_url,
+  };
+}
+
+function previousJobIdentity(previous) {
+  const saved = jobIdentity(previous?.preparation?.job_identity);
+  if (saved) return saved;
+  if (!previous?.pageUrl || previous.structurePageUrl !== previous.pageUrl)
+    return null;
+  try {
+    const url = new URL(previous.pageUrl);
+    if (
+      previous.structure?.page_url !== url.origin + url.pathname ||
+      previous.snapshot?.page_url !== previous.structure.page_url
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  return jobIdentity(previous.structure?.job_identity);
+}
+
+function sameJob(left, right) {
+  return Boolean(
+    left &&
+    right &&
+    ["platform", "organization", "posting_id"].every(
+      (key) => left[key] === right[key],
+    ),
+  );
+}
+
+async function autofillTab(operation) {
+  const tab = await activeTab();
+  if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
+    throw new Error(
+      "Return to the captured application tab, or start over on this page.",
+    );
+  return tab;
+}
+
+async function runAutofill() {
+  autofillBusy = true;
+  syncAutofillControls();
+  try {
+    // Keep the exact unfinished operation across popup closure and lost replies.
+    if (!draft?.autofill || draft.autofill.stage === "done") {
+      autofillStatus("Reading this application…");
+      const { tab, snapshot, structure } = await inspectForm(true);
+      clearTimeout(generationTimer);
+      const observedIdentity = jobIdentity(structure?.job_identity);
+      const previousIdentity = previousJobIdentity(draft);
+      const previousPageUrl = draft?.pageUrl ?? draft?.autofill?.pageUrl;
+      const previousApplication = draft?.preparation
+        ? {
+            id: draft.preparation.id,
+            title: draft.snapshot.title || "Application",
+            pageUrl: previousPageUrl ?? draft.snapshot.page_url,
+          }
+        : null;
+      const recognizedSameJob = sameJob(previousIdentity, observedIdentity);
+      const newJob = Boolean(
+        previousApplication &&
+        previousIdentity &&
+        observedIdentity &&
+        !recognizedSameJob,
+      );
+      const choosing =
+        previousApplication &&
+        previousPageUrl !== tab.url &&
+        !recognizedSameJob &&
+        !newJob;
+      draft = {
+        snapshot,
+        pageUrl: tab.url,
+        structure,
+        structurePageUrl: tab.url,
+        values: {},
+        touched: {},
+        replacementTouched: {},
+        uploadTouched: {},
+        replaceFields: [],
+        uploadFields: [],
+        coverLetterUploadFields: [],
+        receipts: {},
+        resumeVersionId: resumeChoice ?? null,
+        coverLetterVersionId: coverLetterChoice ?? null,
+        autofill: {
+          stage: choosing ? "choose_application" : "capture",
+          previousId:
+            choosing || newJob ? null : (previousApplication?.id ?? null),
+          previousApplication,
+          ...(newJob ? { newJob: true } : {}),
+          ...(observedIdentity ? { jobIdentity: observedIdentity } : {}),
+          tabId: tab.id,
+          pageUrl: tab.url,
+          resumeVersionId: resumeChoice ?? null,
+          coverLetterVersionId: coverLetterChoice ?? null,
+          attachResume: element("auto-resume").checked,
+          attachCoverLetter: element("auto-cover-letter").checked,
+        },
+      };
+      element("application-title").textContent =
+        snapshot.title || "Application";
+      element("page-location").textContent = new URL(
+        snapshot.page_url,
+      ).hostname;
+      element("page-location").hidden = false;
+      element("preparation").hidden = true;
+      element("proposals").replaceChildren();
+      await saveDraft();
+    }
+    const operation = draft.autofill;
+    if (operation.stage === "choose_application") return;
+    if (operation.stage === "uncertain")
+      throw new Error(
+        "Check the application page after the uncertain fill. Discard this draft before starting again.",
+      );
+    if (operation.stage === "history_uncertain")
+      throw new Error(
+        "Review the work and education rows on the page, then discard this draft and share again. Row additions will not replay.",
+      );
+    await autofillTab(operation);
+    if (operation.stage === "capture") {
+      await api("snapshots", {
+        method: "POST",
+        key: receipt("auto-capture"),
+        body: draft.snapshot,
+      });
+      operation.stage = "prepare";
+      await saveDraft();
+    }
+    if (operation.stage === "prepare") {
+      await autofillTab(operation);
+      autofillStatus("Matching your profile to the fields…");
+      const prepared = validPreparation(
+        await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
+          method: "POST",
+          key: receipt("auto-prepare"),
+          body: {
+            opportunity_id: null,
+            resume_version_id: operation.resumeVersionId,
+            cover_letter_version_id: operation.coverLetterVersionId ?? null,
+            continue_preparation_id: operation.previousId,
+            ...(operation.continueOnNewPage
+              ? { continue_on_new_page: true }
+              : {}),
+            job_context: draft.structure?.job_context ?? null,
+            ...(operation.jobIdentity
+              ? { job_identity: operation.jobIdentity }
+              : {}),
+          },
+        }),
+      );
+      mergePreparation(prepared);
+      operation.baseVersionId = prepared.version_id;
+      const targets = prepared.history_targets;
+      if (targets && (targets.experience > 0 || targets.education > 0)) {
+        operation.historyRequest = {
+          version: 2,
+          action: "expand-history",
+          id: crypto.randomUUID(),
+          snapshot_id: draft.snapshot.id,
+          targets,
+        };
+        operation.stage = "expand_history";
+      } else operation.stage = "authorize";
+      await saveDraft();
+    }
+    if (operation.stage === "expand_history") {
+      const tab = await autofillTab(operation);
+      autofillStatus("Adding missing work and education rows…");
+      const request = validate(
+        "ExpandHistoryMessage",
+        operation.historyRequest,
+      );
+      const response = validate(
+        "ExpandHistoryResult",
+        await chrome.tabs.sendMessage(tab.id, request),
+      );
+      if (
+        response.operation_id !== request.id ||
+        response.snapshot_id !== request.snapshot_id
+      )
+        throw new Error(
+          "The row response did not match this application. Try again.",
+        );
+      operation.historyResult = response;
+      operation.stage = ["rejected", "outcome_unknown"].includes(response.state)
+        ? "history_uncertain"
+        : response.state === "unchanged"
+          ? "authorize"
+          : "history_recapture";
+      await saveDraft();
+      if (operation.stage === "history_uncertain")
+        throw new Error(response.message);
+    }
+    if (operation.stage === "history_recapture") {
+      await autofillTab(operation);
+      autofillStatus("Reading the new rows before filling…");
+      const { tab, snapshot, structure } = await inspectForm(true);
+      await autofillTab(operation);
+      if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
+        throw new Error(
+          "Return to the captured application tab before continuing.",
+        );
+      operation.historyPreviousId = draft.preparation.id;
+      draft.snapshot = snapshot;
+      draft.structure = structure;
+      draft.structurePageUrl = tab.url;
+      operation.historyJobIdentity = jobIdentity(structure?.job_identity);
+      operation.stage = "history_capture";
+      await saveDraft();
+    }
+    if (operation.stage === "history_capture") {
+      await autofillTab(operation);
+      await api("snapshots", {
+        method: "POST",
+        key: receipt("history-capture"),
+        body: draft.snapshot,
+      });
+      operation.stage = "history_prepare";
+      await saveDraft();
+    }
+    if (operation.stage === "history_prepare") {
+      await autofillTab(operation);
+      const prepared = validPreparation(
+        await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
+          method: "POST",
+          key: receipt("history-prepare"),
+          body: {
+            opportunity_id: null,
+            resume_version_id: operation.resumeVersionId,
+            cover_letter_version_id: operation.coverLetterVersionId ?? null,
+            continue_preparation_id: operation.historyPreviousId,
+            ...(operation.historyJobIdentity
+              ? { job_identity: operation.historyJobIdentity }
+              : {}),
+          },
+        }),
+      );
+      if (
+        prepared.snapshot_id !== draft.snapshot.id ||
+        prepared.task_id !== draft.preparation.task_id
+      )
+        throw new Error(
+          "The refreshed answers do not match this application. Try again.",
+        );
+      mergePreparation(prepared);
+      operation.baseVersionId = prepared.version_id;
+      operation.stage = "authorize";
+      await saveDraft();
+    }
+    if (operation.stage === "authorize") {
+      await autofillTab(operation);
+      const prepared = validPreparation(
+        await api(`device/preparations/${draft.preparation.id}/autofill`, {
+          method: "POST",
+          key: receipt("auto-authorize"),
+          body: {
+            expected_version_id: operation.baseVersionId,
+            attach_resume: operation.attachResume,
+            attach_cover_letter: operation.attachCoverLetter ?? false,
+          },
+        }),
+      );
+      operation.prepared = prepared;
+      mergePreparation(prepared);
+      operation.stage = "command";
+      await saveDraft();
+    }
+    element("preparation").hidden = false;
+    if (operation.stage === "command") {
+      await autofillTab(operation);
+      const prepared = operation.prepared;
+      const fields = Object.fromEntries(
+        prepared.fields
+          .filter(
+            (field) => field.status === "suggested" && field.value !== null,
+          )
+          .map((field) => [field.field_id, field.value]),
+      );
+      const uploads = Object.fromEntries([
+        ...prepared.upload_fields.map((id) => [id, prepared.resume.version_id]),
+        ...(prepared.cover_letter_upload_fields ?? []).map((id) => [
+          id,
+          prepared.cover_letter.version_id,
+        ]),
+      ]);
+      if (!Object.keys(fields).length && !Object.keys(uploads).length) {
+        operation.stage = "done";
+        await saveDraft();
+        autofillStatus(
+          "No approved answers match yet. Complete the questions below, or add approved profile details in your workspace.",
+        );
+        return;
+      }
+      operation.command = validate("PendingCommands", [
+        await api("device/commands", {
+          method: "POST",
+          key: receipt("auto-command"),
+          body: {
+            snapshot_id: draft.snapshot.id,
+            fields,
+            uploads,
+            replace_fields: [],
+            preparation_version_id: prepared.version_id,
+          },
+        }),
+      ])[0];
+      operation.stage = "apply";
+      await saveDraft();
+    }
+    if (operation.stage === "apply") {
+      const tab = await autofillTab(operation);
+      if (
+        claimedCommands.has(operation.command.id) &&
+        !draft.lastAttempt?.result
+      )
+        throw new Error(
+          "Autofill was already attempted. Check the application page before sharing it again; the previous fill will not replay.",
+        );
+      autofillStatus("Filling available answers and selected documents…");
+      const card = document.createElement("article");
+      card.className = "proposal";
+      element("proposals").replaceChildren(card);
+      const result = await applyCommand(operation.command, tab, card);
+      operation.stage =
+        result.state === "outcome_unknown" ? "uncertain" : "done";
+      await saveDraft();
+      const unanswered = operation.prepared.fields.filter(
+        (field) =>
+          ["needs_input", "unsupported"].includes(field.status) &&
+          !operation.prepared.upload_fields.includes(field.field_id) &&
+          !(operation.prepared.cover_letter_upload_fields ?? []).includes(
+            field.field_id,
+          ),
+      ).length;
+      const outcomes = Object.values(result.field_results);
+      const filled = outcomes.filter((field) =>
+        ["filled", "uploaded"].includes(field.status),
+      ).length;
+      const failed = outcomes.filter(
+        (field) => !["filled", "uploaded", "preserved"].includes(field.status),
+      ).length;
+      const summary = [`${filled} filled or attached.`];
+      if (failed) summary.push(`${failed} could not be filled.`);
+      if (unanswered)
+        summary.push(
+          `${unanswered} ${unanswered === 1 ? "question needs" : "questions need"} your input.`,
+        );
+      summary.push("Review the page before Next or Submit.");
+      autofillStatus(
+        !["applied", "partial"].includes(result.state)
+          ? result.message
+          : summary.join(" "),
+      );
+    }
+  } catch (error) {
+    autofillStatus(
+      "Autofill needs attention. Your progress is saved; see the message below.",
+    );
+    throw error;
+  } finally {
+    autofillBusy = false;
+    syncAutofillControls();
+  }
+}
+
+element("autofill").addEventListener("click", (event) =>
+  action(event.currentTarget, runAutofill),
+);
+
+for (const [id, continueApplication] of [
+  ["continue-application", true],
+  ["new-application", false],
+]) {
+  element(id).addEventListener("click", (event) =>
+    action(event.currentTarget, async () => {
+      const operation = draft?.autofill;
+      if (operation?.stage !== "choose_application") return;
+      await autofillTab(operation);
+      operation.previousId = continueApplication
+        ? operation.previousApplication.id
+        : null;
+      operation.continueOnNewPage = continueApplication;
+      operation.stage = "capture";
+      await saveDraft();
+      await runAutofill();
+    }),
+  );
+}
+
 element("resume").addEventListener("change", async (event) => {
-  draft.resumeVersionId = event.currentTarget.value || null;
+  resumeChoice = event.currentTarget.value || null;
+  if (!draft) return;
+  draft.resumeVersionId = resumeChoice;
   draft.resumeTouched = true;
   if (!draft.resumeVersionId) draft.uploadFields = [];
+  await saveDraft();
+  renderFields();
+});
+
+element("cover-letter").addEventListener("change", async (event) => {
+  coverLetterChoice = event.currentTarget.value || null;
+  syncAutofillControls();
+  if (!draft) return;
+  draft.coverLetterVersionId = coverLetterChoice;
+  draft.coverLetterTouched = true;
+  draft.coverLetterUploadFields = [];
+  for (const field of draft.snapshot.fields.filter(
+    (field) => field.type === "file",
+  )) {
+    draft.uploadTouched[field.id] = true;
+  }
   await saveDraft();
   renderFields();
 });
@@ -785,6 +1588,7 @@ element("prepare").addEventListener("click", (event) =>
         body: {
           opportunity_id: null,
           resume_version_id: draft.resumeVersionId ?? null,
+          cover_letter_version_id: draft.coverLetterVersionId ?? null,
         },
       }),
     );
@@ -792,7 +1596,7 @@ element("prepare").addEventListener("click", (event) =>
     clearReceipt("prepare");
     await saveDraft();
     message(
-      "Answers prepared. Review every value and choose each resume upload explicitly.",
+      "Answers prepared. Review every value and choose each document upload explicitly.",
     );
   }),
 );
@@ -837,18 +1641,98 @@ element("generate").addEventListener("click", (event) =>
   }),
 );
 
+async function refreshForReviewedFill() {
+  if (!draft.needsRecapture && !draft.recapture) return;
+  if (!draft.recapture) {
+    const { tab, snapshot } = await inspectForm();
+    const structure = (fields) =>
+      JSON.stringify(fields.map(({ value_state, ...field }) => field));
+    if (
+      tab.url !== (draft.pageUrl ?? draft.autofill?.pageUrl) ||
+      snapshot.page_url !== draft.snapshot.page_url ||
+      structure(snapshot.fields) !== structure(draft.snapshot.fields)
+    )
+      throw new Error(
+        "The application fields changed. Your answers are saved; start a fresh capture for this step.",
+      );
+    draft.recapture = {
+      snapshot,
+      previousId: draft.preparation.id,
+      stage: "capture",
+    };
+    await saveDraft();
+  }
+  const capture = draft.recapture;
+  if (capture.stage === "capture") {
+    await api("snapshots", {
+      method: "POST",
+      key: receipt("review-capture"),
+      body: capture.snapshot,
+    });
+    capture.stage = "prepare";
+    await saveDraft();
+  }
+  const preparation = validPreparation(
+    await api(`device/snapshots/${capture.snapshot.id}/preparations`, {
+      method: "POST",
+      key: receipt("review-prepare"),
+      body: {
+        opportunity_id: null,
+        resume_version_id: draft.resumeVersionId ?? null,
+        cover_letter_version_id: draft.coverLetterVersionId ?? null,
+        continue_preparation_id: capture.previousId,
+      },
+    }),
+  );
+  draft.snapshot = capture.snapshot;
+  for (const key of ["uploadFields", "coverLetterUploadFields"]) {
+    draft[key] = (draft[key] ?? []).filter((id) =>
+      draft.snapshot.fields.some(
+        (field) =>
+          field.id === id &&
+          (field.value_state === "empty" || draft.replaceFields.includes(id)),
+      ),
+    );
+  }
+  draft.preparation = preparation;
+  draft.recapture = undefined;
+  draft.needsRecapture = false;
+  draft.savedSignature = undefined;
+  draft.savedVersionId = undefined;
+  for (const kind of [
+    "review-capture",
+    "review-prepare",
+    "revision",
+    "command",
+  ])
+    clearReceipt(kind);
+  await saveDraft();
+  renderFields();
+}
+
 element("propose").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
+    autofillStatus("");
     if (generationPending())
       throw new Error(
         "Wait for draft generation to finish before saving a review.",
       );
+    if (draft.reviewedCommand) {
+      const card = document.createElement("article");
+      card.className = "proposal";
+      element("proposals").replaceChildren(card);
+      await applyCommand(draft.reviewedCommand, await activeTab(), card);
+      draft.reviewedCommand = undefined;
+      await saveDraft();
+      return;
+    }
+    await refreshForReviewedFill();
     const fields = reviewedFields();
     const reviewedRevision = revisionFields();
     const uploads = reviewedUploads();
     if (!Object.keys(fields).length && !Object.keys(uploads).length)
       throw new Error(
-        "Review at least one answer or select one resume upload.",
+        "Review at least one answer or select one document upload.",
       );
     const requested = new Set([
       ...Object.keys(fields),
@@ -860,8 +1744,10 @@ element("propose").addEventListener("click", (event) =>
     const reviewSignature = JSON.stringify({
       fields: reviewedRevision,
       resume_version_id: draft.resumeVersionId ?? null,
+      cover_letter_version_id: draft.coverLetterVersionId ?? null,
       replace_fields: replaceFields,
       upload_fields: draft.uploadFields,
+      cover_letter_upload_fields: draft.coverLetterUploadFields,
     });
     let saved = draft.preparation;
     if (
@@ -876,8 +1762,10 @@ element("propose").addEventListener("click", (event) =>
             expected_version_id: draft.preparation.version_id,
             fields: reviewedRevision,
             resume_version_id: draft.resumeVersionId ?? null,
+            cover_letter_version_id: draft.coverLetterVersionId ?? null,
             replace_fields: replaceFields,
             upload_fields: draft.uploadFields,
+            cover_letter_upload_fields: draft.coverLetterUploadFields,
             remember_fields: [],
           },
         }),
@@ -888,22 +1776,29 @@ element("propose").addEventListener("click", (event) =>
       draft.savedVersionId = saved.version_id;
       await saveDraft();
     }
-    await api("device/commands", {
-      method: "POST",
-      key: receipt("command"),
-      body: {
-        snapshot_id: draft.snapshot.id,
-        fields,
-        uploads,
-        replace_fields: replaceFields,
-        preparation_version_id: saved.version_id,
-      },
-    });
+    const command = validate("PendingCommands", [
+      await api("device/commands", {
+        method: "POST",
+        key: receipt("command"),
+        body: {
+          snapshot_id: draft.snapshot.id,
+          fields,
+          uploads,
+          replace_fields: replaceFields,
+          preparation_version_id: saved.version_id,
+        },
+      }),
+    ])[0];
+    draft.reviewedCommand = command;
     clearReceipt("command");
     await saveDraft();
-    message(
-      "Reviewed proposal saved. Check fill proposals here before applying it.",
-    );
+    const tab = await activeTab();
+    const card = document.createElement("article");
+    card.className = "proposal";
+    element("proposals").replaceChildren(card);
+    await applyCommand(command, tab, card);
+    draft.reviewedCommand = undefined;
+    await saveDraft();
   }),
 );
 
@@ -912,7 +1807,14 @@ element("discard-draft").addEventListener("click", async () => {
   draft = undefined;
   await chrome.storage.local.remove("applicationDraft");
   element("preparation").hidden = true;
-  message("Local draft discarded. Share the page again when ready.");
+  element("application-title").textContent = "Your next opportunity.";
+  element("page-location").hidden = true;
+  element("proposals").replaceChildren();
+  autofillStatus("");
+  syncAutofillControls();
+  message(
+    "Ready for a fresh capture. Saved application tasks remain in your workspace.",
+  );
 });
 
 element("refresh").addEventListener("click", (event) =>
@@ -939,4 +1841,12 @@ element("refresh").addEventListener("click", (event) =>
 );
 
 renderConnection();
-if (connection) await renderDraft();
+if (connection) {
+  try {
+    await renderDraft();
+  } catch (error) {
+    message(
+      error.message ?? "Workspace unavailable. Reopen the companion to retry.",
+    );
+  }
+}

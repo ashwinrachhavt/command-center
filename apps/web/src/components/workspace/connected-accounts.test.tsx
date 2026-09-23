@@ -1,9 +1,39 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
 
 import type { Schema } from "@/lib/api";
 import { ConnectedAccounts } from "./connected-accounts";
+
+vi.mock("./contact-discovery", () => ({
+  ContactDiscoveryConnections: () => null,
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+
+const integrations = {
+  services: [],
+  model_providers: {
+    openai: false,
+    gemini: false,
+    mistral: false,
+    cohere: false,
+  },
+  openai_configured: false,
+  composio_configured: true,
+  auth: "clerk",
+  composio_toolkits: ["gmail", "googlecalendar", "linear", "notion"],
+};
+
+beforeEach(() => window.history.replaceState(null, "", "/connections"));
 
 const account: Schema["AccountRead"] = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -35,6 +65,8 @@ it("keeps refresh and selection intents independent and retries an unknown refre
   let refreshCalls = 0;
   const fetch = vi.spyOn(global, "fetch").mockImplementation((input, init) => {
     const path = String(input);
+    if (path.endsWith("/integrations"))
+      return Promise.resolve(Response.json(integrations));
     if (
       init?.method === "GET" &&
       path.endsWith("/integrations/composio/accounts")
@@ -89,6 +121,8 @@ it("starts a fresh user-requested refresh after a definitive spending denial", a
   let refreshCalls = 0;
   const fetch = vi.spyOn(global, "fetch").mockImplementation((input, init) => {
     const path = String(input);
+    if (path.endsWith("/integrations"))
+      return Promise.resolve(Response.json(integrations));
     if (
       init?.method === "GET" &&
       path.endsWith("/integrations/composio/accounts")
@@ -124,4 +158,111 @@ it("starts a fresh user-requested refresh after a definitive spending denial", a
 
   const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
   expect(idempotencyKey(writes[1])).not.toBe(idempotencyKey(writes[0]));
+});
+
+it("shows saved account identity and inactive status without fetching provider data on navigation", async () => {
+  const fetch = vi.spyOn(global, "fetch").mockImplementation((input) => {
+    if (String(input).endsWith("/integrations"))
+      return Promise.resolve(Response.json(integrations));
+    if (String(input).endsWith("/accounts"))
+      return Promise.resolve(
+        Response.json([
+          {
+            ...account,
+            connection_status: "EXPIRED",
+            selected_purpose: "outreach",
+          },
+        ]),
+      );
+    throw new Error(`Unexpected request: ${input}`);
+  });
+  mount();
+  const gmail = await screen.findByRole("region", { name: "Gmail" });
+  expect(within(gmail).getByText("Needs attention")).toBeVisible();
+  expect(within(gmail).getByText("Expired")).toBeVisible();
+  expect(within(gmail).getByText("Work Gmail")).toBeVisible();
+  expect(within(gmail).queryByText("Outreach account")).not.toBeInTheDocument();
+  expect(
+    within(gmail).getByRole("button", { name: "Use for outreach" }),
+  ).toBeDisabled();
+  expect(
+    within(gmail).getByRole("button", { name: "Reconnect" }),
+  ).toBeEnabled();
+  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(
+    true,
+  );
+});
+
+it("explains missing configuration without offering an unusable connect action", async () => {
+  vi.spyOn(global, "fetch").mockImplementation((input) =>
+    Promise.resolve(
+      Response.json(
+        String(input).endsWith("/integrations")
+          ? { ...integrations, composio_toolkits: [] }
+          : [],
+      ),
+    ),
+  );
+  mount();
+  const gmail = await screen.findByRole("region", { name: "Gmail" });
+  expect(within(gmail).getByText("Setup required")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Refresh accounts" }),
+  ).toBeDisabled();
+  fireEvent.click(within(gmail).getByRole("button", { name: "View setup" }));
+  expect(
+    await screen.findByRole("dialog", { name: "Set up Gmail" }),
+  ).toBeVisible();
+  expect(screen.getByText("CC_COMPOSIO_AUTH_CONFIGS")).toBeVisible();
+});
+
+it("requires explicit verification on OAuth return and clears the callback after refresh", async () => {
+  window.history.replaceState(null, "", "/connections?connected=1");
+  const fetch = vi
+    .spyOn(global, "fetch")
+    .mockImplementation((input) =>
+      Promise.resolve(
+        Response.json(
+          String(input).endsWith("/integrations") ? integrations : [account],
+        ),
+      ),
+    );
+  mount();
+  await screen.findByText("Work Gmail");
+  expect(screen.getByText("Finish connecting your app")).toBeVisible();
+  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh accounts" }));
+  await waitFor(() => expect(window.location.search).toBe(""));
+  expect(
+    screen.queryByText("Finish connecting your app"),
+  ).not.toBeInTheDocument();
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
+  expect(writes).toHaveLength(1);
+  expect(String(writes[0][0])).toMatch(/accounts\/sync$/);
+});
+
+it("keeps an invalid OAuth redirect on the page with a recoverable error", async () => {
+  const fetch = vi.spyOn(global, "fetch").mockImplementation((input) => {
+    const path = String(input);
+    if (path.endsWith("/integrations"))
+      return Promise.resolve(Response.json(integrations));
+    if (path.endsWith("/accounts")) return Promise.resolve(Response.json([]));
+    if (path.endsWith("/connect"))
+      return Promise.resolve(
+        Response.json({ redirect_url: "javascript:alert(1)" }),
+      );
+    throw new Error(`Unexpected request: ${input}`);
+  });
+  mount();
+  const gmail = await screen.findByRole("region", { name: "Gmail" });
+  fireEvent.click(within(gmail).getByRole("button", { name: "Connect" }));
+  expect(await screen.findByText("Gmail could not connect")).toBeVisible();
+  expect(screen.getByText(/invalid connection link/)).toBeVisible();
+  expect(within(gmail).getByRole("button", { name: "Connect" })).toBeEnabled();
+  const call = fetch.mock.calls.find(([input]) =>
+    String(input).endsWith("/connect"),
+  );
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ toolkit: "gmail" });
 });

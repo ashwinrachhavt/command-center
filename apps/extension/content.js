@@ -8,6 +8,12 @@
     /password|passcode|one[ -]?time|\botp\b|social security|\bssn\b|credit card|card number|\bcvv\b|\bcvc\b|bank account|routing number|payment/i;
   let snapshot;
   let applying = false;
+  let expanding = false;
+  let expansionEntries = [];
+  let expansionEdits;
+  // Keep receipts for this document's lifetime. Refuse new operations at the
+  // bound instead of evicting an identity that could later be replayed.
+  const historyOperations = new Map();
   const watchedDocuments = new WeakSet();
   const customSelects = new WeakMap();
   let inspecting = false;
@@ -18,9 +24,16 @@
     String(value ?? "")
       .trim()
       .slice(0, maximum);
+  const labelText = (element) => {
+    const copy = element.cloneNode(true);
+    copy
+      .querySelectorAll("input,select,textarea,[contenteditable]")
+      .forEach((control) => control.remove());
+    return copy.textContent;
+  };
   const labelsFor = (element) =>
     Array.from(element.labels ?? [])
-      .map((label) => trim(label.textContent, 500))
+      .map((label) => trim(labelText(label), 500))
       .filter(Boolean);
 
   function readableLabel(element) {
@@ -536,6 +549,46 @@
           numeric_constraints: numericConstraints(element),
         }),
       };
+    if (["date", "month"].includes(element.type)) {
+      const valid = (value) => {
+        const copy = element.ownerDocument.createElement("input");
+        copy.type = element.type;
+        copy.value = value;
+        return /^\d{4}-\d{2}(?:-\d{2})?$/.test(value) && copy.value === value;
+      };
+      const minimum = valid(element.min) ? element.min : null;
+      const maximum = valid(element.max) ? element.max : null;
+      const step =
+        element.step === "any"
+          ? "any"
+          : finiteNumber(element.step) && Number(element.step) > 0
+            ? element.step
+            : "1";
+      if (
+        (minimum && maximum && minimum > maximum) ||
+        (!minimum &&
+          step !== "any" &&
+          Number(step) !== 1 &&
+          valid(element.getAttribute("value") || ""))
+      )
+        return unsupportedEntry(
+          element,
+          "This calendar uses a conflicting range or a private default as its step base. Complete it on the page.",
+        );
+      return {
+        key: element,
+        elements: [element],
+        description: basicDescription(element, element.type, {
+          temporal_constraints: {
+            minimum,
+            maximum,
+            step,
+            step_base:
+              minimum || (element.type === "month" ? "1970-01" : "1970-01-01"),
+          },
+        }),
+      };
+    }
     if (supportedTextTypes.has(element.type))
       return {
         key: element,
@@ -548,6 +601,581 @@
     );
   }
 
+  const historyControls =
+    'input,textarea,select,[role="combobox"],[contenteditable="true"]';
+  const normalized = (text) =>
+    String(text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  function sectionLabel(node) {
+    const heading = node.querySelector(
+      ':scope > legend,:scope > h2,:scope > h3,:scope > h4,[data-automation-id="panelSetHeading"]',
+    );
+    return trim(
+      node.getAttribute("aria-label") ||
+        (node.getAttribute("aria-labelledby") || "")
+          .split(/\s+/)
+          .map((id) => node.ownerDocument.getElementById(id)?.textContent || "")
+          .join(" ") ||
+        (heading && labelText(heading)),
+      200,
+    );
+  }
+  function historySection(element) {
+    for (
+      let node = element.parentElement;
+      node && node !== element.ownerDocument.body;
+      node = node.parentElement
+    ) {
+      if (
+        !node.matches(
+          'fieldset,section,[role="group"],[data-automation-id="workExperience"],[data-automation-id="education"]',
+        )
+      )
+        continue;
+      const label = sectionLabel(node);
+      const text = normalized(label);
+      const kind =
+        /^(?:work experience|work history|employment(?: history| experience)?|professional experience)(?: \d+)?(?: newest first| oldest first)?$/.test(
+          text,
+        )
+          ? "experience"
+          : /^(?:education|education history|educational history)(?: \d+)?(?: newest first| oldest first)?$/.test(
+                text,
+              )
+            ? "education"
+            : null;
+      if (kind)
+        return {
+          node,
+          kind,
+          label,
+          order: text.includes("oldest first")
+            ? "oldest_first"
+            : "newest_first",
+          ordinal: text.match(/\b(\d+)\b/)?.[1],
+        };
+    }
+    return null;
+  }
+  function historyComponent(element, group, fieldLabel) {
+    let label = normalized(fieldLabel || readableLabel(element));
+    if (["month", "year"].includes(label)) {
+      for (
+        let parent = element.parentElement;
+        parent && parent !== group.node;
+        parent = parent.parentElement
+      ) {
+        const title = normalized(sectionLabel(parent));
+        if (/^(start|end|from|to)( date)?$/.test(title)) {
+          label = `${/^(start|from)/.test(title) ? "start" : "end"} ${label}`;
+          break;
+        }
+      }
+    }
+    const components = {
+      organization:
+        group.kind === "experience"
+          ? [
+              "company",
+              "company name",
+              "employer",
+              "employer name",
+              "organization",
+            ]
+          : [
+              "school",
+              "school name",
+              "institution",
+              "university",
+              "college university",
+            ],
+      role: ["job title", "title", "position", "role"],
+      degree: ["degree", "degree name"],
+      field_of_study: ["field of study", "major", "discipline"],
+      location: ["location", "city"],
+      description: [
+        "description",
+        "responsibilities",
+        "responsibilities and achievements",
+        "education notes",
+      ],
+      start_year: ["start year", "from year"],
+      end_year: ["end year", "to year", "graduation year"],
+      start_month: ["start month", "from month"],
+      end_month: ["end month", "to month", "graduation month"],
+      start_date: ["start date", "from", "date started"],
+      end_date: ["end date", "to", "date ended", "graduation date"],
+      current:
+        group.kind === "experience"
+          ? [
+              "i currently work here",
+              "currently working here",
+              "current employer",
+              "current position",
+            ]
+          : [
+              "i currently study here",
+              "currently studying here",
+              "currently attending",
+            ],
+    };
+    return (
+      Object.entries(components).find(([, labels]) =>
+        labels.includes(label),
+      )?.[0] || "unknown"
+    );
+  }
+  function addHistory(entry, group) {
+    const element = entry.elements[0];
+    const format = String(element.getAttribute("placeholder") || "")
+      .trim()
+      .toLowerCase();
+    entry.description.history = {
+      group_id: group.id,
+      kind: group.kind,
+      position: group.position,
+      label: group.label,
+      order: group.order,
+      component: historyComponent(element, group, entry.description.label),
+      date_format: [
+        "yyyy",
+        "yyyy-mm",
+        "yyyy-mm-dd",
+        "mm/yyyy",
+        "mm/dd/yyyy",
+        "dd/mm/yyyy",
+      ].includes(format)
+        ? format
+        : null,
+    };
+    entry.historyGroup = group;
+  }
+  function visibleGroupControls(group) {
+    return Array.from(group.node.querySelectorAll(historyControls)).filter(
+      (node) => isVisible(node) && !isSensitive(node, readableLabel(node)),
+    );
+  }
+  function validHistoryStructure() {
+    const previous = new Map();
+    for (const group of snapshot.historyGroups.values()) {
+      const prior = previous.get(group.node.ownerDocument);
+      if (prior && !(prior.compareDocumentPosition(group.node) & 4))
+        return false;
+      previous.set(group.node.ownerDocument, group.node);
+      const current = visibleGroupControls(group);
+      if (
+        current.length !== group.controls.length ||
+        current.some((node, index) => node !== group.controls[index])
+      )
+        return false;
+    }
+    return true;
+  }
+
+  const historyKinds = ["experience", "education"];
+  const sameNodes = (left, right) =>
+    left.length === right.length && left.every((node, i) => node === right[i]);
+
+  function historyAddControl(button, context) {
+    if (
+      button.tagName !== "BUTTON" ||
+      button.type !== "button" ||
+      !isVisible(button) ||
+      button.closest('[inert],[role="dialog"],dialog') ||
+      button.getAttribute("aria-disabled") === "true" ||
+      button.hasAttribute("aria-haspopup") ||
+      button.hasAttribute("popovertarget") ||
+      button.hasAttribute("commandfor") ||
+      button.hasAttribute("data-target") ||
+      button.hasAttribute("data-bs-target") ||
+      /modal|dialog/i.test(
+        [
+          button.getAttribute("data-toggle"),
+          button.getAttribute("data-bs-toggle"),
+        ].join(" "),
+      )
+    )
+      return null;
+    const label = normalized(
+      button.getAttribute("aria-label") ||
+        (button.getAttribute("aria-labelledby") || "")
+          .split(/\s+/)
+          .map(
+            (id) => button.ownerDocument.getElementById(id)?.textContent || "",
+          )
+          .join(" ") ||
+        labelText(button),
+    );
+    const section = historySection(button);
+    const explicit = label.match(
+      /^add (?:(?:another|new|a|an) )?(work experience|experience|work history|employment|employment history|education|education history)(?: entry)?$/,
+    );
+    const kind = explicit
+      ? explicit[1].startsWith("education")
+        ? "education"
+        : "experience"
+      : /^(?:add|add another)$/.test(label)
+        ? section?.kind
+        : null;
+    if (!kind || (section && section.kind !== kind)) return null;
+    const controlled = button.getAttribute("aria-controls");
+    if (
+      controlled &&
+      controlled
+        .split(/\s+/)
+        .some((id) =>
+          button.ownerDocument
+            .getElementById(id)
+            ?.matches('dialog,[role="dialog"]'),
+        )
+    )
+      return null;
+    return {
+      button,
+      context,
+      kind,
+      label,
+      scope: section?.node || button.closest("form") || button.parentElement,
+    };
+  }
+
+  function historyState(contexts) {
+    const entries = [];
+    const groups = new Map();
+    const seen = new Set();
+    const buttons = [];
+    for (const context of contexts) {
+      for (const element of context.document.querySelectorAll(
+        historyControls,
+      )) {
+        const entry = describeElement(element);
+        if (!entry || seen.has(entry.key)) continue;
+        seen.add(entry.key);
+        entry.context = context;
+        entry.capturedValues = localValues(entry);
+        entry.edited = entry.elements.some((node) => expansionEdits?.has(node));
+        entry.shape = JSON.stringify(structural(entry.description));
+        entries.push(entry);
+        const section = historySection(element);
+        if (!section) continue;
+        if (!groups.has(section.node))
+          groups.set(section.node, { ...section, entries: [] });
+        groups.get(section.node).entries.push(entry);
+      }
+      for (const button of context.document.querySelectorAll("button")) {
+        const candidate = historyAddControl(button, context);
+        if (candidate) buttons.push(candidate);
+      }
+    }
+    return { entries, groups: Array.from(groups.values()), buttons };
+  }
+
+  function historyCounts(state) {
+    return Object.fromEntries(
+      historyKinds.map((kind) => [
+        kind,
+        Math.min(
+          10,
+          state?.groups.filter((group) => group.kind === kind).length || 0,
+        ),
+      ]),
+    );
+  }
+
+  function emptyHistoryGroup(group) {
+    const components = group.entries.map((entry) =>
+      historyComponent(entry.elements[0], group, entry.description.label),
+    );
+    return (
+      components.includes("organization") &&
+      (group.kind === "experience"
+        ? components.includes("role")
+        : components.includes("degree") ||
+          components.includes("field_of_study")) &&
+      !components.includes("unknown") &&
+      new Set(components).size === components.length &&
+      group.entries.every(
+        (entry) =>
+          entry.description.type !== "unsupported" &&
+          !entry.edited &&
+          !valuePresent(entry),
+      ) &&
+      sameNodes(
+        Array.from(group.node.querySelectorAll(historyControls)).filter(
+          isVisible,
+        ),
+        group.entries.flatMap((entry) => entry.elements),
+      )
+    );
+  }
+
+  function expandableHistory(state, kind) {
+    const groups = state.groups.filter((group) => group.kind === kind);
+    return groups.every(
+      (group, index) =>
+        emptyHistoryGroup(group) &&
+        (!group.ordinal || Number(group.ordinal) === index + 1) &&
+        group.order === groups[0].order &&
+        group.node.ownerDocument === groups[0].node.ownerDocument,
+    );
+  }
+
+  function preservedHistoryEntries(before, after) {
+    const originals = new Set(before.entries.map((entry) => entry.key));
+    const retained = after.entries.filter((entry) => originals.has(entry.key));
+    return (
+      retained.length === before.entries.length &&
+      retained.every((entry, index) => {
+        const old = before.entries[index];
+        return (
+          entry.key === old.key &&
+          !old.edited &&
+          !entry.edited &&
+          sameNodes(entry.elements, old.elements) &&
+          entry.shape === old.shape &&
+          sameNodes(entry.capturedValues, old.capturedValues)
+        );
+      }) &&
+      before.groups.every((old) => {
+        const group = after.groups.find((item) => item.node === old.node);
+        return (
+          group &&
+          group.label === old.label &&
+          group.kind === old.kind &&
+          group.order === old.order &&
+          sameNodes(
+            group.entries.map((entry) => entry.key),
+            old.entries.map((entry) => entry.key),
+          )
+        );
+      }) &&
+      sameNodes(
+        after.groups
+          .filter((group) =>
+            before.groups.some((old) => old.node === group.node),
+          )
+          .map((group) => group.node),
+        before.groups.map((group) => group.node),
+      )
+    );
+  }
+
+  function expansionContextCurrent(capture) {
+    const contexts = formDocuments();
+    return (
+      location.href === capture.full_url &&
+      capture.contexts.every(currentContext) &&
+      sameNodes(
+        contexts.map((context) => context.document),
+        capture.contexts.map((context) => context.document),
+      )
+    );
+  }
+
+  function supportedHistoryAdd(state, kind, capturedButtons) {
+    const candidates = state.buttons.filter((item) => item.kind === kind);
+    if (candidates.length !== 1) return null;
+    const candidate = candidates[0];
+    const original = capturedButtons.find(
+      (item) => item.button === candidate.button,
+    );
+    if (
+      !original ||
+      candidate.label !== original.label ||
+      candidate.scope !== original.scope
+    )
+      return null;
+    const groups = state.groups.filter((group) => group.kind === kind);
+    if (groups.some((group) => !candidate.scope.contains(group.node)))
+      return null;
+    return candidate;
+  }
+
+  async function waitForHistoryRow(capture, before, candidate) {
+    let stable;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!expansionContextCurrent(capture)) return null;
+      const after = historyState(capture.contexts);
+      if (!preservedHistoryEntries(before, after)) return null;
+      const added = after.groups.filter(
+        (group) => !before.groups.some((old) => old.node === group.node),
+      );
+      const newEntries = after.entries.filter(
+        (entry) => !before.entries.some((old) => old.key === entry.key),
+      );
+      if (
+        added.length > 1 ||
+        newEntries.some((entry) => !candidate.scope.contains(entry.key))
+      )
+        return null;
+      if (
+        added.length === 1 &&
+        added[0].kind === candidate.kind &&
+        !added[0].node.closest('dialog,[role="dialog"]') &&
+        after.groups.filter((group) => group.kind === candidate.kind).at(-1) ===
+          added[0] &&
+        candidate.scope.contains(added[0].node) &&
+        sameNodes(
+          newEntries.map((entry) => entry.key),
+          added[0].entries.map((entry) => entry.key),
+        ) &&
+        expandableHistory(after, candidate.kind)
+      ) {
+        if (
+          stable &&
+          sameNodes(
+            stable.entries.map((entry) => entry.key),
+            after.entries.map((entry) => entry.key),
+          )
+        )
+          return after;
+        stable = after;
+      } else {
+        if (added.some((group) => group.kind !== candidate.kind)) return null;
+        stable = undefined;
+      }
+    }
+    return null;
+  }
+
+  function historyResult(message, state, counts, added, detail) {
+    return {
+      operation_id: message.id,
+      snapshot_id: message.snapshot_id,
+      state,
+      counts,
+      added,
+      message: trim(detail, 500),
+    };
+  }
+
+  async function expandHistory(message) {
+    const capture = snapshot;
+    let state = capture?.historyState;
+    let capturedButtons = state?.buttons;
+    const added = { experience: 0, education: 0 };
+    let clicked = false;
+    const result = (status, detail) =>
+      historyResult(message, status, historyCounts(state), added, detail);
+    try {
+      if (
+        !capture ||
+        capture.id !== message.snapshot_id ||
+        !expansionContextCurrent(capture)
+      )
+        return result(
+          "rejected",
+          "The captured form changed. Share the current page again before adding entries.",
+        );
+      const current = historyState(capture.contexts);
+      if (
+        !preservedHistoryEntries(state, current) ||
+        current.entries.length !== state.entries.length ||
+        current.groups.length !== state.groups.length ||
+        capture.entries.some((entry) => preservationReason(entry, true))
+      )
+        return result(
+          "rejected",
+          "The captured controls or values changed. Share the current page again.",
+        );
+      state = current;
+      expansionEntries = state.entries;
+      expansionEdits = new WeakSet();
+      const manual = [];
+      for (const kind of historyKinds) {
+        while (historyCounts(state)[kind] < message.targets[kind]) {
+          if (!expansionContextCurrent(capture))
+            return result(
+              clicked ? "outcome_unknown" : "rejected",
+              "The page changed during row preparation. Review it manually.",
+            );
+          const current = historyState(capture.contexts);
+          if (
+            !preservedHistoryEntries(state, current) ||
+            current.entries.length !== state.entries.length ||
+            current.groups.length !== state.groups.length
+          )
+            return result(
+              clicked ? "outcome_unknown" : "rejected",
+              "Form controls or values changed during row preparation. Review the page manually.",
+            );
+          state = current;
+          expansionEntries = state.entries;
+          const candidate = supportedHistoryAdd(state, kind, capturedButtons);
+          if (!expandableHistory(state, kind) || !candidate) {
+            manual.push(
+              `${kind}: add or review entries manually; blank ordered groups and one clearly identified Add button are required.`,
+            );
+            break;
+          }
+          const sizes = state.groups
+            .filter((group) => group.kind === kind)
+            .map((group) => group.entries.length);
+          // Existing groups establish the expected size. With no template yet,
+          // reserve room for a typical full career row before the first click.
+          const rowSize = sizes.length ? Math.max(...sizes) : 10;
+          if (state.entries.length + rowSize > 100) {
+            manual.push(
+              `${kind}: the form is near the 100-control capture limit; add remaining entries manually.`,
+            );
+            break;
+          }
+          clicked = true;
+          candidate.button.click();
+          const after = await waitForHistoryRow(capture, state, candidate);
+          if (!after)
+            return result(
+              "outcome_unknown",
+              "An Add click did not produce exactly one confirmed blank entry. Review the page manually before continuing; it will not be clicked again.",
+            );
+          state = after;
+          expansionEntries = state.entries;
+          added[kind] += 1;
+          // A verified append may rerender the Add button. Adopt a replacement
+          // only after that append, within the same scope and exact label.
+          const replacements = state.buttons.filter(
+            (item) => item.kind === kind,
+          );
+          if (
+            replacements.length === 1 &&
+            replacements[0].label === candidate.label &&
+            replacements[0].scope === candidate.scope
+          )
+            capturedButtons = capturedButtons.map((item) =>
+              item.button === candidate.button ? replacements[0] : item,
+            );
+          if (state.entries.length > 100)
+            return result(
+              "partial",
+              "An entry was added, but the form exceeds the 100-control capture limit. Review remaining entries manually.",
+            );
+        }
+      }
+      if (!clicked)
+        return result(
+          "unchanged",
+          manual.join(" ") || "The requested history entries already exist.",
+        );
+      return result(
+        manual.length ? "partial" : "expanded",
+        manual.join(" ") ||
+          `Added ${added.experience} work experience and ${added.education} education entries.`,
+      );
+    } catch {
+      return result(
+        clicked ? "outcome_unknown" : "rejected",
+        "The form became unavailable during row preparation. Review it manually.",
+      );
+    } finally {
+      expansionEntries = [];
+      expansionEdits = undefined;
+      if (clicked) snapshot = undefined;
+    }
+  }
+
   async function inspectPage() {
     const seen = new Set();
     const entries = [];
@@ -557,8 +1185,10 @@
       page_url: pageUrl(),
       full_url: location.href,
       entries,
+      historyGroups: new Map(),
+      contexts: formDocuments(),
     };
-    for (const context of formDocuments()) {
+    for (const context of snapshot.contexts) {
       watchDocument(context.document);
       for (const element of context.document.querySelectorAll(
         'input,textarea,select,[role="combobox"],[contenteditable="true"]',
@@ -569,6 +1199,26 @@
         if (!entry || seen.has(entry.key)) continue;
         seen.add(entry.key);
         entry.context = context;
+        const section = historySection(element);
+        if (section) {
+          let group = snapshot.historyGroups.get(section.node);
+          if (!group) {
+            const position = section.ordinal
+              ? Number(section.ordinal) - 1
+              : Array.from(snapshot.historyGroups.values()).filter(
+                  (item) => item.kind === section.kind,
+                ).length;
+            if (position >= 0 && position < 100) {
+              group = {
+                ...section,
+                id: `h${snapshot.historyGroups.size}`,
+                position,
+              };
+              snapshot.historyGroups.set(section.node, group);
+            }
+          }
+          if (group) addHistory(entry, group);
+        }
         entry.capturedValues = localValues(entry);
         entry.edited = false;
         entries.push(entry);
@@ -580,6 +1230,9 @@
       focused.focus({ preventScroll: true });
     if (!currentPage())
       throw new Error("The page changed while sharing. Try again.");
+    for (const group of snapshot.historyGroups.values())
+      group.controls = visibleGroupControls(group);
+    snapshot.historyState = historyState(snapshot.contexts);
     return {
       id: snapshot.id,
       protocol_version: 2,
@@ -589,6 +1242,16 @@
         id: `f${index}`,
         ...entry.description,
       })),
+      ...(entries.length === 0 &&
+      historyKinds.some((kind) =>
+        supportedHistoryAdd(
+          snapshot.historyState,
+          kind,
+          snapshot.historyState.buttons,
+        ),
+      )
+        ? { history_expandable: true }
+        : {}),
     };
   }
 
@@ -599,7 +1262,13 @@
 
   function refreshEntry(entry) {
     const first = entry.elements[0];
-    return first?.isConnected ? describeElement(first) : null;
+    const current = first?.isConnected ? describeElement(first) : null;
+    if (current && entry.historyGroup) {
+      const group = historySection(first);
+      if (!group || group.node !== entry.historyGroup.node) return null;
+      addHistory(current, { ...entry.historyGroup, ...group });
+    } else if (current && historySection(first)) return null;
+    return current;
   }
 
   function requestedEntries(command) {
@@ -650,6 +1319,8 @@
   }
 
   function preservationReason(entry, replace) {
+    if (historyEdited(entry))
+      return "This history entry changed after sharing. Share and review the entire entry again.";
     const current = localValues(entry);
     if (
       entry.edited ||
@@ -662,6 +1333,19 @@
     return null;
   }
 
+  function historyEdited(entry) {
+    if (!entry.historyGroup) return false;
+    return snapshot.entries.some((member) => {
+      if (member.historyGroup !== entry.historyGroup) return false;
+      const values = localValues(member);
+      return (
+        member.edited ||
+        values.length !== member.capturedValues.length ||
+        values.some((value, index) => value !== member.capturedValues[index])
+      );
+    });
+  }
+
   // Exact values stay in this document. An edit followed by a clear is still an
   // intentional edit, even when its final value equals the original empty one.
   function watchDocument(doc) {
@@ -671,7 +1355,11 @@
       doc.addEventListener(
         type,
         (event) => {
-          for (const entry of snapshot?.entries ?? []) {
+          expansionEdits?.add(event.target);
+          for (const entry of [
+            ...(snapshot?.entries ?? []),
+            ...expansionEntries,
+          ]) {
             if (entry.elements.includes(event.target)) entry.edited = true;
           }
         },
@@ -686,7 +1374,10 @@
             !["Enter", "Backspace", "Delete"].includes(event.key)
           )
             return;
-          for (const entry of snapshot?.entries ?? []) {
+          for (const entry of [
+            ...(snapshot?.entries ?? []),
+            ...expansionEntries,
+          ]) {
             if (!entry.customOptions) continue;
             const container = selectContainer(entry.elements[0]);
             if (
@@ -729,6 +1420,16 @@
         return {
           status: "rejected",
           detail: "Use a number within this field's allowed range and step.",
+        };
+    }
+    if (["date", "month"].includes(entry.description.type)) {
+      const candidate = element.cloneNode(false);
+      candidate.value = value;
+      if (!value || candidate.value !== value || !candidate.validity.valid)
+        return {
+          status: "rejected",
+          detail:
+            "Use a complete calendar value within this control's range and step.",
         };
     }
     if (entry.description.type === "select") {
@@ -925,6 +1626,7 @@
       snapshot.id !== command.snapshot_id ||
       snapshot.page_url !== command.page_url ||
       !currentPage() ||
+      !validHistoryStructure() ||
       requested.some(({ entry }) => !entry);
     if (stale) {
       snapshot = undefined;
@@ -974,7 +1676,7 @@
     const fieldResults = {};
     try {
       for (const { id, entry } of requested) {
-        if (!currentPage()) {
+        if (!currentPage() || !validHistoryStructure()) {
           fieldResults[id] = {
             status: "outcome_unknown",
             detail: "The page changed during apply.",
@@ -988,6 +1690,12 @@
             status: "outcome_unknown",
             detail:
               "This control changed after validation. Review it manually.",
+          };
+        } else if (historyEdited(entry)) {
+          fieldResults[id] = {
+            status: "preserved",
+            detail:
+              "This history entry changed after sharing. Share and review the entire entry again.",
           };
         } else if (preservationReason(entry, replacements.has(id))) {
           fieldResults[id] = {
@@ -1018,6 +1726,10 @@
         } else {
           fieldResults[id] = fillText(entry, command.fields[id]);
         }
+        if (["filled", "uploaded"].includes(fieldResults[id].status)) {
+          entry.capturedValues = localValues(entry);
+          entry.edited = false;
+        }
       }
     } catch {
       for (const { id } of requested) {
@@ -1046,7 +1758,11 @@
     if (sender.id !== chrome.runtime.id) return false;
     if (
       !contracts ||
-      !(contracts.InspectMessage(message) || contracts.ApplyMessage(message))
+      !(
+        contracts.InspectMessage(message) ||
+        contracts.ApplyMessage(message) ||
+        contracts.ExpandHistoryMessage?.(message)
+      )
     ) {
       respond({
         state: "rejected",
@@ -1056,7 +1772,57 @@
       });
       return false;
     }
-    if (applying || inspecting) {
+    if (message.action === "expand-history") {
+      const identity = JSON.stringify([
+        message.version,
+        message.action,
+        message.id,
+        message.snapshot_id,
+        message.targets.experience ?? 0,
+        message.targets.education ?? 0,
+      ]);
+      const existing = historyOperations.get(message.id);
+      const reject = (detail) =>
+        historyResult(
+          message,
+          "rejected",
+          historyCounts(snapshot?.historyState),
+          { experience: 0, education: 0 },
+          detail,
+        );
+      if (existing) {
+        if (existing.identity !== identity) {
+          respond(
+            reject(
+              "This row operation identity belongs to a different request. Review the page manually.",
+            ),
+          );
+          return false;
+        }
+        existing.promise.then(respond);
+        return true;
+      }
+      if (applying || inspecting || expanding || historyOperations.size >= 32) {
+        const result = reject(
+          "Another form operation is running, or this document's row-operation limit was reached. Review the page before trying again.",
+        );
+        if (historyOperations.size < 32)
+          historyOperations.set(message.id, {
+            identity,
+            promise: Promise.resolve(result),
+          });
+        respond(result);
+        return false;
+      }
+      expanding = true;
+      const promise = expandHistory(message).finally(() => {
+        expanding = false;
+      });
+      historyOperations.set(message.id, { identity, promise });
+      promise.then(respond);
+      return true;
+    }
+    if (applying || inspecting || expanding) {
       respond({
         state: "rejected",
         field_results:

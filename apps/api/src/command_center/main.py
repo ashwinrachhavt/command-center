@@ -16,20 +16,27 @@ from command_center.api import (
     agent_events,
     agent_questions,
     agents,
+    application_materials,
     application_preparations,
+    applications,
     artifacts,
     browser,
+    contact_discovery,
     conversations,
+    correspondence,
     document_text,
     documents,
     leads,
     memory,
     pdf_exports,
     profile_facts,
+    record_work,
     research_executions,
     reviewed_actions,
     spending,
+    work_queue,
     workspace,
+    writing,
 )
 from command_center.api.routes import api_router, health_router
 from command_center.core.config import Settings
@@ -40,6 +47,7 @@ from command_center.db.session import create_database_engine
 from command_center.db.spending import SpendingDenied
 from command_center.integrations.clients import FirecrawlClient, SearxngClient
 from command_center.integrations.composio_actions import ComposioActionClient
+from command_center.integrations.contact_discovery import ContactDiscoveryClient
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -91,6 +99,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     http, config.firecrawl_url, config.firecrawl_api_key.get_secret_value()
                 )
                 app.state.searxng = SearxngClient(http, config.searxng_url)
+                app.state.contact_discovery = ContactDiscoveryClient(
+                    http,
+                    apollo_key=config.apollo_api_key.get_secret_value(),
+                    hunter_key=config.hunter_api_key.get_secret_value(),
+                )
                 async with mcp.manager.run():
                     yield
         finally:
@@ -157,19 +170,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(api_router)
     app.include_router(workspace.router)
+    app.include_router(work_queue.router)
     app.include_router(artifacts.router)
     app.include_router(agents.router)
     app.include_router(agent_questions.router)
     app.include_router(agent_events.router)
     app.include_router(conversations.router)
+    app.include_router(correspondence.router)
+    app.include_router(contact_discovery.router)
+    app.include_router(record_work.router)
     app.include_router(leads.router)
     app.include_router(documents.router)
     app.include_router(document_text.router)
     app.include_router(profile_facts.router)
     app.include_router(browser.router)
     app.include_router(application_preparations.router)
+    app.include_router(applications.router)
+    app.include_router(application_materials.router)
     app.include_router(memory.router)
     app.include_router(reviewed_actions.router)
+    app.include_router(writing.router)
     app.include_router(research_executions.router)
     app.include_router(pdf_exports.router)
     app.include_router(spending.router)

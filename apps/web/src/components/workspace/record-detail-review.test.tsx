@@ -5,6 +5,31 @@ import { expect, it, vi } from "vitest";
 import type { Schema, WorkspaceRecord } from "@/lib/api";
 import { ArtifactContent } from "./record-detail";
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({ isLoaded: true, userId: "synthetic-writer" }),
+}));
+// These regressions exercise persistence/session fencing; real Tiptap behavior is covered in Playwright.
+vi.mock("@/components/writing/rich-writer", () => ({
+  RichWriter: ({
+    label,
+    value,
+    disabled,
+    onChange,
+  }: {
+    label: string;
+    value: string;
+    disabled?: boolean;
+    onChange: (value: string, format: string) => void;
+  }) => (
+    <textarea
+      aria-label={label}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value, "markdown")}
+    />
+  ),
+}));
+
 const artifact = {
   id: "artifact-1",
   row_version: 1,
@@ -40,14 +65,44 @@ function mount(
   ],
   reviewReads: Response[] = [Response.json([])],
 ) {
+  sessionStorage.clear();
+  let draft = {
+    scope_key: "artifact-artifact-1",
+    data: null as unknown,
+    row_version: 0,
+    last_save_key: null as string | null,
+    updated_at: null,
+  };
   const posts: [RequestInfo | URL, RequestInit | undefined][] = [];
   vi.spyOn(global, "fetch").mockImplementation(async (input, init) => {
     const route = String(input);
+    if (route.includes("/writing-drafts/")) {
+      if (init?.method !== "GET") {
+        const body = JSON.parse(String(init?.body));
+        draft = {
+          ...draft,
+          data: body.data ?? null,
+          row_version: draft.row_version + 1,
+          last_save_key: new Headers(init?.headers).get("Idempotency-Key"),
+        };
+      }
+      return Response.json(draft);
+    }
     if (
       init?.method === "GET" &&
-      route.endsWith("/artifacts/artifact-1/versions")
+      route.includes("/artifacts/artifact-1/version-history?")
     )
-      return Response.json([v1]);
+      return Response.json(history([v1]).pages[0]);
+    if (
+      init?.method === "GET" &&
+      route.endsWith("/artifacts/artifact-1/versions/version-1")
+    )
+      return Response.json(v1);
+    if (
+      init?.method === "GET" &&
+      route.endsWith("/artifacts/artifact-1/versions/version-2")
+    )
+      return Response.json(v2);
     if (init?.method === "GET" && route.endsWith("/versions/version-1/reviews"))
       return reviewReads.shift() ?? Response.json([]);
     if (init?.method === "GET" && route.endsWith("/versions/version-2/reviews"))
@@ -77,6 +132,27 @@ function postKey(call: [RequestInfo | URL, RequestInit | undefined]) {
   return new Headers(call[1]?.headers).get("Idempotency-Key");
 }
 
+function history(versions: Schema["VersionRead"][]) {
+  return {
+    pages: [
+      {
+        items: versions.map((version) => ({
+          id: version.id,
+          artifact_id: version.artifact_id,
+          version: version.version,
+          content_sha256: version.content_sha256,
+          created_at: version.created_at,
+          is_text: typeof version.payload?.text === "string",
+          has_file: version.payload === null,
+        })),
+        total: versions.length,
+        next_before: null,
+      },
+    ],
+    pageParams: [null],
+  };
+}
+
 it("pins the displayed version, content hash, reason, and submitted review through refetch", async () => {
   const { client, posts } = mount();
   await screen.findByText("Version one content", {}, { timeout: 3000 });
@@ -84,7 +160,7 @@ it("pins the displayed version, content hash, reason, and submitted review throu
     target: { value: "Checked exact version one" },
   });
 
-  client.setQueryData(["versions", "artifact-1"], [v2, v1]);
+  client.setQueryData(["version-history", "artifact-1"], history([v2, v1]));
   await screen.findByText(/newer version 2 is available/i);
   expect(screen.getByText("Version one content")).toBeVisible();
   expect(screen.getByText(/sha-version-one/i)).toBeVisible();
@@ -107,7 +183,7 @@ it("requires explicit discard before moving an unsaved review to newer content",
   fireEvent.change(screen.getByLabelText("Review reason"), {
     target: { value: "Reason belongs to version one" },
   });
-  client.setQueryData(["versions", "artifact-1"], [v2, v1]);
+  client.setQueryData(["version-history", "artifact-1"], history([v2, v1]));
 
   fireEvent.click(
     await screen.findByRole("button", { name: "Review version 2" }),
@@ -217,6 +293,9 @@ it("does not discard version edits made while an earlier append is saving", asyn
   const { posts } = mount([pending]);
   await screen.findByText("Version one content");
   fireEvent.click(screen.getByRole("button", { name: "New version" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save version" })).toBeEnabled(),
+  );
   fireEvent.change(screen.getByLabelText("New version content"), {
     target: { value: "Submitted version content" },
   });
@@ -238,4 +317,38 @@ it("does not discard version edits made while an earlier append is saving", asyn
     based_on_version_id: v1.id,
     text: "Submitted version content",
   });
+});
+
+it("a late save cannot retarget a new editing session after cancellation", async () => {
+  let finish!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    finish = resolve;
+  });
+  const { posts } = mount([pending]);
+  await screen.findByText("Version one content");
+  fireEvent.click(screen.getByRole("button", { name: "New version" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save version" })).toBeEnabled(),
+  );
+  fireEvent.change(screen.getByLabelText("New version content"), {
+    target: { value: "First editing session" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  fireEvent.click(screen.getByRole("button", { name: "Close writer" }));
+  fireEvent.click(screen.getByRole("button", { name: "New version" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save version" })).toBeEnabled(),
+  );
+  fireEvent.change(screen.getByLabelText("New version content"), {
+    target: { value: "A separate unfinished draft" },
+  });
+  finish(Response.json(v2));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save version" })).toBeEnabled(),
+  );
+  expect(screen.getByLabelText("New version content")).toHaveValue(
+    "A separate unfinished draft",
+  );
+  expect(screen.getByText(/Editing from version 1\./)).toBeVisible();
 });

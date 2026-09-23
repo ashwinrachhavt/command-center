@@ -6,10 +6,21 @@ import { Records } from "../../src/components/workspace/records";
 import { Overview } from "../../src/components/workspace/overview";
 import { Agents } from "../../src/components/workspace/agents";
 import { BrowserPage } from "../../src/components/workspace/browser";
+import { Applications } from "../../src/components/workspace/applications";
+import { applicationsFixture } from "./applications";
 import { MemoryPage } from "../../src/components/workspace/memory";
 import { Settings } from "../../src/components/workspace/settings";
+import { ConnectedAccounts } from "../../src/components/workspace/connected-accounts";
 import { ReviewedActions } from "../../src/components/workspace/reviewed-actions";
 import { workflowFixture } from "./workflows";
+import { connectionsFixture } from "./connections";
+import { writingFixture } from "./writing";
+import { careerFixture } from "./career";
+import { followUpFixture } from "./follow-ups";
+import { contactDiscoveryFixture } from "./contact-discovery";
+import { recordWorkFixture } from "./record-work";
+import { Library } from "../../src/components/workspace/library";
+import { libraryFixture } from "./library";
 import { installNavigation, usePathname } from "./navigation";
 import "../../src/app/globals.css";
 
@@ -36,6 +47,7 @@ const contact = {
   title: "Engineering lead",
   company_id: company.id,
   email: "alex@example.com",
+  linkedin_url: "https://www.linkedin.com/in/synthetic-cc-contact/",
   relationship: "warm",
   notes: "Discuss the platform team and interview process.",
 };
@@ -413,7 +425,7 @@ const artifactVersions: Record<string, Record<string, unknown>[]> = {
       id: "resume-version-1",
       artifact_id: "artifact-resume",
       version: 1,
-      payload: { text: "Original synthetic resume bytes are downloadable." },
+      payload: null,
       content_sha256: "resume-version-one-sha",
       created_at: "2026-09-21T10:08:00Z",
     },
@@ -429,6 +441,18 @@ const artifactVersions: Record<string, Record<string, unknown>[]> = {
     },
   ],
 };
+const versionReads: string[] = [];
+if (new URLSearchParams(location.search).get("long-history") === "1") {
+  artifactVersions["artifact-1"] = Array.from({ length: 30 }, (_, index) => ({
+    id: `long-version-${30 - index}`,
+    artifact_id: "artifact-1",
+    version: 30 - index,
+    payload: { text: `History checkpoint ${30 - index}` },
+    content_sha256: `synthetic-history-${30 - index}`,
+    created_at: "2026-09-22T12:00:00Z",
+    input_version_ids: [],
+  }));
+}
 const documentImports: Record<string, unknown>[] = [
   {
     id: "document-import-completed",
@@ -513,6 +537,23 @@ const profileFacts: Record<string, unknown>[] = [
     },
   },
 ];
+if (new URLSearchParams(location.search).has("many-facts")) {
+  const sample = profileFacts[0];
+  for (let index = 2; index <= 105; index += 1) {
+    profileFacts.push({
+      ...sample,
+      id: `fact-skill-${index}`,
+      field: "skill",
+      active: null,
+      current: {
+        ...(sample.current as Record<string, unknown>),
+        id: `fact-skill-${index}-v1`,
+        version: 1,
+        value: `Synthetic imported skill ${index}`,
+      },
+    });
+  }
+}
 const priorMemoryRevision = {
   id: "memory-revision-approved",
   version: 1,
@@ -620,6 +661,14 @@ const browserSnapshots: Record<string, unknown>[] = [
         unsupported_reason: null,
       },
       {
+        id: "f5",
+        label: "Cover letter",
+        type: "file",
+        value_state: "empty",
+        accept: "application/pdf",
+        required: false,
+      },
+      {
         id: "f4",
         label: "Custom eligibility widget",
         type: "unsupported",
@@ -681,6 +730,21 @@ const browserResumeOptions = {
     },
   ],
 };
+const browserCoverLetterOptions = {
+  default_version_id: null,
+  items: [
+    {
+      version_id: "letter-version-1",
+      artifact_id: "artifact-letter-1",
+      title: "Northstar cover letter",
+      filename: "northstar-letter.pdf",
+      media_type: "application/pdf",
+      size_bytes: 8192,
+      sha256: "c".repeat(64),
+      version: 1,
+    },
+  ],
+};
 let browserPreparation: Record<string, unknown> | undefined;
 let browserPreparationVersion = 0;
 let generationPolls = 0;
@@ -711,6 +775,11 @@ function makeBrowserPreparation(body: Record<string, unknown>) {
     version_id: `preparation-version-${browserPreparationVersion}`,
     version: browserPreparationVersion,
     resume: resume ?? null,
+    cover_letter:
+      browserCoverLetterOptions.items.find(
+        (item) => item.version_id === body.cover_letter_version_id,
+      ) ?? null,
+    cover_letter_upload_fields: [],
     replace_fields: [],
     upload_fields: [],
     fields: [
@@ -795,6 +864,34 @@ function eventResponse(runId: string, afterSequence: number) {
         send(": connected\n\n");
         return;
       }
+      if (
+        runId === "run-stream-a" &&
+        new URLSearchParams(location.search).has("smooth_stream")
+      ) {
+        send(streamEvent(runId, 1, "run-status", { state: "queued" }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        send(streamEvent(runId, 2, "run-status", { state: "running" }));
+        for (let index = 0; index < 70; index++) {
+          if (cancelled) return;
+          send(
+            streamEvent(runId, index + 3, "text-delta", {
+              message_id: "smooth-reply",
+              delta:
+                index === 0
+                  ? "## Steady reply\n\n"
+                  : `Paragraph ${index}: useful **grounded** context remains readable while the response continues.\n\n`,
+            }),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        send(streamEvent(runId, 73, "run-status", { state: "completed" }));
+        const run = sessionRuns["session-stream"].find(
+          (item) => item.id === runId,
+        );
+        if (run) run.state = "completed";
+        if (!cancelled) controller.close();
+        return;
+      }
       if (runId === "run-stream-a" && attempt === 1) {
         const first = streamEvent(runId, 1, "text-delta", {
           message_id: "stream-message-a",
@@ -873,6 +970,33 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const url = new URL(String(input), location.origin);
   if (!url.pathname.startsWith("/api/backend/"))
     throw new Error("Only fixture API requests are supported");
+  const application = await applicationsFixture(
+    url,
+    init,
+    rows,
+    artifactVersions,
+  );
+  if (application) return application;
+  const library = await libraryFixture(url, init, rows);
+  if (library) return library;
+  const work = await recordWorkFixture(url, init, {
+    rows,
+    sessions,
+    sessionMessages,
+    sessionRuns,
+    artifactVersions,
+  });
+  if (work) return work;
+  const writing = await writingFixture(url, init);
+  const career = await careerFixture(url, init);
+  if (career) return career;
+  const discovery = await contactDiscoveryFixture(url, init);
+  if (discovery) return discovery;
+  const followUp = await followUpFixture(url, init);
+  if (followUp) return followUp;
+  if (writing) return writing;
+  const connection = await connectionsFixture(url, init);
+  if (connection) return connection;
   const workflow = await workflowFixture(url, init);
   if (workflow) return workflow;
   const route = url.pathname.replace("/api/backend/", "");
@@ -934,6 +1058,24 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     ]);
   if (route === "browser/snapshots" && method === "GET")
     return Response.json(browserSnapshots);
+  const savedSnapshot = route.match(
+    /^browser\/snapshots\/([^/]+)(\/preparation)?$/,
+  );
+  if (savedSnapshot && method === "GET") {
+    const snapshot = browserSnapshots.find(
+      (item) => item.id === savedSnapshot[1],
+    );
+    if (!snapshot)
+      return Response.json(
+        { detail: "Form snapshot not found" },
+        { status: 404 },
+      );
+    return Response.json(
+      savedSnapshot[2] ? (browserPreparation ?? null) : snapshot,
+    );
+  }
+  if (route === "browser/cover-letters" && method === "GET")
+    return Response.json(browserCoverLetterOptions);
   if (route === "browser/resumes" && method === "GET")
     return Response.json(browserResumeOptions);
   if (route === "browser/commands" && method === "GET")
@@ -1002,6 +1144,12 @@ const fixtureFetch: typeof fetch = async (input, init) => {
         ) ?? null;
       browserPreparation.replace_fields = body.replace_fields;
       browserPreparation.upload_fields = body.upload_fields;
+      browserPreparation.cover_letter_upload_fields =
+        body.cover_letter_upload_fields ?? [];
+      browserPreparation.cover_letter =
+        browserCoverLetterOptions.items.find(
+          (item) => item.version_id === body.cover_letter_version_id,
+        ) ?? null;
       const currentFields = browserPreparation.fields as Record<
         string,
         unknown
@@ -1052,6 +1200,7 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   }
   if (route === "document-types")
     return Response.json([
+      { id: "document-type-notes", name: "Notes", slug: "notes" },
       { id: "document-type-resume", name: "Resume", slug: "resume" },
       {
         id: "document-type-brief",
@@ -1259,8 +1408,40 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     memory.source = current.source;
     return Response.json(memory);
   }
-  if (route === "profile/facts" && method === "GET")
-    return Response.json(page(profileFacts, 100));
+  if (route === "profile/facts" && method === "GET") {
+    const limit = Number(url.searchParams.get("limit") ?? 20);
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    return Response.json({
+      items: profileFacts.slice(offset, offset + limit),
+      total: profileFacts.length,
+      limit,
+      offset,
+    });
+  }
+  if (route === "contacts/contact-1/observations")
+    return Response.json({
+      items: [
+        {
+          id: "observation-1",
+          contact_id: "contact-1",
+          source_artifact_id: "artifact-1",
+          source_version_id: "version-1",
+          source_row: 1,
+          mapping_version: "linkedin-contacts-profile-v2",
+          first_name: "Alex",
+          last_name: "Morgan",
+          email: "alex@example.com",
+          linkedin_url: "https://www.linkedin.com/in/synthetic-alex",
+          company: "Northstar",
+          position: "Engineering lead",
+          connected_on: "01 Jan 2025",
+          imported_at: "2026-09-22T10:00:00Z",
+        },
+      ],
+      total: 1,
+      limit: 10,
+      offset: 0,
+    });
   if (route === "profile/facts" && method === "POST") {
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     const created = {
@@ -1334,6 +1515,45 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     fact.row_version = Number(fact.row_version) + 1;
     return Response.json(fact);
   }
+  const historyMatch = route.match(/^artifacts\/([^/]+)\/version-history$/);
+  if (route === "test/version-reads") return Response.json(versionReads);
+  if (historyMatch) {
+    versionReads.push(`${route}${url.search}`);
+    const versions = artifactVersions[historyMatch[1]] ?? [];
+    const before = Number(url.searchParams.get("before") ?? Infinity);
+    const limit = Number(url.searchParams.get("limit") ?? 20);
+    const matching = versions.filter(
+      (version) => Number(version.version) < before,
+    );
+    const items = matching.slice(0, limit).map((version) => ({
+      id: version.id,
+      artifact_id: version.artifact_id,
+      version: version.version,
+      content_sha256: version.content_sha256,
+      created_at: version.created_at,
+      is_text:
+        typeof (version.payload as Record<string, unknown> | null)?.text ===
+        "string",
+      has_file: version.payload === null,
+    }));
+    return Response.json({
+      items,
+      total: versions.length,
+      next_before: matching.length > limit ? items.at(-1)?.version : null,
+    });
+  }
+  const versionBodyMatch = route.match(
+    /^artifacts\/([^/]+)\/versions\/([^/]+)$/,
+  );
+  if (versionBodyMatch && method === "GET") {
+    versionReads.push(route);
+    const version = artifactVersions[versionBodyMatch[1]]?.find(
+      (version) => version.id === versionBodyMatch[2],
+    );
+    return version
+      ? Response.json(version)
+      : Response.json({ detail: "Version not found" }, { status: 404 });
+  }
   const artifactVersionsMatch = route.match(/^artifacts\/([^/]+)\/versions$/);
   if (artifactVersionsMatch && method === "GET")
     return Response.json(artifactVersions[artifactVersionsMatch[1]] ?? []);
@@ -1357,8 +1577,9 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     };
     const created = {
       ...baseVersion,
-      id: `${artifactVersionsMatch[1]}-version-${versions.length + 1}`,
-      version: versions.length + 1,
+      id: `${artifactVersionsMatch[1]}-version-${Math.max(...versions.map((version) => Number(version.version))) + 1}`,
+      version:
+        Math.max(...versions.map((version) => Number(version.version))) + 1,
       payload,
       content_sha256: `${artifactVersionsMatch[1]}-edited-sha`,
       created_at: "2026-09-21T10:25:00Z",
@@ -1808,6 +2029,51 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       stages: { researching: 1, interviewing: 1 },
       tasks,
     };
+  if (route === "dashboard/tasks") {
+    const today = "2026-09-24";
+    const view = url.searchParams.get("view") || "today";
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const limit = Number(url.searchParams.get("limit") || 6);
+    const active = tasks.filter((task) =>
+      ["open", "in_progress"].includes(task.state),
+    );
+    const groups = {
+      today: active.filter((task) => task.due_date && task.due_date <= today),
+      upcoming: active.filter((task) => task.due_date && task.due_date > today),
+      unscheduled: active.filter((task) => !task.due_date),
+      snoozed: tasks.filter((task) => task.state === "snoozed"),
+    };
+    const matches = groups[view as keyof typeof groups] || [];
+    payload = {
+      items: matches
+        .slice(offset, offset + limit)
+        .map((task) => ({
+          ...task,
+          due_status: !task.due_date
+            ? "unscheduled"
+            : task.due_date < today
+              ? "overdue"
+              : task.due_date === today
+                ? "today"
+                : "upcoming",
+        })),
+      total: matches.length,
+      limit,
+      offset,
+      today,
+      timezone: url.searchParams.get("timezone") || "UTC",
+      counts: Object.fromEntries(
+        Object.entries(groups).map(([key, rows]) => [key, rows.length]),
+      ),
+    };
+  }
+  if (route === "dashboard/work")
+    payload = {
+      items: [],
+      total: 0,
+      limit: 6,
+      offset: Number(url.searchParams.get("offset") || 0),
+    };
   if (route === "agents/models")
     payload = [
       {
@@ -1951,14 +2217,22 @@ function Preview() {
       <WorkspaceShell>
         {path === "/" ? (
           <Overview />
+        ) : path === "/notes" ? (
+          <Library key="notes" notes />
+        ) : path === "/library" ? (
+          <Library />
         ) : path === "/agents" ? (
           <Agents />
         ) : path === "/settings" ? (
           <Settings />
+        ) : path === "/connections" ? (
+          <ConnectedAccounts />
         ) : path === "/actions" ? (
           <ReviewedActions />
         ) : path === "/browser" ? (
           <BrowserPage />
+        ) : path === "/applications" ? (
+          <Applications />
         ) : path === "/memory" ? (
           <MemoryPage />
         ) : (

@@ -60,35 +60,7 @@ export type ProfileFact = Schema["FactRead"];
 
 export type PdfExport = Schema["PdfExportRead"];
 
-export type BrowserField = {
-  id: string;
-  label: string;
-  type:
-    | "text"
-    | "email"
-    | "tel"
-    | "url"
-    | "textarea"
-    | "select"
-    | "file"
-    | "radio"
-    | "checkbox"
-    | "number"
-    | "unsupported";
-  required: boolean;
-  options: string[];
-  option_labels: Record<string, string>;
-  value_state: "empty" | "present";
-  autocomplete: string;
-  accept: string;
-  unsupported_reason: string | null;
-  numeric_constraints: {
-    minimum: string | null;
-    maximum: string | null;
-    step: string;
-    step_base: string;
-  } | null;
-};
+export type BrowserField = Schema["FormField"];
 export type BrowserSnapshot = {
   id: string;
   protocol_version: 2;

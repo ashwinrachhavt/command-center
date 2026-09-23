@@ -6,7 +6,9 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from alembic import command
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -584,8 +586,18 @@ def test_question_migration_refuses_to_drop_durable_interrupts(engine, migration
         )
 
     try:
-        with pytest.raises(RuntimeError, match="durable agent questions"):
-            command.downgrade(migration_config, "0015_connected_context")
+        # Exercise this guard directly: later migrations have their own refusal
+        # conditions and may contain durable synthetic fixtures from earlier runs.
+        revision = ScriptDirectory.from_config(migration_config).get_revision(
+            "0016_agent_questions"
+        )
+        assert revision is not None
+        with (
+            engine.begin() as connection,
+            Operations.context(MigrationContext.configure(connection)),
+            pytest.raises(RuntimeError, match="durable agent questions"),
+        ):
+            revision.module.downgrade()
         with Session(engine) as db:
             question = db.scalar(select(AgentQuestion).where(AgentQuestion.run_id == run_id))
             assert question is not None and question.prompt.startswith("Keep this question")

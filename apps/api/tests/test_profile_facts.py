@@ -1,5 +1,6 @@
 """Synthetic regressions for reviewed candidate profile facts."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -82,6 +83,52 @@ def approve(client, fact, *, revision_id=None, decision="approved", reason=None)
     )
 
 
+def test_career_mapping_preserves_source_and_exact_review_lifecycle(client, engine):
+    excerpt = (
+        "Company Name: Synthetic Orbit\nTitle: Engineer\nDescription: Built systems.\n"
+        "Location: Remote\nStarted On: 2020\nFinished On: "
+    )
+    source = source_version(engine, client.actor_id, text=excerpt)
+    legacy = create_fact(
+        client,
+        field="experience",
+        value=excerpt,
+        context="LinkedIn export · Positions.csv, data row 1.",
+        source_version_id=str(source),
+        source_excerpt=excerpt,
+    )
+    suggestion = legacy["current"]["career_suggestion"]
+    assert suggestion["organization"] == "Synthetic Orbit"
+    assert suggestion["start_date"] == "2020" and suggestion["current"] is None
+    assert legacy["current"]["career"] is None and legacy["active"] is None
+    approved = approve(client, legacy).json()
+    body = {
+        "expected_version": approved["row_version"],
+        "value": json.dumps(suggestion),
+        "source_version_id": str(source),
+        "source_excerpt": excerpt,
+    }
+    mapped = post(client, f"profile/facts/{legacy['id']}/versions", body)
+    assert mapped.status_code == 201, mapped.text
+    mapped = mapped.json()
+    assert mapped["current"]["career"] == suggestion
+    assert mapped["current"]["source_excerpt"] == legacy["current"]["source_excerpt"]
+    assert mapped["active"]["id"] == legacy["current"]["id"]
+    assert mapped["current"]["context"] is None
+    active = approve(client, mapped).json()
+    assert active["active"]["id"] == mapped["current"]["id"]
+    approved_items = client.get("/api/v1/profile/facts/approved").json()["items"]
+    assert approved_items[0]["career"] == suggestion
+    for wrong in [
+        {"field": "education", "value": body["value"]},
+        {"field": "experience", "value": body["value"], "context": "A single employer"},
+        {"field": "experience", "value": json.dumps(suggestion | {"start_date": "2023-13"})},
+    ]:
+        assert post(client, "profile/facts", wrong).status_code == 422
+    assert approve(client, active, decision="revoked").status_code == 200
+    assert client.get("/api/v1/profile/facts/approved").json()["items"] == []
+
+
 def test_manual_proposal_is_pending_idempotent_and_actor_owned(client, engine):
     key = uuid4()
     body = {"field": "full_name", "value": "Synthetic Person"}
@@ -103,6 +150,8 @@ def test_manual_proposal_is_pending_idempotent_and_actor_owned(client, engine):
         "valid_until": None,
         "review_state": "proposed",
         "created_at": None,
+        "career": None,
+        "career_suggestion": None,
     }
     replay = post(client, "profile/facts", body, key=key)
     assert replay.status_code == 201

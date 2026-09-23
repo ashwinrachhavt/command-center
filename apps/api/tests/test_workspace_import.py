@@ -3,14 +3,18 @@
 import csv
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
 
-from command_center.db.crm import CandidateProfile, Contact, Job, Opportunity
+from command_center.db.artifacts import Artifact, ArtifactVersion
+from command_center.db.career import decode_career
+from command_center.db.crm import CandidateProfile, Contact, ContactObservation, Job, Opportunity
 from command_center.db.models import Actor, AuditEvent, Task
+from command_center.db.profile_facts import ProfileFact, ProfileFactRevision
 
 spec = importlib.util.spec_from_file_location(
     "workspace_import", Path(__file__).resolve().parents[3] / "scripts/import_workspace.py"
@@ -168,11 +172,11 @@ def test_import_preserves_history_deduplicates_and_is_repeatable(session, source
     assert "Data row" not in alex.notes or "Source" in alex.notes
     assert next(c for c in contacts if c.name == "Robin Example").email is None
     assert run.counts["empty_connections_skipped"] == 1
-    assert session.scalar(select(Job).where(Job.owner_id == owner.id)).status == "unknown"
+    assert session.scalar(select(Job).where(Job.owner_id == owner.id)) is None
     opportunities = list(
         session.scalars(select(Opportunity).where(Opportunity.owner_id == owner.id))
     )
-    assert len(opportunities) == 3 and all(o.stage == "researching" for o in opportunities)
+    assert len(opportunities) == 2 and all(o.stage == "researching" for o in opportunities)
     tasks = list(session.scalars(select(Task).where(Task.owner_id == owner.id)))
     assert len(tasks) == 1 and tasks[0].due_date is None and tasks[0].due_at is None
     assert tasks[0].title.startswith("Review imported lead:")
@@ -219,3 +223,172 @@ def test_contact_does_not_merge_names_across_companies_or_email_conflicts(sessio
         name="Same Name", company=a, locator="row3", notes="row3", email="three@example.com"
     )
     assert len({one.id, two.id, three.id}) == 3
+
+
+def test_linkedin_maps_professional_fields_and_excludes_private_account_history(session, sources):
+    owner = Actor(id=uuid4(), kind="human", display_name="Synthetic")
+    session.add(owner)
+    session.flush()
+    directory = sources[0]
+    for filename, (_, columns) in importer.LINKEDIN_TABLES.items():
+        values = [f"Synthetic {column}" for column in columns]
+        if "Started On" in columns:
+            values[columns.index("Started On")] = "2020"
+        if "Finished On" in columns:
+            values[columns.index("Finished On")] = ""
+        write_csv(directory / filename, columns, [values])
+    write_csv(
+        directory / "Messages.csv", ["FROM", "CONTENT"], [["Unknown", "EXCLUDED-MESSAGE-BODY"]]
+    )
+    write_csv(directory / "Invitations.csv", ["Message"], [["EXCLUDED-INVITATION"]])
+    write_csv(
+        directory / "Ad_Targeting.csv",
+        ["Company", "Company", ""],
+        [["EXCLUDED-AD", "PRIVATE", "PRIVATE"]],
+    )
+    run = importer.WorkspaceImport(session, owner.id)
+    run.linkedin(directory)
+    facts = list(session.scalars(select(ProfileFact).where(ProfileFact.owner_id == owner.id)))
+    expected = {field for field, _ in importer.LINKEDIN_TABLES.values() if field}
+    assert expected <= {fact.field for fact in facts}
+    assert all(fact.active_revision_id is None for fact in facts)
+    versions = list(
+        session.scalars(select(ArtifactVersion).join(Artifact).where(Artifact.owner_id == owner.id))
+    )
+    text = "\n".join(str(version.payload) for version in versions)
+    assert "PRIVATE-EXCLUDED" not in text
+    assert "EXCLUDED-MESSAGE-BODY" not in text
+    assert "EXCLUDED-INVITATION" not in text
+    assert "EXCLUDED-AD" not in text
+    for fact in facts:
+        revision = session.get(ProfileFactRevision, fact.current_revision_id)
+        source = session.get(ArtifactVersion, revision.source_version_id)
+        assert revision.source_excerpt in source.payload["text"]
+    experience = next(fact for fact in facts if fact.field == "experience")
+    revision = session.get(ProfileFactRevision, experience.current_revision_id)
+    entry = decode_career(revision.value)
+    assert entry and entry.start_date == "2020"
+    assert entry.current is None and entry.end_date is None
+    assert revision.context is None
+    assert "Started On: 2020" in revision.source_excerpt
+    assert revision.source_excerpt.endswith("Finished On: ")
+    observations = list(
+        session.scalars(select(ContactObservation).where(ContactObservation.owner_id == owner.id))
+    )
+    assert len(observations) == 2  # Every named source row keeps its own evidence.
+    assert observations[0].first_name == "Alex"
+    assert observations[0].connected_on == "01 Jan 2025"
+    assert observations[0].company == "Synthetic Orbit"
+    inventory = next(item for item in run.column_mapping if item["file"] == "Ad_Targeting.csv")
+    assert [item["position"] for item in inventory["columns"]] == [1, 2, 3]
+    assert all(item["disposition"] == "excluded" for item in inventory["columns"])
+
+
+def test_structured_import_upgrade_does_not_duplicate_or_change_approved_legacy_facts(
+    session, sources, monkeypatch
+):
+    owner = Actor(id=uuid4(), kind="human", display_name="Synthetic")
+    session.add(owner)
+    session.flush()
+    columns = importer.LINKEDIN_TABLES["Positions.csv"][1]
+    write_csv(
+        sources[0] / "Positions.csv",
+        columns,
+        [["Synthetic Orbit", "Engineer", "Built tools", "Remote", "2020", ""]],
+    )
+    with monkeypatch.context() as legacy_mapping:
+        legacy_mapping.setattr(importer, "linkedin_career", lambda field, row: None)
+        importer.WorkspaceImport(session, owner.id).linkedin(sources[0])
+    fact = session.scalar(
+        select(ProfileFact).where(
+            ProfileFact.owner_id == owner.id, ProfileFact.field == "experience"
+        )
+    )
+    original_revision = fact.current_revision_id
+    fact.review(
+        reviewer_id=owner.id,
+        revision_id=original_revision,
+        decision="approved",
+        reviewer_is_human=True,
+        reason="Checked source",
+        request_id=uuid4(),
+    )
+    session.flush()
+    replay = importer.WorkspaceImport(session, owner.id)
+    replay.linkedin(sources[0])
+    session.refresh(fact)
+    assert fact.current_revision_id == original_revision
+    assert fact.active_revision_id == original_revision
+    assert decode_career(session.get(ProfileFactRevision, original_revision).value) is None
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(ProfileFact)
+            .where(ProfileFact.owner_id == owner.id, ProfileFact.field == "experience")
+        )
+        == 1
+    )
+
+
+def test_linkedin_replay_after_folder_move_preserves_manual_edits_and_reviews(
+    session, sources, tmp_path
+):
+    owner = Actor(id=uuid4(), kind="human", display_name="Synthetic")
+    session.add(owner)
+    session.flush()
+    run = importer.WorkspaceImport(session, owner.id)
+    run.linkedin(sources[0])
+    contact = session.scalar(select(Contact).where(Contact.owner_id == owner.id))
+    contact.revise(
+        {"title": "Manually updated title", "notes": "My private notes"}, request_id=uuid4()
+    )
+    fact = session.scalar(select(ProfileFact).where(ProfileFact.owner_id == owner.id))
+    fact.review(
+        reviewer_id=owner.id,
+        revision_id=fact.current_revision_id,
+        decision="rejected",
+        reviewer_is_human=True,
+        reason="Review later",
+        request_id=uuid4(),
+    )
+    session.flush()
+    before_sources = session.scalar(
+        select(func.count()).select_from(Artifact).where(Artifact.owner_id == owner.id)
+    )
+    before_facts = session.scalar(
+        select(func.count()).select_from(ProfileFact).where(ProfileFact.owner_id == owner.id)
+    )
+    moved = tmp_path / "moved-linkedin"
+    shutil.copytree(sources[0], moved)
+    replay = importer.WorkspaceImport(session, owner.id)
+    replay.linkedin(moved)
+    assert contact.title == "Manually updated title"
+    assert contact.notes == "My private notes"
+    assert session.get(ProfileFactRevision, fact.current_revision_id).review_state() == "rejected"
+    assert (
+        session.scalar(
+            select(func.count()).select_from(Artifact).where(Artifact.owner_id == owner.id)
+        )
+        == before_sources
+    )
+    assert (
+        session.scalar(
+            select(func.count()).select_from(ProfileFact).where(ProfileFact.owner_id == owner.id)
+        )
+        == before_facts
+    )
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(ContactObservation)
+            .where(ContactObservation.owner_id == owner.id)
+        )
+        == 2
+    )
+
+
+def test_allowed_csv_fails_closed_on_duplicate_headers(tmp_path):
+    path = tmp_path / "Skills.csv"
+    write_csv(path, ["Name", "Name"], [["One", "Two"]])
+    with pytest.raises(ValueError, match="duplicate"):
+        importer.csv_rows(path)

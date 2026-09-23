@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -72,6 +73,9 @@ type Draft = {
   uploadsTouched: boolean;
   resumeVersionId: string | null;
   resumeTouched: boolean;
+  coverLetterVersionId: string | null;
+  coverLetterUploadFields: string[];
+  coverLetterTouched: boolean;
   opportunityId: string | null;
   generationRunId?: string;
   savedSignature?: string;
@@ -87,6 +91,9 @@ const emptyDraft = (defaultResume: string | null): Draft => ({
   uploadsTouched: false,
   resumeVersionId: defaultResume,
   resumeTouched: false,
+  coverLetterVersionId: null,
+  coverLetterUploadFields: [],
+  coverLetterTouched: false,
   opportunityId: null,
 });
 
@@ -113,6 +120,12 @@ function mergePreparation(
     resumeVersionId: draft.resumeTouched
       ? draft.resumeVersionId
       : (preparation.resume?.version_id ?? null),
+    coverLetterVersionId: draft.coverLetterTouched
+      ? draft.coverLetterVersionId
+      : (preparation.cover_letter?.version_id ?? null),
+    coverLetterUploadFields: draft.uploadsTouched
+      ? draft.coverLetterUploadFields
+      : (preparation.cover_letter_upload_fields ?? []),
     uploadFields: draft.uploadsTouched
       ? draft.uploadFields
       : preparation.upload_fields,
@@ -157,9 +170,9 @@ function AnswerInput({
         <SelectContent>
           <SelectGroup>
             <SelectItem value="__skip">Leave unchanged</SelectItem>
-            {field.options.filter(Boolean).map((option) => (
+            {field.options?.filter(Boolean).map((option) => (
               <SelectItem value={option} key={option}>
-                {field.option_labels[option] || option}
+                {field.option_labels?.[option] || option}
               </SelectItem>
             ))}
           </SelectGroup>
@@ -198,6 +211,18 @@ function AnswerInput({
   return (
     <Input
       id={field.id}
+      type={field.type === "unsupported" ? "text" : field.type}
+      min={
+        field.temporal_constraints?.minimum ??
+        field.numeric_constraints?.minimum ??
+        undefined
+      }
+      max={
+        field.temporal_constraints?.maximum ??
+        field.numeric_constraints?.maximum ??
+        undefined
+      }
+      step={field.temporal_constraints?.step ?? field.numeric_constraints?.step}
       value={value}
       disabled={!enabled}
       onChange={(event) => setValue(event.target.value)}
@@ -222,6 +247,10 @@ function PreparationForm({
 }) {
   const client = useQueryClient();
   const [requestIntent] = useState(() => new RetainedRequestIntent());
+  const coverLetters = useQuery({
+    queryKey: ["browser-cover-letters"],
+    queryFn: () => api<ResumeOptions>("browser/cover-letters"),
+  });
   const selectedResume = resumes.items.find(
     (item) => item.version_id === draft.resumeVersionId,
   );
@@ -253,6 +282,7 @@ function PreparationForm({
       const body = {
         opportunity_id: draft.opportunityId,
         resume_version_id: draft.resumeVersionId,
+        cover_letter_version_id: draft.coverLetterVersionId,
       };
       const intent = requestIntent.forRequest("POST", target, body);
       return api<ApplicationPreparation>(target, {
@@ -339,11 +369,17 @@ function PreparationForm({
           : (draft.values[field.id] ?? ""),
       ]),
   );
-  const uploads = Object.fromEntries(
-    draft.resumeVersionId
+  const uploads = Object.fromEntries([
+    ...(draft.resumeVersionId
       ? draft.uploadFields.map((fieldId) => [fieldId, draft.resumeVersionId!])
-      : [],
-  );
+      : []),
+    ...(draft.coverLetterVersionId
+      ? draft.coverLetterUploadFields.map((fieldId) => [
+          fieldId,
+          draft.coverLetterVersionId!,
+        ])
+      : []),
+  ]);
   const requestedFieldIds = new Set([
     ...Object.keys(actionFields),
     ...Object.keys(uploads),
@@ -357,9 +393,11 @@ function PreparationForm({
   const revisionSignature = JSON.stringify({
     fields: revisionFields,
     resume_version_id: draft.resumeVersionId,
+    cover_letter_version_id: draft.coverLetterVersionId,
     replace_fields: commandReplaceFields,
     remember_fields: commandRememberFields,
     upload_fields: draft.uploadFields,
+    cover_letter_upload_fields: draft.coverLetterUploadFields,
   });
   const send = useMutation({
     mutationFn: async () => {
@@ -376,9 +414,11 @@ function PreparationForm({
           expected_version_id: preparation.version_id,
           fields: revisionFields,
           resume_version_id: draft.resumeVersionId,
+          cover_letter_version_id: draft.coverLetterVersionId,
           replace_fields: commandReplaceFields,
           remember_fields: commandRememberFields,
           upload_fields: draft.uploadFields,
+          cover_letter_upload_fields: draft.coverLetterUploadFields,
         };
         const revisionIntent = requestIntent.forRequest(
           "POST",
@@ -452,7 +492,7 @@ function PreparationForm({
         <Badge variant="outline">Protocol v{snapshot.protocol_version}</Badge>
       </div>
 
-      <div className="mb-5 grid gap-4 rounded-lg border border-border bg-muted/20 p-4 sm:grid-cols-2">
+      <div className="mb-5 grid grid-cols-1 gap-4 rounded-lg border border-border bg-muted/20 p-4 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={`opportunity-${snapshot.id}`}>
             Application context
@@ -527,6 +567,68 @@ function PreparationForm({
             </p>
           ) : null}
         </Field>
+        <Field className="sm:col-span-2">
+          <FieldLabel htmlFor={`cover-letter-${snapshot.id}`}>
+            Exact cover letter · optional
+          </FieldLabel>
+          <Select
+            value={draft.coverLetterVersionId ?? "none"}
+            disabled={coverLetters.isPending || Boolean(coverLetters.error)}
+            onValueChange={(value) =>
+              update((current) => ({
+                ...current,
+                coverLetterVersionId: value === "none" ? null : value,
+                coverLetterTouched: true,
+                coverLetterUploadFields: [],
+                uploadsTouched: true,
+                savedPreparation: undefined,
+                savedSignature: undefined,
+              }))
+            }
+          >
+            <SelectTrigger
+              id={`cover-letter-${snapshot.id}`}
+              className="w-full min-w-0 max-w-full [&_[data-slot=select-value]]:min-w-0"
+              aria-label="Exact cover-letter version"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No cover letter</SelectItem>
+              {(coverLetters.data?.items ?? []).map((letter) => (
+                <SelectItem key={letter.version_id} value={letter.version_id}>
+                  {letter.title} · {letter.filename}
+                </SelectItem>
+              ))}
+              {draft.coverLetterVersionId &&
+              !coverLetters.data?.items.some(
+                (item) => item.version_id === draft.coverLetterVersionId,
+              ) ? (
+                <SelectItem value={draft.coverLetterVersionId} disabled>
+                  {preparation?.cover_letter?.filename ??
+                    "Selected cover letter unavailable"}
+                </SelectItem>
+              ) : null}
+            </SelectContent>
+          </Select>
+          {coverLetters.error ? (
+            <div role="alert" className="text-xs text-destructive">
+              {coverLetters.error.message}{" "}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void coverLetters.refetch()}
+              >
+                Retry cover letters
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Choose an uploaded letter or an exported PDF. Create and export
+              drafts from Applications.
+            </p>
+          )}
+        </Field>
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
           <Button
             type="button"
@@ -595,7 +697,7 @@ function PreparationForm({
                         : "Application file upload"}
                     </p>
                   </div>
-                  <Badge variant="outline">Resume upload</Badge>
+                  <Badge variant="outline">Document upload</Badge>
                 </div>
                 {present ? (
                   <label className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
@@ -610,6 +712,19 @@ function PreparationForm({
                             field.id,
                             checked === true,
                           ),
+                          uploadFields:
+                            checked === true
+                              ? current.uploadFields
+                              : current.uploadFields.filter(
+                                  (id) => id !== field.id,
+                                ),
+                          coverLetterUploadFields:
+                            checked === true
+                              ? current.coverLetterUploadFields
+                              : current.coverLetterUploadFields.filter(
+                                  (id) => id !== field.id,
+                                ),
+                          uploadsTouched: true,
                           savedPreparation: undefined,
                           savedSignature: undefined,
                         }))
@@ -618,31 +733,58 @@ function PreparationForm({
                     Replace the attachment already in the application
                   </label>
                 ) : null}
-                <label className="mt-3 flex items-center gap-3 text-xs">
-                  <Checkbox
-                    aria-label={`Upload selected resume to ${field.label || field.id}`}
-                    checked={draft.uploadFields.includes(field.id)}
-                    disabled={
-                      !draft.resumeVersionId ||
-                      (present && !draft.replaceFields.includes(field.id))
-                    }
-                    onCheckedChange={(checked) =>
-                      update((current) => ({
-                        ...current,
-                        uploadFields: toggle(
-                          current.uploadFields,
-                          field.id,
-                          checked === true,
-                        ),
-                        uploadsTouched: true,
-                        savedPreparation: undefined,
-                        savedSignature: undefined,
-                      }))
-                    }
-                  />
-                  Upload {selectedResume?.filename ?? "the selected resume"} to
-                  this field
-                </label>
+                <Select
+                  value={
+                    draft.uploadFields.includes(field.id)
+                      ? "resume"
+                      : draft.coverLetterUploadFields.includes(field.id)
+                        ? "cover-letter"
+                        : "none"
+                  }
+                  disabled={present && !draft.replaceFields.includes(field.id)}
+                  onValueChange={(value) =>
+                    update((current) => ({
+                      ...current,
+                      uploadFields: toggle(
+                        current.uploadFields,
+                        field.id,
+                        value === "resume",
+                      ),
+                      coverLetterUploadFields: toggle(
+                        current.coverLetterUploadFields,
+                        field.id,
+                        value === "cover-letter",
+                      ),
+                      uploadsTouched: true,
+                      savedPreparation: undefined,
+                      savedSignature: undefined,
+                    }))
+                  }
+                >
+                  <SelectTrigger
+                    className="mt-3 w-full min-w-0 max-w-full [&_[data-slot=select-value]]:min-w-0"
+                    aria-label={`Document to upload to ${field.label || field.id}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      Leave this file field unchanged
+                    </SelectItem>
+                    <SelectItem
+                      value="resume"
+                      disabled={!draft.resumeVersionId}
+                    >
+                      Attach selected résumé
+                    </SelectItem>
+                    <SelectItem
+                      value="cover-letter"
+                      disabled={!draft.coverLetterVersionId}
+                    >
+                      Attach selected cover letter
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
                 {present && !draft.replaceFields.includes(field.id) ? (
                   <p className="mt-2 text-xs text-muted-foreground">
                     An attachment is already present and will be preserved.
@@ -671,6 +813,7 @@ function PreparationForm({
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <FieldLabel htmlFor={field.id}>
+                  {field.history ? `${field.history.label} · ` : ""}
                   {field.label || field.id}
                   {field.required ? " *" : ""}
                 </FieldLabel>
@@ -771,9 +914,11 @@ function PreparationForm({
 
 export function BrowserPage() {
   const client = useQueryClient();
+  const params = useSearchParams();
   const [requestIntent] = useState(() => new RetainedRequestIntent());
   const [code, setCode] = useState<string>();
   const [selected, setSelected] = useState<string>();
+  const selectedId = selected ?? params.get("snapshot");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const devices = useQuery({
     queryKey: ["devices"],
@@ -784,6 +929,20 @@ export function BrowserPage() {
     queryKey: ["snapshots"],
     queryFn: () => api<BrowserSnapshot[]>("browser/snapshots"),
     refetchInterval: 10000,
+  });
+  const selectedSnapshot = useQuery({
+    queryKey: ["snapshot", selectedId],
+    enabled: !!selectedId,
+    queryFn: () => api<BrowserSnapshot>(`browser/snapshots/${selectedId}`),
+  });
+  const snapshot = selectedId ? selectedSnapshot.data : snapshots.data?.[0];
+  const savedPreparation = useQuery({
+    queryKey: ["snapshot-preparation", snapshot?.id],
+    enabled: !!snapshot,
+    queryFn: () =>
+      api<ApplicationPreparation | null>(
+        `browser/snapshots/${snapshot!.id}/preparation`,
+      ),
   });
   const commands = useQuery({
     queryKey: ["browser-commands"],
@@ -832,22 +991,21 @@ export function BrowserPage() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const snapshot =
-    snapshots.data?.find((item) => item.id === selected) ?? snapshots.data?.[0];
-  const draft = snapshot
-    ? (drafts[snapshot.id] ??
-      emptyDraft(resumes.data?.default_version_id ?? null))
-    : undefined;
+  const initialDraft = savedPreparation.data
+    ? {
+        ...mergePreparation(emptyDraft(null), savedPreparation.data),
+        opportunityId: savedPreparation.data.opportunity_id,
+        replaceFields: savedPreparation.data.replace_fields,
+      }
+    : emptyDraft(resumes.data?.default_version_id ?? null);
+  const draft = snapshot ? (drafts[snapshot.id] ?? initialDraft) : undefined;
   const activeDevices =
     devices.data?.filter((device) => !device.revoked_at) ?? [];
   const updateDraft = snapshot
     ? (change: (current: Draft) => Draft) =>
         setDrafts((current) => ({
           ...current,
-          [snapshot.id]: change(
-            current[snapshot.id] ??
-              emptyDraft(resumes.data?.default_version_id ?? null),
-          ),
+          [snapshot.id]: change(current[snapshot.id] ?? initialDraft),
         }))
     : undefined;
 
@@ -855,21 +1013,42 @@ export function BrowserPage() {
     <>
       <PageHeading
         title="Browser companion"
-        description="Prepare grounded answers and an exact resume for forms in your signed-in browser."
+        description="Autofill job applications from your approved profile, keep drafts, and track the work here."
         action={
-          <Button onClick={() => pair.mutate()} disabled={pair.isPending}>
-            <Plus /> Pair a browser
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/applications">Applications</Link>
+            </Button>
+            <Button onClick={() => pair.mutate()} disabled={pair.isPending}>
+              <Plus /> Pair a browser
+            </Button>
+          </div>
         }
       />
-      <div className="grid gap-6 px-5 md:px-9 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+      <div className="grid grid-cols-1 gap-6 px-5 md:px-9 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <section className="flex flex-col gap-5">
           <div className="rounded-xl border border-border bg-card p-6">
             <Puzzle className="mb-4 size-7 text-primary" />
-            <h2 className="text-lg font-medium">Your browser. Your session.</h2>
+            <h2 className="text-lg font-medium">Your application copilot</h2>
             <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              Load the local extension from <code>apps/extension</code>, pair it
-              here, then share the current application page.
+              Open the companion browser with{" "}
+              <code>make companion-browser</code>, then pair its extension here.
+              On a job application, click the extension icon, choose your résumé
+              and select Autofill this page. AgentBrowser reads the form; the
+              companion fills supported answers and shows what still needs your
+              input.
+            </p>
+            <p className="mt-3 text-xs leading-6 text-muted-foreground">
+              For your usual Chrome window, load <code>apps/extension</code> and
+              choose Direct browser in the companion. Review your{" "}
+              <Link
+                href="/settings"
+                className="text-primary underline underline-offset-4"
+              >
+                profile facts and default résumé
+              </Link>{" "}
+              before starting. Generated answers stay editable. Next and Submit
+              are yours.
             </p>
             <p className="mt-3 text-xs leading-6 text-muted-foreground">
               Logins, cookies and existing field values stay in Chrome. The
@@ -1008,16 +1187,32 @@ export function BrowserPage() {
               <RefreshCw />
             </Button>
           </div>
-          {snapshots.error || resumes.error || opportunities.error ? (
+          {snapshots.error ||
+          selectedSnapshot.error ||
+          savedPreparation.error ||
+          resumes.error ||
+          opportunities.error ? (
             <ErrorState
-              error={snapshots.error ?? resumes.error ?? opportunities.error!}
+              error={
+                snapshots.error ??
+                selectedSnapshot.error ??
+                savedPreparation.error ??
+                resumes.error ??
+                opportunities.error!
+              }
               retry={() => {
                 void snapshots.refetch();
                 void resumes.refetch();
                 void opportunities.refetch();
+                if (selectedId) void selectedSnapshot.refetch();
+                if (snapshot) void savedPreparation.refetch();
               }}
             />
-          ) : snapshot && draft && updateDraft && resumes.data ? (
+          ) : snapshot &&
+            draft &&
+            updateDraft &&
+            resumes.data &&
+            !savedPreparation.isPending ? (
             <>
               {snapshots.data && snapshots.data.length > 1 ? (
                 <Select value={snapshot.id} onValueChange={setSelected}>
@@ -1026,7 +1221,14 @@ export function BrowserPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {snapshots.data.map((item) => (
+                      {[
+                        ...(snapshots.data.some(
+                          (item) => item.id === snapshot.id,
+                        )
+                          ? []
+                          : [snapshot]),
+                        ...snapshots.data,
+                      ].map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.title || item.origin}
                         </SelectItem>
@@ -1036,6 +1238,7 @@ export function BrowserPage() {
                 </Select>
               ) : null}
               <PreparationForm
+                key={snapshot.id}
                 snapshot={snapshot}
                 draft={draft}
                 resumes={resumes.data}
@@ -1043,14 +1246,17 @@ export function BrowserPage() {
                 update={updateDraft}
               />
             </>
-          ) : snapshots.isPending || resumes.isPending ? (
+          ) : snapshots.isPending ||
+            resumes.isPending ||
+            (selectedId && selectedSnapshot.isPending) ||
+            (snapshot && savedPreparation.isPending) ? (
             <div className="flex min-h-40 items-center justify-center">
               <Spinner />
             </div>
           ) : (
             <EmptyState
               title="A little help, right where you need it"
-              description="Open a form, click the companion and choose Share form. Its fields will appear here for answer preparation."
+              description="Open a job application, click the companion and choose Autofill this page. Its saved preparation and task will appear here."
             >
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Check className="size-3 text-primary" /> No browser cookies or

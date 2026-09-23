@@ -4,11 +4,7 @@ import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
+import { Message, MessageContent } from "@/components/ai-elements/message";
 import {
   Tool,
   ToolContent,
@@ -29,6 +25,7 @@ import { useWorkspaceContext } from "./context";
 import { ErrorState, Status } from "./primitives";
 import { useRunEvents } from "./use-run-events";
 import { RunQuestions } from "./run-questions";
+import { AgentResponse } from "./agent-response";
 
 const activeStates = new Set(["queued", "running", "waiting_for_user"]);
 const streamingStates = new Set(["queued", "running"]);
@@ -48,7 +45,9 @@ export function RunActivity({
   const queryClient = useQueryClient();
   const reconciledState = useRef("");
   const stream = useRunEvents(run.id, streamingStates.has(run.state));
-  const displayedState = stream.runStatus?.state ?? run.state;
+  const displayedState = streamingStates.has(run.state)
+    ? (stream.runStatus?.state ?? run.state)
+    : run.state;
   const active = activeStates.has(displayedState);
   const failureCode = stream.runStatus?.errorCode ?? run.error_code;
   const steps = useQuery({
@@ -140,6 +139,7 @@ export function RunActivity({
         <div
           className="mt-4 border-t border-border pt-4"
           aria-label="Live activity"
+          role="group"
         >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <p className="min-w-0 flex-1 text-[11px] font-medium text-muted-foreground">
@@ -172,15 +172,14 @@ export function RunActivity({
           {stream.messages.map((message) => (
             <Message key={message.id} from="assistant" className="mb-3">
               <MessageContent>
-                <MessageResponse
-                  mode="streaming"
-                  parseIncompleteMarkdown
-                  skipHtml
-                  disallowedElements={["img", "iframe", "script", "style"]}
-                  className="text-base leading-7 [&_a:visited]:text-primary/70"
+                <AgentResponse
+                  streaming={
+                    stream.connection === "live" &&
+                    streamingStates.has(displayedState)
+                  }
                 >
                   {message.content}
-                </MessageResponse>
+                </AgentResponse>
               </MessageContent>
             </Message>
           ))}
@@ -317,14 +316,7 @@ export function RunActivity({
           <p className="mb-2 text-[11px] font-medium text-muted-foreground">
             Run outcome
           </p>
-          <MessageResponse
-            mode="static"
-            skipHtml
-            disallowedElements={["img", "iframe", "script", "style"]}
-            className="text-base leading-7 [&_a:visited]:text-primary/70"
-          >
-            {run.output}
-          </MessageResponse>
+          <AgentResponse>{run.output}</AgentResponse>
         </div>
       ) : null}
     </section>

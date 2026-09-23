@@ -22,12 +22,22 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
 from command_center.db.artifacts import Artifact, ArtifactVersion
 from command_center.db.base import Base, UTCDateTime, utc_now
+from command_center.db.career import decode_career
 from command_center.db.crm import record_event
 from command_center.db.errors import RecordConflict
 
 FACT_FIELDS = frozenset(
     {
         "full_name",
+        "first_name",
+        "last_name",
+        "address_line1",
+        "address_line2",
+        "city",
+        "region",
+        "postal_code",
+        "country",
+        "github",
         "email",
         "phone",
         "location",
@@ -38,15 +48,48 @@ FACT_FIELDS = frozenset(
         "skill",
         "experience",
         "education",
+        "certification",
+        "project",
+        "course",
+        "language",
+        "publication",
+        "recommendation",
         "answer",
     }
 )
 SCALAR_FACT_FIELDS = frozenset(
-    {"full_name", "email", "phone", "location", "headline", "website", "linkedin", "summary"}
+    {
+        "full_name",
+        "email",
+        "phone",
+        "location",
+        "headline",
+        "website",
+        "linkedin",
+        "summary",
+        "first_name",
+        "last_name",
+        "address_line1",
+        "address_line2",
+        "city",
+        "region",
+        "postal_code",
+        "country",
+        "github",
+    }
 )
 TEXT_SOURCE_SCHEMAS = frozenset({"text.v1", "docling.document.v1"})
 FactField = Literal[
     "full_name",
+    "first_name",
+    "last_name",
+    "address_line1",
+    "address_line2",
+    "city",
+    "region",
+    "postal_code",
+    "country",
+    "github",
     "email",
     "phone",
     "location",
@@ -57,6 +100,12 @@ FactField = Literal[
     "skill",
     "experience",
     "education",
+    "certification",
+    "project",
+    "course",
+    "language",
+    "publication",
+    "recommendation",
     "answer",
 ]
 ReviewState = Literal["proposed", "approved", "rejected", "revoked"]
@@ -70,7 +119,10 @@ class ProfileFact(Base):
     __table_args__ = (
         CheckConstraint(
             "field IN ('full_name', 'email', 'phone', 'location', 'headline', 'website', "
-            "'linkedin', 'summary', 'skill', 'experience', 'education', 'answer')",
+            "'linkedin', 'summary', 'skill', 'experience', 'education', 'answer', "
+            "'certification', 'project', 'course', 'language', 'publication', 'recommendation', "
+            "'first_name', 'last_name', 'address_line1', 'address_line2', "
+            "'city', 'region', 'postal_code', 'country', 'github')",
             name="field",
         ),
         CheckConstraint("row_version >= 1", name="row_version"),
@@ -95,7 +147,9 @@ class ProfileFact(Base):
             postgresql_where=text(
                 "active_revision_id IS NOT NULL AND field IN "
                 "('full_name', 'email', 'phone', 'location', 'headline', 'website', "
-                "'linkedin', 'summary')"
+                "'linkedin', 'summary', 'first_name', 'last_name', "
+                "'address_line1', 'address_line2', "
+                "'city', 'region', 'postal_code', 'country', 'github')"
             ),
         ),
     )
@@ -312,6 +366,12 @@ class ProfileFact(Base):
             raise ValueError("Fact context is too long")
         if field == "answer" and (context is None or not context.strip()):
             raise ValueError("Contextual answers require an explicit question or context")
+        career = decode_career(value)
+        if career is not None:
+            if career.kind != field:
+                raise ValueError("Career entry kind must match the profile fact field")
+            if context is not None:
+                raise ValueError("Structured career entries require global context")
 
     @staticmethod
     def _validate_source(

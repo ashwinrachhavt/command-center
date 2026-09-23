@@ -83,6 +83,60 @@ def share(
     return response.json()
 
 
+def test_capture_retries_pre_upgrade_snapshot_without_additive_metadata(client, engine) -> None:
+    device = pair(client)
+    snapshot_id = uuid4()
+    created_at = utc_now() - timedelta(minutes=1)
+    payload = {
+        "id": str(snapshot_id),
+        "protocol_version": 2,
+        "page_url": "https://jobs.example.test/apply",
+        "title": "Synthetic application",
+        "fields": [{"id": "f0", "label": "Name", "type": "text", "value_state": "present"}],
+    }
+    # Seed the JSON persisted by the previous contract, independently of today's serializer.
+    legacy_fields = [
+        {
+            "id": "f0",
+            "label": "Name",
+            "type": "text",
+            "required": False,
+            "options": [],
+            "value_state": "present",
+            "autocomplete": "",
+            "accept": "",
+            "option_labels": {},
+            "unsupported_reason": None,
+            "numeric_constraints": None,
+        }
+    ]
+    with Session(engine) as db, db.begin():
+        db.add(
+            BrowserSnapshot(
+                id=snapshot_id,
+                device_id=UUID(device["device_id"]),
+                owner_id=client.actor_id,
+                protocol_version=2,
+                origin="https://jobs.example.test",
+                page_url=payload["page_url"],
+                title=payload["title"],
+                fields=legacy_fields,
+                created_at=created_at,
+            )
+        )
+
+    retry = client.post("/api/v1/browser/snapshots", json=payload, headers=device)
+
+    assert retry.status_code == 201, retry.text
+    assert retry.json()["id"] == str(snapshot_id)
+    assert retry.json()["fields"] == legacy_fields
+    with Session(engine) as db:
+        stored = db.get(BrowserSnapshot, snapshot_id)
+        assert stored is not None
+        assert stored.created_at == created_at
+        assert stored.fields == legacy_fields
+
+
 def test_numeric_validation_rejects_out_of_browser_range() -> None:
     field = {
         "type": "number",

@@ -65,6 +65,7 @@ class AccountSelection(s.Revision):
 
 
 class GmailSearchCreate(s.Contract):
+    account_id: UUID | None = None
     query: str = Field(min_length=1, max_length=500)
     max_results: int = Field(default=10, ge=1, le=20)
 
@@ -661,6 +662,10 @@ def search_gmail(
     identity: CurrentIdentity,
     key: WriteKey,
 ) -> dict[str, Any]:
+    if identity.run_id is not None:
+        raise HTTPException(
+            403, "Pull email explicitly from the workspace before using it in agent work"
+        )
     operation = "POST:/api/v1/gmail/search"
     payload = body.model_dump(mode="json")
     with Session(request.app.state.engine) as db:
@@ -676,6 +681,10 @@ def search_gmail(
         )
         if account is None:
             raise ValueError("Select a verified Gmail outreach account")
+        if body.account_id is not None and body.account_id != account.id:
+            raise HTTPException(
+                422, "The selected Gmail account changed. Check Connected apps before pulling email"
+            )
         account_id = account.id
         account_input = _metadata(account)
         stored_identity = dict(account.provider_identity)

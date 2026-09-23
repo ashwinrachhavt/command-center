@@ -127,7 +127,9 @@ export function DocumentUploadDialog({
     onSuccess: (result) => {
       client.invalidateQueries({ queryKey: ["document-imports"] });
       client.invalidateQueries({ queryKey: ["artifacts"] });
-      client.invalidateQueries({ queryKey: ["versions", result.artifact_id] });
+      client.invalidateQueries({
+        queryKey: ["version-history", result.artifact_id],
+      });
       toast.success(
         artifact
           ? "New original version queued for conversion"

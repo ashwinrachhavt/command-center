@@ -108,6 +108,31 @@ export async function workflowFixture(
       ? (JSON.parse(init.body) as Record<string, unknown>)
       : {};
   if (route === "test/workflow-requests") return Response.json(recorded);
+  if (route === "gmail/search" && method === "POST") {
+    recorded.push({
+      route,
+      method,
+      body,
+      key: new Headers(init?.headers).get("Idempotency-Key"),
+    });
+    return Response.json({
+      observation_id: crypto.randomUUID(),
+      account_id: account.id,
+      observed_at: "2026-09-22T18:00:00Z",
+      next_page_token: null,
+      result_size_estimate: 1,
+      messages: [
+        {
+          messageId: "synthetic-message",
+          subject: "Synthetic project note",
+          sender: "Taylor <taylor@example.com>",
+          messageText: "Here is the context you explicitly asked to pull.",
+          display_url:
+            "https://mail.google.com/mail/u/0/#all/synthetic-message",
+        },
+      ],
+    });
+  }
   if (route === "test/action-conflict") {
     conflict = true;
     return Response.json({ ok: true });

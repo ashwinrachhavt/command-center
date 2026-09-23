@@ -1,12 +1,11 @@
 "use client";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   api,
-  dateLabel,
   label,
   type Activity,
   type Page,
@@ -17,13 +16,13 @@ import {
   ErrorState,
   LoadingRows,
   PageHeading,
-  Priority,
   Spinner,
   Status,
 } from "./primitives";
 import { ActivityList } from "./activity-list";
 import { useWorkspaceContext } from "./context";
 import { RecordEditor, stages } from "./record-editor";
+import { DailyTasks, WorkQueues } from "./daily-work";
 
 type Dashboard = {
   counts: Record<string, number>;
@@ -32,7 +31,9 @@ type Dashboard = {
 };
 export function Overview() {
   const context = useWorkspaceContext();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"tasks" | "opportunities" | null>(
+    null,
+  );
   const [intent] = useState(() => new RetainedRequestIntent());
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -57,127 +58,80 @@ export function Overview() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const complete = useMutation({
-    mutationFn: (task: Resources["tasks"]) => {
-      const target = `tasks/${task.id}`;
-      const body = { state: "done", expected_version: task.row_version };
-      const request = intent.forRequest("PATCH", target, body);
-      return api(target, {
-        method: "PATCH",
-        body,
-        key: request.key,
-      });
-    },
-    onSuccess: (_result, task) => {
-      intent.confirmRequest("PATCH", `tasks/${task.id}`, {
-        state: "done",
-        expected_version: task.row_version,
-      });
-      queryClient.invalidateQueries();
-    },
-    onError: (e) => toast.error(e.message),
-  });
   return (
     <>
       <PageHeading
         title="Overview"
+        description="Your next steps, active work and results to review."
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus />
-            New opportunity
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCreating("opportunities")}
+            >
+              New opportunity
+            </Button>
+            <Button onClick={() => setCreating("tasks")}>
+              <Plus data-icon="inline-start" />
+              New task
+            </Button>
+          </div>
         }
       />
       <div className="px-5 pb-8 md:px-9">
-        {query.isPending ? (
-          <LoadingRows />
-        ) : query.error ? (
-          <ErrorState error={query.error} retry={() => query.refetch()} />
-        ) : (
-          <>
-            <div className="mb-8 flex flex-wrap gap-x-6 gap-y-2 border-b border-border pb-5 text-xs text-muted-foreground">
-              {(
-                ["opportunities", "contacts", "companies", "tasks"] as const
-              ).map((resource) => (
-                <Button
-                  key={resource}
-                  variant="link"
-                  className="h-auto gap-2 p-0 text-xs text-muted-foreground"
-                  onClick={() => context?.open(resource)}
-                >
-                  <span className="font-medium tabular-nums text-foreground">
-                    {query.data.counts[resource] ?? 0}
-                  </span>
-                  {label(resource)}
-                </Button>
-              ))}
-            </div>
-            <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_260px]">
-              <section aria-labelledby="upcoming-tasks">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 id="upcoming-tasks" className="font-medium">
-                    Upcoming tasks
-                  </h2>
+        <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-9">
+            <DailyTasks />
+            <section aria-labelledby="recent-activity">
+              <h2 id="recent-activity" className="mb-2 font-medium">
+                Recent activity
+              </h2>
+              {activity.isPending ? (
+                <LoadingRows />
+              ) : activity.error ? (
+                <ErrorState
+                  error={activity.error}
+                  retry={() => activity.refetch()}
+                />
+              ) : (
+                <ActivityList events={activity.data.items} />
+              )}
+            </section>
+          </div>
+          <WorkQueues />
+        </div>
+        <section
+          aria-label="Workspace summary"
+          className="mt-10 border-t border-border pt-6"
+        >
+          {query.isPending ? (
+            <LoadingRows />
+          ) : query.error ? (
+            <ErrorState error={query.error} retry={() => query.refetch()} />
+          ) : (
+            <>
+              <div className="mb-6 flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
+                {(
+                  ["opportunities", "contacts", "companies", "tasks"] as const
+                ).map((resource) => (
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => context?.open("tasks")}
+                    key={resource}
+                    variant="link"
+                    className="h-auto gap-2 p-0 text-xs text-muted-foreground"
+                    onClick={() => context?.open(resource)}
                   >
-                    View all
+                    <span className="font-medium tabular-nums text-foreground">
+                      {query.data.counts[resource] ?? 0}
+                    </span>
+                    {label(resource)}
                   </Button>
-                </div>
-                <div className="divide-y divide-border border-y border-border">
-                  {query.data.tasks.map((task) => (
-                    <div key={task.id} className="flex items-center gap-3 py-4">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Complete ${task.title}`}
-                        disabled={complete.isPending}
-                        onClick={() => complete.mutate(task)}
-                      >
-                        <CircleCheck className="text-muted-foreground" />
-                      </Button>
-                      <Button
-                        variant="link"
-                        className="h-auto min-w-0 flex-1 justify-start p-0 text-left font-normal text-foreground"
-                        onClick={() => context?.open("tasks", task.id)}
-                      >
-                        <span className="truncate">{task.title}</span>
-                      </Button>
-                      <Priority value={task.priority} />
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {dateLabel(task.due_date || task.due_at)}
-                      </span>
-                    </div>
-                  ))}
-                  {!query.data.tasks.length && (
-                    <p className="py-10 text-sm text-muted-foreground">
-                      No upcoming tasks.
-                    </p>
-                  )}
-                </div>
-                <section className="mt-9" aria-labelledby="recent-activity">
-                  <h2 id="recent-activity" className="mb-2 font-medium">
-                    Recent activity
-                  </h2>
-                  {activity.isPending ? (
-                    <LoadingRows />
-                  ) : activity.error ? (
-                    <ErrorState
-                      error={activity.error}
-                      retry={() => activity.refetch()}
-                    />
-                  ) : (
-                    <ActivityList events={activity.data.items} />
-                  )}
-                </section>
-              </section>
+                ))}
+              </div>
               <section aria-labelledby="pipeline">
                 <h2 id="pipeline" className="mb-4 font-medium">
                   Pipeline
                 </h2>
-                <div className="divide-y divide-border">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 xl:grid-cols-6">
                   {stages.map((stage) => (
                     <div
                       key={stage}
@@ -191,29 +145,33 @@ export function Overview() {
                   ))}
                 </div>
               </section>
-            </div>
-            {Object.values(query.data.counts).every((count) => count === 0) && (
-              <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-border pt-5 text-xs text-muted-foreground">
-                <span>Exploring the workspace?</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={demo.isPending}
-                  onClick={() => demo.mutate()}
-                >
-                  {demo.isPending && <Spinner />}Add synthetic examples
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+              {Object.values(query.data.counts).every(
+                (count) => count === 0,
+              ) && (
+                <div className="mt-8 flex flex-wrap items-center gap-4 border-t border-border pt-5 text-xs text-muted-foreground">
+                  <span>Exploring the workspace?</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={demo.isPending}
+                    onClick={() => demo.mutate()}
+                  >
+                    {demo.isPending && <Spinner />}Add synthetic examples
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       </div>
       {creating && (
         <RecordEditor
-          resource="opportunities"
+          resource={creating}
           open
-          onOpenChange={setCreating}
-          onSaved={(record) => context?.open("opportunities", record.id)}
+          onOpenChange={(open) => {
+            if (!open) setCreating(null);
+          }}
+          onSaved={(record) => context?.open(creating, record.id)}
         />
       )}
     </>

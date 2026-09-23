@@ -8,7 +8,7 @@
   </head>
   <body>
     <header>
-      <span class="mark">⌘</span
+      <span class="mark" aria-hidden="true">⌘</span
       ><span>Command Center<small>Browser companion</small></span
       ><a
         href="http://localhost:3001/browser"
@@ -39,7 +39,9 @@
             autocomplete="off"
             spellcheck="false"
             placeholder="Paste code from your workspace"
-          /><button type="submit">Connect browser <span>→</span></button>
+          /><button type="submit">
+            Connect browser <span aria-hidden="true">→</span>
+          </button>
         </form>
       </section>
       <section id="connected" hidden>
@@ -52,27 +54,138 @@
             Disconnect
           </button>
         </div>
-        <h1>Make the next step<br />a little easier.</h1>
-        <p>Share labels and choices, review local drafts, then apply them without advancing the page.</p>
-        <button id="share" type="button">Share this form <span>↗</span></button>
+        <h1 id="application-title">Your next opportunity.</h1>
+        <p id="page-location" class="hint" hidden></p>
+        <p>
+          Fill this page from your approved profile. Review the results on the
+          application before continuing.
+        </p>
+        <label for="page-reader">Page reader</label>
+        <select id="page-reader">
+          <option value="agent-browser">AgentBrowser</option>
+          <option value="direct">Direct browser</option>
+        </select>
+        <p id="reader-status" class="hint">
+          AgentBrowser uses the local companion browser.
+        </p>
+        <p class="hint">
+          Autofill saves the form structure and, when identified, the job
+          description to this application in your workspace.
+        </p>
+        <label for="resume">Résumé</label>
+        <select id="resume">
+          <option value="">Loading your résumés…</option>
+        </select>
+        <a
+          class="workspace-link"
+          href="http://localhost:3001/settings"
+          target="_blank"
+          rel="noopener"
+          >Manage profile and résumés ↗</a
+        >
+        <div class="choice">
+          <input id="auto-resume" type="checkbox" checked /><label
+            for="auto-resume"
+            >Attach this résumé to résumé fields</label
+          >
+        </div>
+        <label for="cover-letter">Cover letter · optional</label>
+        <select id="cover-letter">
+          <option value="">No cover letter selected</option>
+        </select>
+        <p class="hint">
+          Choose an uploaded letter or an exported PDF. Text drafts appear after
+          PDF export.
+        </p>
+        <a
+          id="manage-letters"
+          class="workspace-link"
+          href="http://localhost:3001/applications"
+          target="_blank"
+          rel="noopener"
+          >Write or export a cover letter ↗</a
+        >
+        <div class="choice">
+          <input id="auto-cover-letter" type="checkbox" checked />
+          <label for="auto-cover-letter"
+            >Attach this letter to cover-letter fields</label
+          >
+        </div>
+        <button id="autofill" type="button" disabled>
+          Autofill this page <span aria-hidden="true">→</span>
+        </button>
+        <p id="autofill-status" role="status" aria-live="polite"></p>
+        <p id="history-status" role="status" hidden></p>
+        <section
+          id="application-choice"
+          aria-labelledby="application-choice-title"
+          aria-describedby="application-choice-context application-choice-explanation"
+          hidden
+        >
+          <div class="section-heading">
+            <h2 id="application-choice-title" tabindex="-1">
+              Is this the same application?
+            </h2>
+          </div>
+          <p id="application-choice-context"></p>
+          <p id="application-choice-explanation">
+            Continue to keep the same application task, history and job context,
+            or start a separate application.
+          </p>
+          <button id="continue-application" type="button">
+            Continue this application
+          </button>
+          <button id="new-application" type="button" class="secondary">
+            Start a new application
+          </button>
+        </section>
+        <button id="discard-draft" type="button" class="text-button" hidden>
+          Start over on this page
+        </button>
         <section id="preparation" hidden>
           <div class="section-heading">
-            <h2>Prepare and review</h2>
-            <button id="discard-draft" type="button" class="text-button">Discard</button>
+            <h2>Answers and questions</h2>
           </div>
-          <label for="resume">Exact resume version</label>
-          <select id="resume"><option value="">No resume selected</option></select>
-          <button id="prepare" type="button" class="secondary">Prepare answers</button>
+          <button id="prepare" type="button" class="secondary">
+            Prepare answers
+          </button>
           <div id="fields"></div>
           <div id="prepared-actions" hidden>
-            <button id="generate" type="button" class="secondary">Generate grounded drafts</button>
-            <p id="generation-status" class="generation-status" role="status" aria-live="polite"></p>
-            <a id="conversation" class="workspace-link" href="http://localhost:3001/work" target="_blank" rel="noopener" hidden>Open generation workspace ↗</a>
-            <button id="reload-preparation" type="button" class="text-button">Refresh generated drafts</button>
-            <button id="propose" type="button">Save review and propose fill <span>→</span></button>
+            <button id="generate" type="button" class="secondary">
+              Generate grounded drafts
+            </button>
+            <p
+              id="generation-status"
+              class="generation-status"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <a
+              id="conversation"
+              class="workspace-link"
+              href="http://localhost:3001/work"
+              target="_blank"
+              rel="noopener"
+              hidden
+              >Open generation workspace ↗</a
+            >
+            <button id="reload-preparation" type="button" class="text-button">
+              Refresh generated drafts
+            </button>
+            <button id="propose" type="button">
+              Save review and fill answers <span aria-hidden="true">→</span>
+            </button>
           </div>
         </section>
-        <button id="refresh" type="button" class="secondary">Check fill proposals</button>
+        <details class="advanced">
+          <summary>Manual preparation</summary>
+          <button id="share" type="button" class="secondary">
+            Share this form <span aria-hidden="true">↗</span>
+          </button>
+          <button id="refresh" type="button" class="secondary">
+            Check fill proposals
+          </button>
+        </details>
         <div id="proposals"></div>
       </section>
       <p id="message" role="status" aria-live="polite"></p>

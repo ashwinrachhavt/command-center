@@ -29,6 +29,7 @@ from command_center.db.browser import (
     BrowserCommand,
     BrowserDevice,
     BrowserSnapshot,
+    application_file_options,
     digest,
     resume_options,
 )
@@ -178,7 +179,18 @@ def capture(body: SnapshotCreate, device: Device, db: Database, request: Request
         protocol_version=body.protocol_version,
         page_url=str(body.page_url),
         title=body.title,
-        fields=[field.model_dump() for field in body.fields],
+        # Keep pre-upgrade capture identities replayable: absent additive metadata
+        # must not change their persisted JSON shape.
+        fields=[
+            field.model_dump(
+                exclude={
+                    name
+                    for name in ("history", "temporal_constraints")
+                    if getattr(field, name) is None
+                }
+            )
+            for field in body.fields
+        ],
         request_id=UUID(request.state.request_id),
     )
     db.flush()
@@ -206,6 +218,16 @@ def resumes(identity: CurrentIdentity, db: Database) -> dict[str, object]:
 @router.get("/device/resumes", response_model=ResumeOptions)
 def device_resumes(device: Device, db: Database) -> dict[str, object]:
     return resume_options(db, device.owner_id)
+
+
+@router.get("/cover-letters", response_model=ResumeOptions)
+def cover_letters(identity: CurrentIdentity, db: Database) -> dict[str, object]:
+    return application_file_options(db, identity.id, kind="cover-letter")
+
+
+@router.get("/device/cover-letters", response_model=ResumeOptions)
+def device_cover_letters(device: Device, db: Database) -> dict[str, object]:
+    return application_file_options(db, device.owner_id, kind="cover-letter")
 
 
 @router.post("/commands", status_code=201)

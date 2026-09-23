@@ -12,16 +12,38 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
 from command_center.db.artifacts import Artifact, ArtifactReview, ArtifactVersion, TaskArtifact
 from command_center.db.base import Base, UTCDateTime, utc_now
-from command_center.db.browser import BrowserDevice, BrowserSnapshot, validate_numeric_answer
+from command_center.db.browser import (
+    BrowserDevice,
+    BrowserSnapshot,
+    validate_numeric_answer,
+    validate_temporal_answer,
+)
+from command_center.db.career import CareerEntry, date_interval, decode_career
 from command_center.db.conversations import AgentSession
 from command_center.db.crm import CandidateProfile, Opportunity, record_event
 from command_center.db.errors import RecordConflict, RecordNotFound
+from command_center.db.job_identity import (
+    JobIdentityValue,
+    identity_key,
+    observed_identity,
+    posting_identity,
+    stored_identity,
+)
 from command_center.db.models import Actor, Task
 from command_center.db.profile_facts import ProfileFact, ProfileFactRevision
 
 APPLICATION_SCHEMA = "application.answers.v1"
 SCALAR_LABELS = {
     "full_name": {"name", "full name", "your name", "candidate name"},
+    "first_name": {"first name", "given name"},
+    "last_name": {"last name", "family name", "surname"},
+    "address_line1": {"address", "street address", "address line 1", "address 1"},
+    "address_line2": {"address line 2", "address 2", "apartment suite"},
+    "city": {"city", "town", "city town"},
+    "region": {"state", "province", "state province", "region"},
+    "postal_code": {"zip", "zip code", "postal code", "zip postal code"},
+    "country": {"country", "country of residence"},
+    "github": {"github", "github url", "github profile"},
     "email": {"email", "email address", "your email", "e mail", "e mail address"},
     "phone": {"phone", "phone number", "mobile", "mobile phone", "telephone"},
     "location": {"location", "current location", "your location", "where are you based"},
@@ -30,7 +52,21 @@ SCALAR_LABELS = {
     "headline": {"headline", "professional headline"},
     "summary": {"summary", "professional summary", "profile summary"},
 }
-AUTOCOMPLETE_FIELDS = {"name": "full_name", "email": "email", "tel": "phone", "url": "website"}
+AUTOCOMPLETE_FIELDS = {
+    "name": "full_name",
+    "given-name": "first_name",
+    "family-name": "last_name",
+    "email": "email",
+    "tel": "phone",
+    "url": "website",
+    "address-line1": "address_line1",
+    "address-line2": "address_line2",
+    "address-level2": "city",
+    "address-level1": "region",
+    "postal-code": "postal_code",
+    "country": "country",
+    "country-name": "country",
+}
 SENSITIVE_QUESTION = re.compile(
     r"\b(authorized|authorised|authorization|authorisation|eligible|eligibility|visa|"
     r"sponsor|sponsorship|citizen|citizenship|nationality|veteran|disability|disabled|"
@@ -95,6 +131,8 @@ def validate_field_value(field: dict[str, Any], value: str) -> None:
         raise ValueError("A checkbox answer must be true or false")
     if value and field["type"] == "number":
         validate_numeric_answer(field, value)
+    if value and field["type"] in {"date", "month"}:
+        validate_temporal_answer(field, value)
 
 
 def initial_answer(
@@ -144,6 +182,15 @@ def initial_answer(
         answer["reason"] = "Reviewed answers conflict for this question; choose the current answer."
         return answer
     value = candidates[0][1].value
+    if field["type"] in {"select", "radio"} and value not in field["options"]:
+        # Native dropdown values may be opaque IDs; match a single exact displayed label.
+        options = [
+            option
+            for option, title in field.get("option_labels", {}).items()
+            if title.strip().casefold() == value.strip().casefold()
+        ]
+        if len(options) == 1:
+            value = options[0]
     try:
         validate_field_value(field, value)
     except ValueError:
@@ -161,6 +208,203 @@ def initial_answer(
     return answer
 
 
+def career_value(entry: CareerEntry, field: dict[str, Any]) -> str | None:
+    """Project a reviewed entry without increasing its date precision."""
+    component = field["history"]["component"]
+    value: str | None = None
+    alternatives: list[str] = []
+    if component == "current":
+        if entry.current is None:
+            return None
+        value = "true" if entry.current else "false"
+        alternatives = [value, "yes" if entry.current else "no"]
+    elif component.startswith(("start_", "end_")):
+        date_value = entry.start_date if component.startswith("start_") else entry.end_date
+        if not date_value:
+            return None
+        parts = date_value.split("-")
+        if component.endswith("_year"):
+            value = parts[0]
+        elif component.endswith("_month"):
+            if len(parts) < 2:
+                return None
+            value = parts[1]
+            month = int(value)
+            names = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ]
+            alternatives = [value, str(month), names[month - 1], names[month - 1][:3]]
+        else:
+            format_ = {"date": "yyyy-mm-dd", "month": "yyyy-mm"}.get(field["type"]) or field[
+                "history"
+            ].get("date_format")
+            if format_ == "yyyy":
+                value = parts[0]
+            elif format_ in {"yyyy-mm", "mm/yyyy"} and len(parts) >= 2:
+                value = "-".join(parts[:2]) if format_ == "yyyy-mm" else f"{parts[1]}/{parts[0]}"
+            elif format_ in {"yyyy-mm-dd", "mm/dd/yyyy", "dd/mm/yyyy"} and len(parts) == 3:
+                value = (
+                    date_value
+                    if format_ == "yyyy-mm-dd"
+                    else (
+                        f"{parts[1]}/{parts[2]}/{parts[0]}"
+                        if format_ == "mm/dd/yyyy"
+                        else f"{parts[2]}/{parts[1]}/{parts[0]}"
+                    )
+                )
+    elif component in {
+        "organization",
+        "role",
+        "degree",
+        "field_of_study",
+        "location",
+        "description",
+    }:
+        value = getattr(entry, component)
+    if not value:
+        return None
+    if field["type"] in {"select", "radio"}:
+        values = {item.strip().casefold() for item in alternatives or [value]}
+        labels = field.get("option_labels", {})
+        matches = [
+            option
+            for option in field["options"]
+            if str(labels.get(option, option)).strip().casefold() in values
+        ]
+        return matches[0] if len(matches) == 1 else None
+    return value
+
+
+def career_candidates(
+    facts: list[tuple[ProfileFact, ProfileFactRevision]], kind: str
+) -> tuple[list[tuple[ProfileFact, ProfileFactRevision, CareerEntry]], bool]:
+    """Return distinct active, unscoped entries in oldest-first order and any ambiguity."""
+    candidates: list[tuple[ProfileFact, ProfileFactRevision, CareerEntry]] = []
+    seen = set()
+    for fact, revision in facts:
+        if fact.field != kind or fact.active_revision_id != revision.id or revision.context:
+            continue
+        entry = decode_career(revision.value)
+        if entry and entry.kind == kind and entry.encode() not in seen:
+            seen.add(entry.encode())
+            candidates.append((fact, revision, entry))
+    ambiguous = len(candidates) > 1 and any(not item[2].start_date for item in candidates)
+    if len(candidates) > 1 and not ambiguous:
+        candidates.sort(key=lambda item: date_interval(item[2].start_date or "0001")[0])
+        ambiguous = any(
+            date_interval(left[2].start_date or "0001")[1]
+            >= date_interval(right[2].start_date or "0001")[0]
+            for left, right in zip(candidates, candidates[1:], strict=False)
+        )
+    return candidates, ambiguous
+
+
+def history_targets(facts: list[tuple[ProfileFact, ProfileFactRevision]]) -> dict[str, int]:
+    targets = {}
+    for kind in ("experience", "education"):
+        candidates, ambiguous = career_candidates(facts, kind)
+        targets[kind] = 0 if ambiguous else min(len(candidates), 10)
+    return targets
+
+
+def initial_answers(
+    fields: list[dict[str, Any]],
+    facts: list[tuple[ProfileFact, ProfileFactRevision]],
+    opportunity_id: UUID | None,
+) -> list[dict[str, Any]]:
+    answers = {
+        field["id"]: initial_answer(field, [] if field.get("history") else facts, opportunity_id)
+        for field in fields
+    }
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for field in fields:
+        if field.get("history"):
+            groups.setdefault(field["history"]["group_id"], []).append(field)
+    for members in groups.values():
+        history = members[0]["history"]
+        identity = (
+            history["kind"],
+            history["position"],
+            history.get("order", "newest_first"),
+            history["label"],
+        )
+        components = [
+            member["history"]["component"]
+            for member in members
+            if member["history"]["component"] != "unknown"
+        ]
+        conflict = len(set(components)) != len(components) or any(
+            (
+                member["history"]["kind"],
+                member["history"]["position"],
+                member["history"].get("order", "newest_first"),
+                member["history"]["label"],
+            )
+            != identity
+            for member in members
+        )
+        present = any(member["value_state"] == "present" for member in members)
+        candidates, ambiguous = career_candidates(facts, history["kind"])
+        if history.get("order", "newest_first") == "newest_first":
+            candidates.reverse()
+        position = history["position"]
+        selected = candidates[position] if position < len(candidates) and not ambiguous else None
+        for member in members:
+            answer = answers[member["id"]]
+            if present:
+                answer.update(
+                    status="preserved",
+                    reason="This history section already contains a value. Review the whole entry.",
+                )
+                continue
+            if answer["status"] == "unsupported":
+                continue
+            if conflict or ambiguous:
+                answer["reason"] = (
+                    "This section or its history order is ambiguous. Review it manually."
+                )
+                continue
+            if selected is None:
+                answer["reason"] = (
+                    "No matching approved history entry. Add and approve this entry in Settings."
+                )
+                continue
+            fact, revision, entry = selected
+            value = career_value(entry, member)
+            if value is None:
+                answer["reason"] = (
+                    f"{entry.organization}: the approved entry does not provide this field "
+                    "at the required precision or option."
+                )
+                continue
+            try:
+                validate_field_value(member, value)
+            except ValueError:
+                answer["reason"] = (
+                    "The approved history value does not fit this control. Review it on the page."
+                )
+                continue
+            answer.update(
+                status="suggested",
+                value=value,
+                origin="fact",
+                reason=f"Approved {entry.kind}: {entry.organization}. Review before applying.",
+                evidence=[fact_evidence(fact, revision)],
+            )
+    return [answers[field["id"]] for field in fields]
+
+
 class ApplicationPreparation(Base):
     __tablename__ = "application_preparations"
     __table_args__ = (
@@ -176,7 +420,7 @@ class ApplicationPreparation(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("actors.id"), index=True)
     snapshot_id: Mapped[UUID] = mapped_column(Uuid, index=True)
-    task_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
+    task_id: Mapped[UUID] = mapped_column(Uuid, index=True)
     opportunity_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     artifact_id: Mapped[UUID] = mapped_column(ForeignKey("artifacts.id"), unique=True)
     current_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("artifact_versions.id"))
@@ -195,12 +439,55 @@ class ApplicationPreparation(Base):
         resume_version_id: UUID | None,
         use_default_resume: bool,
         request_id: UUID,
+        continue_preparation_id: UUID | None = None,
+        continue_on_new_page: bool = False,
+        job_context: dict[str, Any] | None = None,
+        cover_letter_version_id: UUID | None = None,
+        job_identity: JobIdentityValue | None = None,
     ) -> "ApplicationPreparation":
-        from command_center.db.browser import resume_file
+        from command_center.db.applications import ApplicationTrack
+        from command_center.db.browser import application_file, resume_file
 
         if snapshot.owner_id != owner_id:
             raise RecordNotFound("Form snapshot not found")
         cls.check_snapshot(session, snapshot)
+        if continue_on_new_page and continue_preparation_id is None:
+            raise RecordConflict("Choose an application before confirming a new page")
+        previous = session.get(cls, continue_preparation_id) if continue_preparation_id else None
+        previous_snapshot = session.get(BrowserSnapshot, previous.snapshot_id) if previous else None
+        if continue_preparation_id and (
+            previous is None
+            or previous.owner_id != owner_id
+            or previous_snapshot is None
+            or previous_snapshot.device_id != snapshot.device_id
+        ):
+            raise RecordNotFound("Application preparation not found")
+        observed_job = observed_identity(snapshot.page_url, job_identity)
+        previous_job = None
+        if previous and previous_snapshot:
+            previous_job = stored_identity(
+                (previous.current_version().payload or {}).get("job_identity")
+            )
+            previous_job = previous_job or posting_identity(previous_snapshot.page_url)
+        same_job = bool(
+            observed_job
+            and previous_job
+            and identity_key(observed_job) == identity_key(previous_job)
+        )
+        if observed_job and previous_job and not same_job:
+            raise RecordConflict("This page identifies a different job. Start a new application")
+        saved_job = previous_job or observed_job
+        if (
+            previous_snapshot
+            and previous_snapshot.page_url != snapshot.page_url
+            and not continue_on_new_page
+            and not same_job
+        ):
+            raise RecordConflict("Confirm that this new page belongs to the same application")
+        if previous:
+            if opportunity_id is not None and opportunity_id != previous.opportunity_id:
+                raise RecordConflict("Keep the same opportunity when continuing an application")
+            opportunity_id = previous.opportunity_id
         if opportunity_id:
             opportunity = session.scalar(
                 select(Opportunity).where(
@@ -215,7 +502,15 @@ class ApplicationPreparation(Base):
             profile = session.get(CandidateProfile, owner_id)
             resume_version_id = profile.default_resume_version_id if profile else None
         resume = resume_file(session, owner_id, resume_version_id) if resume_version_id else None
-        task = Task(
+        cover_letter = (
+            application_file(session, owner_id, cover_letter_version_id, kind="cover-letter")
+            if cover_letter_version_id
+            else None
+        )
+        task = session.get(Task, previous.task_id) if previous else None
+        if previous and (task is None or task.state in {"done", "cancelled"}):
+            raise RecordConflict("The application task is no longer active")
+        task = task or Task(
             id=uuid5(record_id, "task"),
             owner_id=owner_id,
             opportunity_id=opportunity_id,
@@ -235,6 +530,8 @@ class ApplicationPreparation(Base):
         )
         session.add_all([task, artifact])
         session.flush()
+        if not previous:
+            session.add(ApplicationTrack(task_id=task.id, owner_id=owner_id))
         preparation = cls(
             id=record_id,
             owner_id=owner_id,
@@ -254,14 +551,50 @@ class ApplicationPreparation(Base):
             "opportunity_id": str(opportunity_id) if opportunity_id else None,
             "resume_version_id": str(resume_version_id) if resume_version_id else None,
             "resume": resume,
+            "cover_letter_version_id": str(cover_letter_version_id)
+            if cover_letter_version_id
+            else None,
+            "cover_letter": cover_letter,
+            "cover_letter_upload_fields": [],
             "replace_fields": [],
             "upload_fields": [],
-            "fields": [initial_answer(field, facts, opportunity_id) for field in snapshot.fields],
+            "history_targets": history_targets(facts),
+            **({"job_identity": saved_job} if saved_job else {}),
+            "fields": initial_answers(snapshot.fields, facts, opportunity_id),
         }
+        continuation = (
+            {
+                "continued_from_preparation_id": str(previous.id),
+                "continuation_mode": (
+                    "confirmed_page"
+                    if continue_on_new_page
+                    else "same_job"
+                    if same_job
+                    and previous_snapshot
+                    and previous_snapshot.page_url != snapshot.page_url
+                    else "same_page"
+                ),
+            }
+            if previous
+            else {}
+        )
+        payload.update(continuation)
         preparation.append_package(
             payload, version_id=uuid5(record_id, "version:1"), request_id=request_id
         )
-        record_event(session, owner_id, request_id, "task.created", "tasks", task.id)
+        if job_context:
+            application = session.get(ApplicationTrack, task.id)
+            assert application is not None
+            if application.job_context_artifact_id is None:
+                application.capture_context(
+                    session,
+                    record_id=record_id,
+                    request_id=request_id,
+                    context=job_context,
+                    page_url=snapshot.page_url,
+                )
+        if not previous:
+            record_event(session, owner_id, request_id, "task.created", "tasks", task.id)
         record_event(
             session,
             owner_id,
@@ -271,6 +604,7 @@ class ApplicationPreparation(Base):
             record_id,
             snapshot_id=str(snapshot.id),
             task_id=str(task.id),
+            **continuation,
         )
         return preparation
 
@@ -346,13 +680,19 @@ class ApplicationPreparation(Base):
         remember_fields: list[str],
         version_id: UUID,
         request_id: UUID,
+        cover_letter_version_id: UUID | None = None,
+        cover_letter_upload_fields: list[str] | None = None,
     ) -> ArtifactVersion:
-        from command_center.db.browser import resume_file
+        from command_center.db.browser import application_file, resume_file
 
         session, snapshot, payload = self.editable_payload(expected_version_id)
         actor = session.get(Actor, self.owner_id)
         if actor is None or actor.kind != "human" or not actor.active:
             raise ValueError("Only the active human owner can review application answers")
+        cover_letter_upload_fields = cover_letter_upload_fields or []
+        all_uploads = upload_fields + cover_letter_upload_fields
+        if len(all_uploads) > 10 or len(set(all_uploads)) != len(all_uploads):
+            raise ValueError("Select at most ten unique file controls with one document each")
         descriptors = {field["id"]: field for field in snapshot.fields}
         answers = {field["field_id"]: field for field in payload["fields"]}
         unreviewed = {
@@ -362,7 +702,7 @@ class ApplicationPreparation(Base):
             raise RecordConflict(
                 "Review every retained answer, or explicitly clear it, before saving this package"
             )
-        if set(fields) - descriptors.keys() or set(upload_fields) - descriptors.keys():
+        if set(fields) - descriptors.keys() or set(all_uploads) - descriptors.keys():
             raise ValueError("Choose fields from this exact page")
         if len(set(replace_fields)) != len(replace_fields) or len(set(upload_fields)) != len(
             upload_fields
@@ -393,21 +733,35 @@ class ApplicationPreparation(Base):
             )
         if upload_fields and resume_version_id is None:
             raise ValueError("Choose an exact resume version before selecting upload controls")
-        for field_id in upload_fields:
+        if cover_letter_upload_fields and cover_letter_version_id is None:
+            raise ValueError(
+                "Choose an exact cover-letter version before selecting upload controls"
+            )
+        for field_id in all_uploads:
             descriptor = descriptors[field_id]
             if descriptor["type"] != "file":
-                raise ValueError("Only file inputs accept resume uploads")
+                raise ValueError("Only file inputs accept document uploads")
             if descriptor["value_state"] == "present" and field_id not in replace_fields:
                 raise ValueError("Explicitly select replacement before replacing an existing file")
         active_fields = {
             field_id for field_id, answer in answers.items() if answer.get("value")
-        } | set(upload_fields)
+        } | set(all_uploads)
         if set(replace_fields) - active_fields:
             raise ValueError("A replacement must name an answer or selected upload")
         resume = (
             resume_file(session, self.owner_id, resume_version_id) if resume_version_id else None
         )
+        cover_letter = (
+            application_file(session, self.owner_id, cover_letter_version_id, kind="cover-letter")
+            if cover_letter_version_id
+            else None
+        )
         payload.update(
+            cover_letter_version_id=str(cover_letter_version_id)
+            if cover_letter_version_id
+            else None,
+            cover_letter=cover_letter,
+            cover_letter_upload_fields=cover_letter_upload_fields,
             resume_version_id=str(resume_version_id) if resume_version_id else None,
             resume=resume,
             replace_fields=replace_fields,
@@ -431,7 +785,7 @@ class ApplicationPreparation(Base):
             review_id=uuid5(version_id, "human-review"),
             reviewer_id=self.owner_id,
             decision="approved",
-            reason="Reviewed application answers, replacements and exact resume selection.",
+            reason="Reviewed application answers, replacements and exact document selections.",
             request_id=request_id,
         )
         record_event(
@@ -442,6 +796,115 @@ class ApplicationPreparation(Base):
             self.__tablename__,
             self.id,
             version_id=str(version.id),
+        )
+        return version
+
+    def autofill(
+        self,
+        *,
+        expected_version_id: UUID,
+        attach_resume: bool,
+        version_id: UUID,
+        request_id: UUID,
+        attach_cover_letter: bool = False,
+    ) -> ArtifactVersion:
+        """Authorize available approved facts for this page at the human's explicit click.
+
+        This is not a claim that the human individually reviewed generated answers.
+        Derive values again from active facts; generated/local drafts are never promoted.
+        """
+        from command_center.db.browser import application_file, file_accepts, resume_file
+
+        session, snapshot, payload = self.editable_payload(expected_version_id)
+        actor = session.get(Actor, self.owner_id)
+        if actor is None or actor.kind != "human" or not actor.active:
+            raise ValueError("Only the active human owner can request autofill")
+        facts = active_facts(session, self.owner_id)
+        answers = initial_answers(snapshot.fields, facts, self.opportunity_id)
+        for answer in answers:
+            if answer["value"] is not None:
+                answer["reason"] = "From your approved profile, included in this autofill request."
+        selected_resume = payload.get("resume_version_id")
+        resume = (
+            resume_file(session, self.owner_id, UUID(selected_resume)) if selected_resume else None
+        )
+        uploads: list[str] = []
+        if attach_resume and resume:
+            for descriptor in snapshot.fields:
+                question = normalized_question(descriptor["label"])
+                if (
+                    descriptor["type"] == "file"
+                    and len(uploads) < 10
+                    and descriptor["value_state"] == "empty"
+                    and file_accepts(
+                        str(resume["filename"]),
+                        str(resume["media_type"]),
+                        descriptor.get("accept", ""),
+                    )
+                    and re.search(r"\b(resume|résumé|curriculum vitae|cv)\b", question)
+                    and not re.search(
+                        r"\b(cover|letter|transcript|portfolio|additional|supporting)\b", question
+                    )
+                ):
+                    uploads.append(descriptor["id"])
+        selected_letter = payload.get("cover_letter_version_id")
+        cover_letter = (
+            application_file(session, self.owner_id, UUID(selected_letter), kind="cover-letter")
+            if selected_letter
+            else None
+        )
+        letter_uploads: list[str] = []
+        if attach_cover_letter and cover_letter:
+            for descriptor in snapshot.fields:
+                question = normalized_question(descriptor["label"])
+                if (
+                    descriptor["type"] == "file"
+                    and len(uploads) + len(letter_uploads) < 10
+                    and descriptor["value_state"] == "empty"
+                    and file_accepts(
+                        str(cover_letter["filename"]),
+                        str(cover_letter["media_type"]),
+                        descriptor.get("accept", ""),
+                    )
+                    and re.search(r"\bcover(?:ing)? letter\b", question)
+                    and not re.search(
+                        r"\b(resume|résumé|curriculum vitae|cv|transcript|portfolio|"
+                        r"additional|supporting)\b",
+                        question,
+                    )
+                ):
+                    letter_uploads.append(descriptor["id"])
+        payload.update(
+            fields=answers,
+            resume=resume,
+            cover_letter=cover_letter,
+            replace_fields=[],
+            upload_fields=uploads,
+            cover_letter_upload_fields=letter_uploads,
+        )
+        self.validate_evidence(session, self.owner_id, payload)
+        version = self.append_package(payload, version_id=version_id, request_id=request_id)
+        if any(answer["value"] is not None for answer in answers) or uploads or letter_uploads:
+            version.review(
+                review_id=uuid5(version_id, "autofill-request"),
+                reviewer_id=self.owner_id,
+                decision="approved",
+                reason=(
+                    "Requested autofill from approved profile facts and selected documents; "
+                    "existing page values stay unchanged."
+                ),
+                request_id=request_id,
+            )
+        record_event(
+            session,
+            self.owner_id,
+            request_id,
+            "application.autofill_requested",
+            self.__tablename__,
+            self.id,
+            version_id=str(version.id),
+            field_count=sum(answer["value"] is not None for answer in answers),
+            upload_count=len(uploads) + len(letter_uploads),
         )
         return version
 
@@ -717,4 +1180,10 @@ def validate_preparation_for_fill(
         from command_center.db.browser import resume_file
 
         resume_file(session, owner_id, UUID(payload["resume_version_id"]))
+    if payload.get("cover_letter_version_id"):
+        from command_center.db.browser import application_file
+
+        application_file(
+            session, owner_id, UUID(payload["cover_letter_version_id"]), kind="cover-letter"
+        )
     return payload

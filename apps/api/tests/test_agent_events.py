@@ -133,6 +133,81 @@ def test_actual_model_chunks_are_streamed_without_exposing_non_text_content() ->
     assert any(event[0] == "usage" for event in events)
 
 
+def test_a_small_chunk_is_visible_while_the_provider_waits_for_its_next_token() -> None:
+    async def exercise() -> None:
+        visible = asyncio.Event()
+        release_provider = asyncio.Event()
+        deltas: list[str] = []
+
+        class PausingModel(StreamingModel):
+            async def _astream(self, messages: list[BaseMessage], **kwargs: Any):
+                yield ChatGenerationChunk(message=AIMessageChunk(content="First ", id="paused"))
+                await release_provider.wait()
+                yield ChatGenerationChunk(message=AIMessageChunk(content="reply", id="paused"))
+
+        async def persist(state: dict[str, Any]) -> None:
+            pass
+
+        async def activity(event_type: str, role: str, data: dict[str, Any]) -> None:
+            if event_type == "text-delta":
+                deltas.append(data["delta"])
+                visible.set()
+
+        task = asyncio.create_task(
+            run_graph(
+                AgentProfile(
+                    name="Lead",
+                    description="Synthetic",
+                    model="synthetic",
+                    instructions="Reply briefly",
+                ),
+                "Reply",
+                EmptyTools(),
+                persist,
+                model=PausingModel(),
+                checkpointer=InMemorySaver(),
+                thread_id=str(uuid4()),
+                activity=activity,
+            )
+        )
+        try:
+            await asyncio.wait_for(visible.wait(), timeout=2)
+            assert deltas == ["First "]
+            assert not task.done()
+        finally:
+            release_provider.set()
+            result = await task
+        assert result == "First reply"
+        assert "".join(deltas) == result
+
+    asyncio.run(exercise())
+
+
+def test_sse_drains_a_completed_backlog_without_pauses_between_pages(client, engine, mocker):
+    with Session(engine, expire_on_commit=False) as db, db.begin():
+        run = AgentRun.claim(db, make_run(db, client.actor_id).id)
+        assert run is not None and run.lease_id is not None
+        AgentEvent.append(
+            db,
+            run_id=run.id,
+            lease_id=run.lease_id,
+            events=[
+                ("text-delta", "lead", {"message_id": "backlog", "delta": str(index)})
+                for index in range(205)
+            ],
+        )
+        run.finish("completed", output="Saved backlog")
+        run_id = run.id
+    sleep = mocker.patch(
+        "command_center.api.agent_events.asyncio.sleep", new_callable=mocker.AsyncMock
+    )
+    response = client.get(f"/api/v1/agent-runs/{run_id}/events")
+    assert response.status_code == 200
+    sequences = [int(line[4:]) for line in response.text.splitlines() if line.startswith("id: ")]
+    assert sequences == list(range(1, 208))
+    sleep.assert_not_awaited()
+
+
 def test_actual_tool_middleware_emits_input_and_output() -> None:
     profile = AgentProfile(
         name="Lead",

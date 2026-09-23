@@ -16,6 +16,7 @@ import {
   Files,
   FileCheck,
   LayoutDashboard,
+  NotebookPen,
   Plug,
   Puzzle,
   Search,
@@ -62,16 +63,19 @@ import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 export const navigation = [
   { path: "/", name: "Overview", icon: LayoutDashboard },
   { path: "/opportunities", name: "Opportunities", icon: BriefcaseBusiness },
+  { path: "/applications", name: "Applications", icon: FileCheck },
   { path: "/contacts", name: "Contacts", icon: Users },
   { path: "/companies", name: "Companies", icon: Building2 },
   { path: "/jobs", name: "Roles", icon: Search },
   { path: "/tasks", name: "Tasks", icon: CheckCheck },
-  { path: "/artifacts", name: "Artifacts", icon: Files },
+  { path: "/notes", name: "Notes", icon: NotebookPen },
+  { path: "/library", name: "Library", icon: Files },
   { path: "/actions", name: "Reviewed actions", icon: FileCheck },
   { path: "/agents", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
   { path: "/memory", name: "Memory", icon: BookOpen },
   { path: "/activity", name: "Activity", icon: Activity },
+  { path: "/connections", name: "Connected apps", icon: Plug },
   { path: "/settings", name: "Settings", icon: Settings2 },
 ];
 
@@ -143,12 +147,12 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link
-              href="/settings"
+              href="/connections"
               onClick={onNavigate}
               className="cursor-pointer text-xs"
             >
               <Plug className="mr-2 size-3.5" />
-              Connected accounts
+              Connected apps
             </Link>
           </DropdownMenuItem>
         </DropdownMenuContent>

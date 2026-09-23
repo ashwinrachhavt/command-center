@@ -50,7 +50,7 @@ const Context = createContext<{
   open: (
     resource: Resource,
     id?: string,
-    options?: { tab: "content"; versionId: string },
+    options?: { tab: "content"; versionId?: string } | { tab: "conversation" },
   ) => void;
   close: () => void;
 } | null>(null);
@@ -84,12 +84,18 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
       )
         return false;
       if (tab === undefined && versionId === undefined) return true;
+      if (
+        tab === "conversation" &&
+        versionId === undefined &&
+        id &&
+        (resource === "tasks" || resource === "opportunities")
+      )
+        return true;
       return (
         resource === "artifacts" &&
         !!id &&
         tab === "content" &&
-        !!versionId &&
-        /^[\w-]+$/.test(versionId)
+        (versionId === undefined || /^[\w-]+$/.test(versionId))
       );
     })
     .slice(0, 8);
@@ -110,10 +116,10 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
   const open = (
     resource: Resource,
     id?: string,
-    options?: { tab: "content"; versionId: string },
+    options?: { tab: "content"; versionId?: string } | { tab: "conversation" },
   ) => {
     const frame = id
-      ? `${resource}:${id}${options ? `:${options.tab}:${options.versionId}` : ""}`
+      ? `${resource}:${id}${options?.tab === "content" ? `:content${options.versionId ? `:${options.versionId}` : ""}` : options?.tab === "conversation" ? ":conversation" : ""}`
       : resource;
     if (frames.at(-1) === frame) return;
     triggers.current[frames.length] = document.activeElement as HTMLElement;
@@ -208,7 +214,11 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                         id={id}
                         onClose={back}
                         compact
-                        initialTab={tab === "content" ? "content" : undefined}
+                        initialTab={
+                          tab === "content" || tab === "conversation"
+                            ? tab
+                            : undefined
+                        }
                         pinnedVersionId={versionId}
                       />
                     ) : (

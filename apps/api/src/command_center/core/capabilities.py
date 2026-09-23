@@ -25,11 +25,15 @@ CAPABILITIES = {
     "propose_profile_fact": [("POST", r"/api/v1/profile/facts")],
     "approved_profile": [("GET", r"/api/v1/profile/facts/approved")],
     "application_context": [("GET", r"/api/v1/browser/preparations/[0-9a-f-]+/context")],
+    "application_material_context": [("GET", r"/api/v1/application-materials/[0-9a-f-]+/context")],
+    "save_application_material": [("POST", r"/api/v1/application-materials/[0-9a-f-]+/output")],
     "suggest_application_answers": [
         ("POST", r"/api/v1/browser/preparations/[0-9a-f-]+/suggestions")
     ],
     "create_task": [("POST", r"/api/v1/tasks")],
     "draft_artifact": [("POST", r"/api/v1/artifacts")],
+    "record_work_context": [("GET", r"/api/v1/tasks/[0-9a-f-]+/record-work/context")],
+    "save_record_work": [("POST", r"/api/v1/tasks/[0-9a-f-]+/record-work/output")],
     "memory_read": [("GET", r"/api/v1/memories/retrieve")],
     "memory_append": [("POST", r"/api/v1/memories")],
     "connected_accounts": [("GET", r"/api/v1/integrations/composio/accounts")],

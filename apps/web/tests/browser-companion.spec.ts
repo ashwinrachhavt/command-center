@@ -417,26 +417,36 @@ test("custom widgets are disclosed as unsupported while native controls remain u
   const snapshot = await inspect(page);
   const unsupported = [
     named(snapshot, "Country"),
-    named(snapshot, "Available start date"),
     named(snapshot, "Rich text cover letter"),
   ];
   const headline = named(snapshot, "Professional headline");
+  const startDate = named(snapshot, "Available start date");
   for (const field of unsupported) {
     expect(field.type).toBe("unsupported");
     expect(field.unsupported_reason).toBeTruthy();
   }
+  expect(startDate.type).toBe("date");
+  expect(startDate.temporal_constraints).toEqual({
+    minimum: null,
+    maximum: null,
+    step: "1",
+    step_base: "1970-01-01",
+  });
   const result = await message<ApplyResult>(page, {
     version: 2,
     action: "apply",
     command: command(snapshot, {
       [headline.id]: "Synthetic platform engineer",
+      [startDate.id]: "2026-10-01",
     }),
     files: {},
   });
   expect(result.field_results[headline.id].status).toBe("filled");
+  expect(result.field_results[startDate.id].status).toBe("filled");
   await expect(page.locator("#headline")).toHaveValue(
     "Synthetic platform engineer",
   );
+  await expect(page.locator("#start-date")).toHaveValue("2026-10-01");
 });
 
 test("schema changes reject before mutation and dynamic replacement reports unknown outcome", async ({
@@ -590,7 +600,10 @@ test("popup follows generation to completion and preserves a local answer", asyn
     });
     window.fetch = async (input) => {
       const route = new URL(String(input)).pathname;
-      if (route.endsWith("/device/resumes"))
+      if (
+        route.endsWith("/device/resumes") ||
+        route.endsWith("/device/cover-letters")
+      )
         return Response.json({ default_version_id: null, items: [] });
       if (route.endsWith("/generation")) {
         generationPoll += 1;

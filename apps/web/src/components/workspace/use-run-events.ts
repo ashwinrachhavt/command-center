@@ -21,11 +21,7 @@ export type StreamedTool = {
   state: "input-available" | "output-available" | "output-error";
 };
 export type StreamConnection =
-  | "idle"
-  | "connecting"
-  | "live"
-  | "disconnected"
-  | "complete";
+  "idle" | "connecting" | "live" | "disconnected" | "complete";
 
 const terminalStates = new Set(["completed", "failed", "cancelled"]);
 
@@ -50,7 +46,10 @@ function parseBlock(block: string) {
   }
 }
 
-function validEnvelope(value: unknown, runId: string): RunEventEnvelope | undefined {
+function validEnvelope(
+  value: unknown,
+  runId: string,
+): RunEventEnvelope | undefined {
   const candidate = record(value);
   const data = record(candidate?.data);
   if (
@@ -81,12 +80,15 @@ export function useRunEvents(runId: string, enabled: boolean) {
   const [connection, setConnection] = useState<StreamConnection>("idle");
   const [connectionError, setConnectionError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [scopeRunId, setScopeRunId] = useState(runId);
   const lastSequence = useRef(0);
+  const terminalStatus = useRef(false);
   const pendingText = useRef(new Map<string, string>());
   const frame = useRef<number | undefined>(undefined);
   const [resumeSequence, setResumeSequence] = useState(0);
 
   const flushText = useCallback(() => {
+    if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
     const pending = pendingText.current;
     if (!pending.size) return;
@@ -115,8 +117,28 @@ export function useRunEvents(runId: string, enabled: boolean) {
     [flushText],
   );
 
+  // Reset before committing a different run; never paint the previous run's text.
+  if (scopeRunId !== runId) {
+    setScopeRunId(runId);
+    setMessages([]);
+    setTools([]);
+    setUsage(undefined);
+    setRunStatus(undefined);
+    setConnection("idle");
+    setConnectionError("");
+    setResumeSequence(0);
+  }
+
   useEffect(() => {
-    if (!enabled || terminalStates.has(runStatus?.state ?? "")) return;
+    lastSequence.current = 0;
+    terminalStatus.current = false;
+    pendingText.current.clear();
+    if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+    frame.current = undefined;
+  }, [runId]);
+
+  useEffect(() => {
+    if (!enabled || terminalStatus.current) return;
     const controller = new AbortController();
     let current = true;
     let terminal = false;
@@ -185,8 +207,12 @@ export function useRunEvents(runId: string, enabled: boolean) {
             output: data.output_tokens,
             total: data.total_tokens,
           });
-      } else if (event.type === "run-status" && typeof data.state === "string") {
+      } else if (
+        event.type === "run-status" &&
+        typeof data.state === "string"
+      ) {
         terminal = terminalStates.has(data.state);
+        terminalStatus.current = terminal;
         setRunStatus({
           state: data.state,
           errorCode:
@@ -208,9 +234,12 @@ export function useRunEvents(runId: string, enabled: boolean) {
             signal: controller.signal,
           },
         );
+        if (!current || controller.signal.aborted) return;
         if (!response.ok || !response.body)
           throw new Error(`Event stream returned ${response.status}.`);
-        if (!response.headers.get("content-type")?.includes("text/event-stream"))
+        if (
+          !response.headers.get("content-type")?.includes("text/event-stream")
+        )
           throw new Error("Event stream returned an unexpected response.");
         setConnection("live");
         const reader = response.body.getReader();
@@ -218,6 +247,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
         let buffer = "";
         while (current) {
           const { done, value } = await reader.read();
+          if (!current || controller.signal.aborted) return;
           buffer += decoder.decode(value, { stream: !done });
           let separator = buffer.search(/\r?\n\r?\n/);
           while (separator >= 0) {
@@ -245,7 +275,9 @@ export function useRunEvents(runId: string, enabled: boolean) {
         setResumeSequence(lastSequence.current);
         setConnection("disconnected");
         setConnectionError(
-          error instanceof Error ? error.message : "Live activity disconnected.",
+          error instanceof Error
+            ? error.message
+            : "Live activity disconnected.",
         );
       }
     };
@@ -255,7 +287,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
       current = false;
       controller.abort();
     };
-  }, [attempt, enabled, flushText, queueText, runId, runStatus?.state]);
+  }, [attempt, enabled, flushText, queueText, runId]);
 
   useEffect(
     () => () => {

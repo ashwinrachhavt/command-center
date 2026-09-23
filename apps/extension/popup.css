@@ -8,7 +8,8 @@
   box-sizing: border-box;
 }
 body {
-  width: 370px;
+  width: 100%;
+  min-width: 280px;
   margin: 0;
   font-size: 13px;
 }
@@ -110,6 +111,8 @@ button:disabled {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
 select:focus-visible {
   outline: 2px solid #58cfaa;
   outline-offset: 3px;
@@ -129,10 +132,13 @@ select:focus-visible {
   border-radius: 50%;
 }
 .text-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
   margin: 0 0 0 auto;
   padding: 0;
   width: auto;
-  font-size: 10px;
+  font-size: 11px;
   background: transparent;
   color: #9ba5a2;
   font-weight: 400;
@@ -236,4 +242,28 @@ footer {
   font-size: 10px;
   line-height: 1.8;
   margin-top: 12px;
+}
+.advanced {
+  margin-top: 24px;
+}
+.advanced summary {
+  color: #a2ada7;
+  cursor: pointer;
+}
+[hidden] {
+  display: none !important;
+}
+#reader-status {
+  margin-top: 8px;
+}
+.completed-fields {
+  margin: 18px 0;
+}
+.completed-fields summary {
+  cursor: pointer;
+  color: #a2ada7;
+  font-size: 12px;
+}
+#application-title {
+  overflow-wrap: anywhere;
 }

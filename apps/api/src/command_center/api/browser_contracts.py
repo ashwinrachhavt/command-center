@@ -10,7 +10,8 @@ from uuid import UUID
 from pydantic import Field, HttpUrl, model_validator
 
 from command_center.api import schemas as s
-from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal
+from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal, temporal_numbers
+from command_center.db.job_identity import JobIdentityValue, JobPlatform, posting_identity
 
 FieldId = Annotated[str, Field(pattern=r"^f[0-9]{1,3}$")]
 FieldValue = Annotated[str, Field(max_length=5000)]
@@ -55,6 +56,66 @@ class NumericConstraints(s.Contract):
         return self
 
 
+class TemporalConstraints(s.Contract):
+    minimum: str | None = Field(default=None, max_length=10)
+    maximum: str | None = Field(default=None, max_length=10)
+    step: NumericValue | Literal["any"]
+    step_base: str = Field(max_length=10)
+
+
+class HistoryTargets(s.Contract):
+    experience: int = Field(default=0, ge=0, le=10)
+    education: int = Field(default=0, ge=0, le=10)
+
+
+class JobIdentity(s.Contract):
+    platform: JobPlatform
+    organization: str = Field(min_length=1, max_length=200)
+    posting_id: str = Field(min_length=1, max_length=200)
+    canonical_url: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_posting(self) -> "JobIdentity":
+        if posting_identity(self.canonical_url) != self.model_dump():
+            raise ValueError("Choose a recognized canonical job posting")
+        return self
+
+    def as_value(self) -> JobIdentityValue:
+        return {
+            "platform": self.platform,
+            "organization": self.organization,
+            "posting_id": self.posting_id,
+            "canonical_url": self.canonical_url,
+        }
+
+
+class CareerField(s.Contract):
+    group_id: str = Field(pattern=r"^h[0-9]{1,3}$")
+    kind: Literal["experience", "education"]
+    position: int = Field(ge=0, le=99)
+    label: str = Field(min_length=1, max_length=200)
+    component: Literal[
+        "organization",
+        "role",
+        "degree",
+        "field_of_study",
+        "location",
+        "description",
+        "start_date",
+        "start_year",
+        "start_month",
+        "end_date",
+        "end_year",
+        "end_month",
+        "current",
+        "unknown",
+    ]
+    order: Literal["newest_first", "oldest_first"] = "newest_first"
+    date_format: (
+        Literal["yyyy", "yyyy-mm", "yyyy-mm-dd", "mm/yyyy", "mm/dd/yyyy", "dd/mm/yyyy"] | None
+    ) = None
+
+
 class FormField(s.Contract):
     id: FieldId
     label: str = Field(max_length=500)
@@ -69,6 +130,8 @@ class FormField(s.Contract):
         "radio",
         "checkbox",
         "number",
+        "date",
+        "month",
         "unsupported",
     ]
     required: bool = False
@@ -79,6 +142,8 @@ class FormField(s.Contract):
     option_labels: dict[Option, OptionLabel] = Field(default_factory=dict, max_length=300)
     unsupported_reason: str | None = Field(default=None, max_length=300)
     numeric_constraints: NumericConstraints | None = None
+    history: CareerField | None = None
+    temporal_constraints: TemporalConstraints | None = None
 
     @model_validator(mode="after")
     def validate_options(self) -> "FormField":
@@ -88,6 +153,12 @@ class FormField(s.Contract):
             raise ValueError("Number fields require normalized numeric constraints")
         if self.type != "number" and self.numeric_constraints is not None:
             raise ValueError("Only number fields may contain numeric constraints")
+        if self.type in {"date", "month"}:
+            if self.temporal_constraints is None:
+                raise ValueError("Calendar controls require normalized constraints")
+            temporal_numbers(self.type, self.temporal_constraints.model_dump())
+        elif self.temporal_constraints is not None:
+            raise ValueError("Only calendar controls may contain calendar constraints")
         return self
 
 
@@ -97,6 +168,10 @@ class SnapshotCreate(s.Contract):
     page_url: HttpUrl
     title: str = Field(max_length=300)
     fields: list[FormField] = Field(max_length=100)
+
+
+class InspectResult(SnapshotCreate):
+    history_expandable: bool = False
 
 
 class FillCreate(s.Contract):
@@ -197,6 +272,23 @@ class ClaimResult(s.Contract):
 class InspectMessage(s.Contract):
     version: Literal[2]
     action: Literal["inspect"]
+
+
+class ExpandHistoryMessage(s.Contract):
+    version: Literal[2]
+    action: Literal["expand-history"]
+    id: UUID
+    snapshot_id: UUID
+    targets: HistoryTargets
+
+
+class ExpandHistoryResult(s.Contract):
+    operation_id: UUID
+    snapshot_id: UUID
+    state: Literal["expanded", "unchanged", "partial", "rejected", "outcome_unknown"]
+    counts: HistoryTargets
+    added: HistoryTargets
+    message: str = Field(max_length=500)
 
 
 class FileTransfer(ResumeFile):

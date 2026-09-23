@@ -145,6 +145,93 @@ class Contact(OwnedRecord, Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
 
+class ContactObservation(Base):
+    """Immutable export evidence, separate from the person's editable CRM fields."""
+
+    __tablename__ = "contact_observations"
+    __table_args__ = (
+        ForeignKeyConstraint(["contact_id", "owner_id"], ["contacts.id", "contacts.owner_id"]),
+        ForeignKeyConstraint(
+            ["source_artifact_id", "owner_id"], ["artifacts.id", "artifacts.owner_id"]
+        ),
+        ForeignKeyConstraint(
+            ["source_version_id", "source_artifact_id"],
+            ["artifact_versions.id", "artifact_versions.artifact_id"],
+        ),
+        UniqueConstraint("source_version_id", "source_row"),
+        CheckConstraint("source_row > 0", name="source_row"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("actors.id"), index=True)
+    contact_id: Mapped[UUID] = mapped_column(Uuid, index=True)
+    source_artifact_id: Mapped[UUID] = mapped_column(Uuid)
+    source_version_id: Mapped[UUID] = mapped_column(Uuid)
+    source_row: Mapped[int] = mapped_column(Integer)
+    mapping_version: Mapped[str] = mapped_column(String(100))
+    first_name: Mapped[str] = mapped_column(Text)
+    last_name: Mapped[str] = mapped_column(Text)
+    linkedin_url: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(Text)
+    company: Mapped[str] = mapped_column(Text)
+    position: Mapped[str] = mapped_column(Text)
+    connected_on: Mapped[str] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+
+    @classmethod
+    def capture_linkedin(
+        cls,
+        session: Session,
+        *,
+        contact: Contact,
+        source_version_id: UUID,
+        source_row: int,
+        row: dict[str, str],
+        request_id: UUID,
+    ) -> "ContactObservation":
+        from command_center.db.artifacts import Artifact, ArtifactVersion
+
+        version = session.get(ArtifactVersion, source_version_id)
+        artifact = session.get(Artifact, version.artifact_id) if version else None
+        if not version or not artifact or artifact.owner_id != contact.owner_id:
+            raise ValueError("Contact evidence must belong to the same owner")
+        if source_row < 1:
+            raise ValueError("Source rows start at one")
+        record_id = uuid5(source_version_id, f"linkedin-connection:{source_row}")
+        existing = session.get(cls, record_id)
+        if existing:
+            return existing
+        observation = cls(
+            id=record_id,
+            owner_id=contact.owner_id,
+            contact_id=contact.id,
+            source_artifact_id=artifact.id,
+            source_version_id=version.id,
+            source_row=source_row,
+            mapping_version="linkedin-contacts-profile-v2",
+            first_name=row.get("First Name", ""),
+            last_name=row.get("Last Name", ""),
+            linkedin_url=row.get("URL", ""),
+            email=row.get("Email Address", ""),
+            company=row.get("Company", ""),
+            position=row.get("Position", ""),
+            connected_on=row.get("Connected On", ""),
+        )
+        session.add(observation)
+        record_event(
+            session,
+            contact.owner_id,
+            request_id,
+            "contact.source_imported",
+            "contacts",
+            contact.id,
+            observation_id=str(record_id),
+            source_version_id=str(version.id),
+        )
+        session.flush()
+        return observation
+
+
 class Job(OwnedRecord, Base):
     __tablename__ = "jobs"
     __table_args__ = (

@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal, DecimalException, localcontext
 from pathlib import PurePath
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -17,10 +17,13 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    Select,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    and_,
+    or_,
     select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -28,10 +31,12 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
 from command_center.db.artifacts import Artifact, ArtifactVersion, Blob, Document, DocumentType
 from command_center.db.base import Base, UTCDateTime, utc_now
+from command_center.db.career import date_interval
 from command_center.db.crm import CandidateProfile, record_event
 from command_center.db.document_imports import DocumentImport
 from command_center.db.errors import RecordConflict
 from command_center.db.models import Actor
+from command_center.db.pdf_exports import PdfExport
 
 NUMBER_DECIMAL_WORK_LIMIT = 10_000
 HTML_NUMBER_PATTERN = r"^-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$"
@@ -109,49 +114,116 @@ def digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def resume_file(session: Session, owner_id: UUID, version_id: UUID) -> dict[str, object]:
-    """Resolve one exact active original resume without exposing storage keys."""
-    row = session.execute(
+def calendar_number(value: str, kind: str) -> int:
+    if len(value) != (7 if kind == "month" else 10):
+        raise ValueError("Enter a complete calendar value for this control")
+    first, _ = date_interval(value)
+    return first.year * 12 + first.month - 1 if kind == "month" else first.toordinal()
+
+
+def temporal_numbers(kind: str, constraints: dict[str, Any]) -> dict[str, Any]:
+    converted = {
+        key: str(calendar_number(constraints[key], kind))
+        if constraints.get(key) is not None
+        else None
+        for key in ("minimum", "maximum", "step_base")
+    }
+    if converted["step_base"] is None:
+        raise ValueError("Calendar controls require their step base")
+    minimum, maximum = converted["minimum"], converted["maximum"]
+    if minimum and maximum and int(minimum) > int(maximum):
+        raise ValueError("Calendar minimum cannot exceed maximum")
+    step = constraints["step"]
+    if step != "any" and parse_browser_decimal(step) <= 0:
+        raise ValueError("Calendar step must be positive")
+    return converted | {"step": step}
+
+
+def validate_temporal_answer(field: dict[str, Any], value: str) -> None:
+    constraints = field.get("temporal_constraints")
+    if not isinstance(constraints, dict):
+        raise ValueError("Reshare this calendar control with its constraints")
+    validate_numeric_answer(
+        {"numeric_constraints": temporal_numbers(field["type"], constraints)},
+        str(calendar_number(value, field["type"])),
+    )
+
+
+def application_file_query(owner_id: UUID, kind: Literal["resume", "cover-letter"]) -> Select[Any]:
+    """Only imported originals or completed owned PDF exports are attachable files."""
+    return (
         select(ArtifactVersion, Artifact, Blob, DocumentImport.filename)
         .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
         .join(Blob, Blob.id == ArtifactVersion.blob_id)
         .join(Document, Document.artifact_id == Artifact.id)
         .join(DocumentType, DocumentType.id == Document.document_type_id)
-        .join(DocumentImport, DocumentImport.source_version_id == ArtifactVersion.id)
+        .outerjoin(
+            DocumentImport,
+            and_(
+                DocumentImport.source_version_id == ArtifactVersion.id,
+                DocumentImport.owner_id == owner_id,
+            ),
+        )
+        .outerjoin(
+            PdfExport,
+            and_(
+                PdfExport.output_version_id == ArtifactVersion.id,
+                PdfExport.owner_id == owner_id,
+                PdfExport.state == "completed",
+            ),
+        )
         .join(Actor, Actor.id == Artifact.owner_id)
         .where(
-            ArtifactVersion.id == version_id,
             Artifact.owner_id == owner_id,
             Artifact.archived_at.is_(None),
-            DocumentType.slug == "resume",
+            DocumentType.slug == kind,
             Actor.active.is_(True),
+            or_(DocumentImport.id.is_not(None), PdfExport.id.is_not(None)),
         )
+    )
+
+
+def application_filename(artifact: Artifact, imported_name: str | None) -> str:
+    if imported_name:
+        return imported_name
+    name = re.sub(r"[^a-zA-Z0-9 .()-]", "_", artifact.title).strip()[:180]
+    return (name or "application-document") + ".pdf"
+
+
+def application_file(
+    session: Session,
+    owner_id: UUID,
+    version_id: UUID,
+    *,
+    kind: Literal["resume", "cover-letter"],
+) -> dict[str, object]:
+    row = session.execute(
+        application_file_query(owner_id, kind).where(ArtifactVersion.id == version_id)
     ).first()
     if row is None:
-        raise RecordConflict("Choose an active uploaded resume version")
-    version, _, blob, filename = row
+        raise RecordConflict(f"Choose an active uploaded or exported {kind} version")
+    version, artifact, blob, filename = row
     return {
         "version_id": str(version.id),
-        "filename": filename,
+        "filename": application_filename(artifact, filename),
         "media_type": version.media_type,
         "size_bytes": blob.byte_size,
         "sha256": blob.sha256,
     }
 
 
-def resume_options(session: Session, owner_id: UUID) -> dict[str, object]:
+def resume_file(session: Session, owner_id: UUID, version_id: UUID) -> dict[str, object]:
+    return application_file(session, owner_id, version_id, kind="resume")
+
+
+def application_file_options(
+    session: Session,
+    owner_id: UUID,
+    *,
+    kind: Literal["resume", "cover-letter"],
+) -> dict[str, object]:
     rows = session.execute(
-        select(ArtifactVersion, Artifact, Blob, DocumentImport.filename)
-        .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
-        .join(Blob, Blob.id == ArtifactVersion.blob_id)
-        .join(Document, Document.artifact_id == Artifact.id)
-        .join(DocumentType, DocumentType.id == Document.document_type_id)
-        .join(DocumentImport, DocumentImport.source_version_id == ArtifactVersion.id)
-        .where(
-            Artifact.owner_id == owner_id,
-            Artifact.archived_at.is_(None),
-            DocumentType.slug == "resume",
-        )
+        application_file_query(owner_id, kind)
         .order_by(ArtifactVersion.created_at.desc(), ArtifactVersion.id)
         .limit(100)
     ).all()
@@ -161,20 +233,24 @@ def resume_options(session: Session, owner_id: UUID) -> dict[str, object]:
             "artifact_id": artifact.id,
             "title": artifact.title,
             "version": version.version,
-            "filename": filename,
+            "filename": application_filename(artifact, filename),
             "media_type": version.media_type,
             "size_bytes": blob.byte_size,
             "sha256": blob.sha256,
         }
         for version, artifact, blob, filename in rows
     ]
-    profile = session.get(CandidateProfile, owner_id)
+    profile = session.get(CandidateProfile, owner_id) if kind == "resume" else None
     available = {item["version_id"] for item in items}
     selected = profile.default_resume_version_id if profile else None
     return {
         "default_version_id": selected if selected in available else None,
         "items": items,
     }
+
+
+def resume_options(session: Session, owner_id: UUID) -> dict[str, object]:
+    return application_file_options(session, owner_id, kind="resume")
 
 
 def preparation_payload(session: Session, owner_id: UUID, version_id: UUID) -> dict[str, Any]:
@@ -199,11 +275,7 @@ def validate_preparation_command(
         for row in prepared_fields
         if isinstance(row, dict) and isinstance(row.get("field_id"), str)
     }
-    upload_fields = payload.get("upload_fields", [])
-    if not isinstance(upload_fields, list) or not all(
-        isinstance(item, str) for item in upload_fields
-    ):
-        raise RecordConflict("Reviewed application upload fields are unavailable")
+    selected_uploads = preparation_uploads(payload)
     try:
         prepared_snapshot_id = UUID(str(payload.get("snapshot_id")))
     except (TypeError, ValueError, AttributeError):
@@ -214,16 +286,35 @@ def validate_preparation_command(
         raise RecordConflict("Fill values must match the reviewed application answers")
     if set(replace_fields) != set(payload.get("replace_fields", [])):
         raise RecordConflict("Replacement choices must match the reviewed application answers")
-    if not set(uploads) <= set(upload_fields):
-        raise RecordConflict("File fields must match the reviewed application answers")
-    resume_id = payload.get("resume_version_id")
-    if uploads and (
-        resume_id is None
-        or {str(version_id) for version_id in uploads.values()} != {str(resume_id)}
+    if any(
+        selected_uploads.get(field_id) != str(version_id)
+        for field_id, version_id in uploads.items()
     ):
-        raise RecordConflict("Uploads must use the reviewed resume version")
-    if not uploads and resume_id is not None and set(upload_fields) & set(fields):
-        raise RecordConflict("Reviewed file fields require the selected resume")
+        raise RecordConflict("Uploads must use the reviewed document version for each field")
+    if set(selected_uploads) & set(fields):
+        raise RecordConflict("Reviewed file fields require the selected document")
+
+
+def preparation_uploads(payload: dict[str, Any]) -> dict[str, str]:
+    """Resolve the exact file-to-control choices in an immutable application package."""
+    selected: dict[str, str] = {}
+    for prefix, field_key in (
+        ("resume", "upload_fields"),
+        ("cover_letter", "cover_letter_upload_fields"),
+    ):
+        field_ids = payload.get(field_key, [])
+        version_id = payload.get(f"{prefix}_version_id")
+        if not isinstance(field_ids, list) or any(not isinstance(item, str) for item in field_ids):
+            raise RecordConflict("Reviewed application upload fields are unavailable")
+        if field_ids and not version_id:
+            raise RecordConflict("Reviewed application document is unavailable")
+        for field_id in field_ids:
+            if field_id in selected:
+                raise RecordConflict("Only one reviewed document can be attached to each field")
+            selected[field_id] = str(version_id)
+    if len(selected) > 10:
+        raise RecordConflict("Select at most ten file controls")
+    return selected
 
 
 def file_accepts(filename: str, media_type: str, accepted: str) -> bool:
@@ -423,6 +514,21 @@ class BrowserSnapshot(Base):
                 raise ValueError("Checkbox values must be true or false")
             if field["type"] == "number":
                 validate_numeric_answer(field, value)
+            if field["type"] in {"date", "month"}:
+                validate_temporal_answer(field, value)
+        reviewed = (
+            preparation_payload(session, self.owner_id, preparation_version_id)
+            if preparation_version_id is not None
+            else None
+        )
+        if reviewed is not None:
+            validate_preparation_command(
+                reviewed,
+                snapshot_id=self.id,
+                fields=fields,
+                uploads=uploads,
+                replace_fields=replace_fields,
+            )
         upload_files: dict[str, dict[str, object]] = {}
         for field_id, version_id in uploads.items():
             field = known.get(field_id)
@@ -430,20 +536,18 @@ class BrowserSnapshot(Base):
                 raise ValueError("Upload only to file fields in this snapshot")
             if field.get("value_state") == "present" and field_id not in replace_fields:
                 raise RecordConflict("Choose explicitly before replacing an existing file")
-            metadata = resume_file(session, self.owner_id, version_id)
+            kind: Literal["resume", "cover-letter"] = (
+                "cover-letter"
+                if reviewed is not None
+                and field_id in reviewed.get("cover_letter_upload_fields", [])
+                else "resume"
+            )
+            metadata = application_file(session, self.owner_id, version_id, kind=kind)
             if not file_accepts(
                 str(metadata["filename"]), str(metadata["media_type"]), field.get("accept", "")
             ):
-                raise ValueError("The selected resume is not accepted by this file field")
+                raise ValueError("The selected document is not accepted by this file field")
             upload_files[field_id] = metadata
-        if preparation_version_id is not None:
-            validate_preparation_command(
-                preparation_payload(session, self.owner_id, preparation_version_id),
-                snapshot_id=self.id,
-                fields=fields,
-                uploads=uploads,
-                replace_fields=replace_fields,
-            )
         command = BrowserCommand(
             id=command_id,
             owner_id=self.owner_id,
@@ -530,16 +634,24 @@ class BrowserCommand(Base):
         if snapshot is None:
             raise RecordConflict("Reshare this form before applying values")
         snapshot.require_current()
+        reviewed = None
         if self.preparation_version_id is not None:
+            reviewed = preparation_payload(session, self.owner_id, self.preparation_version_id)
             validate_preparation_command(
-                preparation_payload(session, self.owner_id, self.preparation_version_id),
+                reviewed,
                 snapshot_id=self.snapshot_id,
                 fields=self.fields,
                 uploads={key: UUID(value) for key, value in self.uploads.items()},
                 replace_fields=self.replace_fields,
             )
-        for metadata in self.upload_files.values():
-            resume_file(session, self.owner_id, UUID(str(metadata["version_id"])))
+        for field_id, metadata in self.upload_files.items():
+            kind: Literal["resume", "cover-letter"] = (
+                "cover-letter"
+                if reviewed is not None
+                and field_id in reviewed.get("cover_letter_upload_fields", [])
+                else "resume"
+            )
+            application_file(session, self.owner_id, UUID(str(metadata["version_id"])), kind=kind)
         self.state = "claimed"
         record_event(
             session,

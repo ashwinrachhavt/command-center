@@ -107,4 +107,4 @@ async function forward(
     );
   }
 }
-export { forward as GET, forward as POST, forward as PATCH };
+export { forward as GET, forward as POST, forward as PUT, forward as PATCH };

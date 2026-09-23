@@ -13,6 +13,7 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    StringConstraints,
     TypeAdapter,
     model_validator,
 )
@@ -165,7 +166,7 @@ class GmailSendPayload(Payload):
     cc: list[EmailStr] = Field(default_factory=list, max_length=50)
     bcc: list[EmailStr] = Field(default_factory=list, max_length=50)
     subject: str = Field(max_length=998)
-    body: str = Field(max_length=100_000)
+    body: Annotated[str, StringConstraints(strip_whitespace=False)] = Field(max_length=100_000)
     is_html: bool = False
 
     @model_validator(mode="after")

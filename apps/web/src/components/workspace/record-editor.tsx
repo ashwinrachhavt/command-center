@@ -1,5 +1,6 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { RichWriter } from "@/components/writing/rich-writer";
+import { DraftStatus } from "@/components/writing/draft-status";
+import { useWorkingDraft } from "@/components/writing/use-working-draft";
 import {
   Field,
   FieldGroup,
@@ -29,12 +32,12 @@ import {
 } from "@/components/ui/select";
 import {
   api,
+  ApiError,
   label,
   type Resource,
   type WorkspaceRecord,
   type Page,
 } from "@/lib/api";
-import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { Spinner } from "./primitives";
 
 export const stages = [
@@ -75,10 +78,9 @@ export const resourceNames: Record<
     description: "Small, deliberate steps that keep things moving.",
   },
   artifacts: {
-    plural: "Artifacts",
-    singular: "artifact",
-    description:
-      "Your research, drafts and application materials. Versioned and reviewable.",
+    plural: "Library",
+    singular: "document",
+    description: "A home for your notes, source material and finished writing.",
   },
 };
 type FormValues = Record<string, string>;
@@ -305,43 +307,93 @@ function Lookup({
   );
 }
 
-export function RecordEditor({
-  resource,
-  record,
-  open,
-  onOpenChange,
-  onSaved,
-}: {
+type RecordEditorProps = {
   resource: Resource;
   record?: WorkspaceRecord;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: (record: WorkspaceRecord) => void;
-}) {
+  defaults?: FormValues;
+  hiddenFields?: string[];
+  noun?: string;
+  draftKey?: string;
+  sourceArtifactId?: string;
+};
+type RecordDraft = {
+  form: FormValues;
+  expectedVersion: number | null;
+  dueAt: string | null;
+};
+
+export function RecordEditor(props: RecordEditorProps) {
+  const { isLoaded, userId } = useAuth();
+  if (!props.open || !isLoaded || !userId) return null;
+  return (
+    <OwnedRecordEditor
+      key={`${userId}-${props.resource}-${props.record?.id ?? props.draftKey ?? "new"}`}
+      {...props}
+      actor={userId}
+    />
+  );
+}
+
+function OwnedRecordEditor({
+  resource,
+  record,
+  open,
+  onOpenChange,
+  onSaved,
+  actor,
+  defaults,
+  sourceArtifactId,
+  hiddenFields = [],
+  noun = resourceNames[resource].singular,
+  draftKey,
+}: RecordEditorProps & { actor: string }) {
   const client = useQueryClient();
-  const [baseline, setBaseline] = useState(record);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   const initial = Object.fromEntries(
     fields[resource].map((f) => [
       f.name,
-      baseline && f.name in baseline
-        ? String((baseline as unknown as Record<string, unknown>)[f.name] ?? "")
-        : (f.initial ?? ""),
+      record && f.name in record
+        ? String((record as unknown as Record<string, unknown>)[f.name] ?? "")
+        : (defaults?.[f.name] ?? f.initial ?? ""),
     ]),
   );
-  const [form, setForm] = useState<FormValues>(initial);
-  const currentForm = useRef(form);
-  useLayoutEffect(() => {
-    currentForm.current = form;
-  }, [form]);
-  const [closeWarning, setCloseWarning] = useState(false);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const [requestIntent] = useState(() => new RetainedRequestIntent());
+  const writing = useWorkingDraft<RecordDraft>(
+    actor,
+    `record-${resource}-${record?.id ?? draftKey ?? "new"}`,
+    {
+      form: initial,
+      expectedVersion: record?.row_version ?? null,
+      dueAt:
+        record && "due_at" in record
+          ? String(record.due_at ?? "") || null
+          : null,
+    },
+  );
+  const { draft } = writing;
+  const form = writing.data.form;
+  const setForm = (form: FormValues) =>
+    draft.edit((current) => ({ ...current, form }));
   const mutation = useMutation({
-    mutationFn: async (submitted: FormValues) => {
+    mutationFn: async () => {
+      const snapshot = draft.getSnapshot().data;
+      const submitted = snapshot.form;
       const body: Record<string, string | number | null> = {};
       for (const field of fields[resource]) {
         if (record && field.createOnly) continue;
         const raw = submitted[field.name] ?? "";
+        if (field.max && raw.length > field.max)
+          throw new Error(
+            `${field.title} must be under ${field.max.toLocaleString()} characters.`,
+          );
         if (field.required && !raw.trim())
           throw new Error(`${field.title} is required.`);
         body[field.name] =
@@ -353,56 +405,68 @@ export function RecordEditor({
       }
       if (resource === "artifacts" && !record && submitted.kind !== "document")
         body.document_type_id = null;
-      if (baseline) body.expected_version = baseline.row_version;
+      if (snapshot.expectedVersion !== null)
+        body.expected_version = snapshot.expectedVersion;
       if (
         resource === "tasks" &&
         record &&
-        "due_at" in record &&
-        record.due_at &&
+        snapshot.dueAt &&
         submitted.due_date
       )
         body.due_at = null;
-      const target = `${resource}${record ? `/${record.id}` : ""}`;
+      const target =
+        resource === "tasks" && !record && sourceArtifactId
+          ? `artifacts/${sourceArtifactId}/tasks`
+          : `${resource}${record ? `/${record.id}` : ""}`;
       const method = record ? "PATCH" : "POST";
-      const intent = requestIntent.forRequest(method, target, body);
-      const saved = await api<WorkspaceRecord>(target, {
-        method: record ? "PATCH" : "POST",
-        body,
+      await draft.flush();
+      const intent = draft.request(method, target, body, snapshot);
+      const saved = await api<WorkspaceRecord>(intent.target, {
+        method: intent.method,
+        body: intent.body,
         key: intent.key,
       });
-      return { saved, target, method, body };
+      return { saved, snapshot: intent.snapshot };
     },
-    onSuccess: ({ saved, target, method, body }, submitted) => {
-      setBaseline(saved);
-      requestIntent.confirmRequest(method, target, body);
-      client.invalidateQueries();
-      toast.success(
-        `${label(resourceNames[resource].singular)} ${record ? "updated" : "created"}`,
-      );
-      onSaved?.(saved);
-      if (
-        !record ||
-        JSON.stringify(currentForm.current) === JSON.stringify(submitted)
-      )
-        onOpenChange(false);
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(value) => {
-        if (!value && dirty) {
-          setCloseWarning(true);
-          return;
+    onSuccess: async ({ saved, snapshot }) => {
+      void client.invalidateQueries();
+      try {
+        if (await draft.clearIfUnchanged(snapshot)) {
+          draft.resetIntent();
+          if (active.current) {
+            onSaved?.(saved);
+            onOpenChange(false);
+          }
+        } else {
+          draft.resetIntent();
+          draft.edit((current) => ({
+            ...current,
+            expectedVersion: saved.row_version,
+            dueAt:
+              "due_at" in saved ? String(saved.due_at ?? "") || null : null,
+          }));
+          toast.message("Saved. Your newer changes remain in the draft.");
         }
-        if (!mutation.isPending) onOpenChange(value);
-      }}
-    >
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      } catch {
+        toast.message(
+          "Record saved. Your working copy remains available to recover.",
+        );
+      }
+      toast.success(`${label(noun)} ${record ? "updated" : "created"}`);
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && [400, 413, 422].includes(error.status))
+        draft.resetIntent();
+      toast.error(error.message);
+    },
+  });
+  const lockedCreation = !record && (mutation.isPending || draft.hasCheckpoint);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {record ? "Edit" : "New"} {resourceNames[resource].singular}
+            {record ? "Edit" : "New"} {noun}
           </DialogTitle>
           <DialogDescription>
             {record
@@ -413,14 +477,26 @@ export function RecordEditor({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            mutation.mutate({ ...form });
+            mutation.mutate();
           }}
         >
-          <fieldset disabled={!record && mutation.isPending}>
+          <DraftStatus
+            draft={draft}
+            state={writing}
+            disabled={mutation.isPending || lockedCreation}
+            preview={(copy) =>
+              Object.entries(copy.form)
+                .filter(([, value]) => value)
+                .map(([key, value]) => `${label(key)}: ${value}`)
+                .join("\n\n")
+            }
+          />
+          <fieldset disabled={lockedCreation || writing.status === "loading"}>
             <FieldGroup className="gap-5 py-3">
               {fields[resource]
                 .filter(
                   (f) =>
+                    !hiddenFields.includes(f.name) &&
                     !(record && f.createOnly) &&
                     !(
                       f.name === "document_type_id" && form.kind !== "document"
@@ -464,13 +540,20 @@ export function RecordEditor({
                         </SelectContent>
                       </Select>
                     ) : f.kind === "textarea" ? (
-                      <Textarea
+                      <RichWriter
                         id={f.name}
-                        rows={f.name === "text" ? 8 : 4}
-                        maxLength={f.max}
-                        value={form[f.name]}
-                        onChange={(e) =>
-                          setForm({ ...form, [f.name]: e.target.value })
+                        label={f.title}
+                        value={form[f.name] ?? ""}
+                        format="markdown"
+                        revision={writing.editorRevision}
+                        disabled={
+                          lockedCreation || writing.status === "loading"
+                        }
+                        onChange={(value) =>
+                          draft.edit((current) => ({
+                            ...current,
+                            form: { ...current.form, [f.name]: value },
+                          }))
                         }
                       />
                     ) : (
@@ -499,33 +582,35 @@ export function RecordEditor({
                 ))}
             </FieldGroup>
           </fieldset>
+          {lockedCreation && !mutation.isPending && (
+            <p role="status" className="my-3 text-sm text-muted-foreground">
+              The last creation request has no confirmed response. Retry to
+              recover its result before editing further.
+            </p>
+          )}
           {mutation.error && (
             <p role="alert" className="mb-4 text-sm text-destructive">
               {mutation.error.message}
             </p>
           )}
           <DialogFooter>
-            {closeWarning && (
-              <p
-                role="status"
-                className="mr-auto text-xs text-muted-foreground"
-              >
-                Save your changes or discard this draft to close.
-              </p>
-            )}
             <Button
               type="button"
               variant="outline"
-              disabled={mutation.isPending}
               onClick={() => onOpenChange(false)}
             >
-              {dirty ? "Discard changes" : "Cancel"}
+              Close writer
             </Button>
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button
+              type="submit"
+              disabled={
+                mutation.isPending ||
+                writing.status === "loading" ||
+                writing.status === "conflict"
+              }
+            >
               {mutation.isPending && <Spinner />}
-              {record
-                ? "Save changes"
-                : `Create ${resourceNames[resource].singular}`}
+              {record ? "Save changes" : `Create ${noun}`}
             </Button>
           </DialogFooter>
         </form>
