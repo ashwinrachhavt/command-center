@@ -10,7 +10,6 @@ export default async function SectionPage({
 }: {
   params: Promise<{ section: string }>;
 }) {
-  await auth.protect();
   const { section } = await params;
   if (
     ![
@@ -36,5 +35,8 @@ export default async function SectionPage({
     ].includes(section)
   )
     notFound();
+  // Missing static assets can reach this dynamic route without passing the
+  // authentication proxy. Reject unknown sections before accessing auth.
+  await auth.protect();
   return <SectionView section={section as WorkspaceSection} />;
 }
