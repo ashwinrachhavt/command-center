@@ -15,6 +15,8 @@ import {
   Command,
   Files,
   House,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plug,
   Puzzle,
   Search,
@@ -34,7 +36,6 @@ import {
 import {
   Sidebar,
   SidebarProvider,
-  SidebarTrigger,
   SidebarInset,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -56,6 +57,7 @@ import { Input } from "@/components/ui/input";
 import { api, type Page, type Resources, type Profile } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Appearance } from "@/components/appearance";
+import { usePanelOpen } from "@/hooks/use-panel-open";
 import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 
 export const navigation = [
@@ -323,20 +325,49 @@ function SidebarNavigation() {
   return <Navigation onNavigate={() => setOpenMobile(false)} />;
 }
 
+function NavigationToggle() {
+  const { open, openMobile, isMobile, toggleSidebar } = useSidebar();
+  const expanded = isMobile ? openMobile : open;
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label="Toggle Sidebar"
+      aria-expanded={expanded}
+      title={expanded ? "Collapse navigation" : "Expand navigation"}
+      onClick={toggleSidebar}
+      className="shrink-0 text-muted-foreground"
+    >
+      {expanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+      <span className="hidden sm:inline">Navigation</span>
+    </Button>
+  );
+}
+
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const chatPage = path === "/" || path === "/agents";
+  const [navigationOpen, setNavigationOpen] = usePanelOpen("navigation");
   const [searchOpen, setSearchOpen] = useState(false);
   return (
     <WorkspaceContext>
       <SidebarProvider
+        open={navigationOpen}
+        onOpenChange={setNavigationOpen}
+        className={cn(chatPage && "h-dvh min-h-0 overflow-hidden")}
         style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
       >
         <Sidebar collapsible="offcanvas" className="border-r border-border">
           <SidebarNavigation />
         </Sidebar>
-        <SidebarInset className="min-w-0 bg-background">
+        <SidebarInset
+          className={cn(
+            "min-w-0 bg-background",
+            chatPage && "min-h-0 overflow-hidden",
+          )}
+        >
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-5 backdrop-blur-md md:px-7">
-            <SidebarTrigger className="text-muted-foreground" />
+            <NavigationToggle />
             <Breadcrumb>
               <BreadcrumbList className="text-xs">
                 <BreadcrumbItem className="hidden sm:block">
@@ -363,7 +394,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               <Appearance />
             </div>
           </header>
-          <main className="min-w-0 flex-1">{children}</main>
+          <main
+            className={cn(
+              "min-w-0 flex-1",
+              chatPage && "flex min-h-0 flex-col overflow-hidden",
+            )}
+          >
+            {children}
+          </main>
         </SidebarInset>
         <WorkspaceSearch open={searchOpen} setOpen={setSearchOpen} />
       </SidebarProvider>

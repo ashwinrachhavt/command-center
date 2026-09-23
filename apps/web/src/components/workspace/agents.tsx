@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -8,7 +8,16 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ArrowUp, Bot, BookOpen, FileText, Sparkles } from "lucide-react";
+import {
+  ArrowUp,
+  Bot,
+  BookOpen,
+  FileText,
+  Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +46,15 @@ import { ModelSwitcher } from "./model-switcher";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { submitChatOnEnter } from "@/lib/submit-chat-on-enter";
 import { cn } from "@/lib/utils";
+import { usePanelOpen } from "@/hooks/use-panel-open";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import {
   Conversation,
   ConversationContent,
@@ -52,13 +70,7 @@ import {
   useSessionMessages,
 } from "./use-session-messages";
 import { activeRunStates, useSessionRuns } from "./use-session-runs";
-import {
-  ErrorState,
-  LoadingRows,
-  PageHeading,
-  Spinner,
-  Status,
-} from "./primitives";
+import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 
 const RichAgentResponse = deferView<{ children: string }>(
   () =>
@@ -75,7 +87,13 @@ export function Agents() {
   const selectedSessionId = params?.get("session") ?? undefined;
   const legacyRunId = params?.get("run") ?? undefined;
   const [showLegacy, setShowLegacy] = useState(false);
+  const [historyOpen, setHistoryOpen] = usePanelOpen("chat-history");
+  const [historyMobileOpen, setHistoryMobileOpen] = useState(false);
+  const historyToggle = useRef<HTMLButtonElement>(null);
+  const isMobile = useIsMobile();
+  const historyExpanded = isMobile ? historyMobileOpen : historyOpen;
   const selectConversation = (sessionId?: string, runId?: string) => {
+    setHistoryMobileOpen(false);
     const next = new URLSearchParams(params?.toString());
     next.delete("session");
     next.delete("run");
@@ -275,153 +293,216 @@ export function Agents() {
     !profiles.error &&
     !!profile?.ready;
 
-  return (
-    <>
-      <PageHeading
-        title="Home"
-        description="A place to think, make progress, and work with your agents."
-        action={
-          <Button variant="outline" asChild>
-            <Link href="/agent-settings">Configure agents</Link>
+  const history = (
+    <div className="min-h-0 overflow-y-auto p-3">
+      <p className="mb-3 px-2 text-[10px] tracking-wider text-muted-foreground">
+        RECENT CONVERSATIONS
+      </p>
+      <div className="flex flex-col gap-1">
+        {sessions.error ? (
+          <ErrorState
+            error={sessions.error}
+            retry={() => void sessions.refetch()}
+          />
+        ) : null}
+        {sessions.isPending ? (
+          <LoadingRows />
+        ) : !threads.length ? (
+          <p className="px-2 py-4 text-xs leading-6 text-muted-foreground">
+            Your conversations and their outcomes will live here.
+          </p>
+        ) : (
+          threads.map((thread) => (
+            <button
+              key={thread.id}
+              disabled={send.isPending}
+              aria-current={sessionId === thread.id ? "true" : undefined}
+              className={cn(
+                "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
+                sessionId === thread.id && "bg-muted",
+              )}
+              onClick={() => {
+                selectConversation(thread.id);
+                setCustomProvider(undefined);
+                setCustomModel(undefined);
+              }}
+            >
+              <span className="line-clamp-2 text-xs leading-5">
+                {thread.title}
+              </span>
+              <span className="hidden text-[10px] text-muted-foreground xl:inline">
+                {dateLabel(thread.updated_at)}
+              </span>
+            </button>
+          ))
+        )}
+        {sessions.hasNextPage ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={sessions.isFetchingNextPage}
+            onClick={() => void sessions.fetchNextPage()}
+          >
+            Load more conversations
           </Button>
-        }
-      />
-      <div className="grid grid-cols-1 border-y border-border lg:h-[calc(100dvh-11.25rem)] lg:min-h-[400px] lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="max-h-48 overflow-y-auto border-b border-border bg-card/40 p-4 lg:max-h-none lg:border-r lg:border-b-0">
+        ) : null}
+        <details
+          className="mt-4"
+          onToggle={(event) => setShowLegacy(event.currentTarget.open)}
+        >
+          <summary className="cursor-pointer px-2 text-xs text-muted-foreground">
+            Earlier runs
+          </summary>
+          {showLegacy ? (
+            <div className="mt-2 flex flex-col gap-1">
+              {legacy.error ? (
+                <ErrorState
+                  error={legacy.error}
+                  retry={() => void legacy.refetch()}
+                />
+              ) : null}
+              {legacy.isPending ? <LoadingRows /> : null}
+              {legacy.data?.pages
+                .flatMap((page) => page.items)
+                .filter((item) => !item.session_id)
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    disabled={send.isPending}
+                    className="rounded-lg p-3 text-left text-xs hover:bg-muted"
+                    onClick={() => selectConversation(undefined, item.id)}
+                  >
+                    {item.title}
+                  </button>
+                ))}
+              {legacy.hasNextPage ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={legacy.isFetchingNextPage}
+                  onClick={() => void legacy.fetchNextPage()}
+                >
+                  Load earlier runs
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </details>
+      </div>
+    </div>
+  );
+
+  return (
+    <section
+      aria-label="Chat workspace"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 md:px-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Toggle conversation history"
+          ref={historyToggle}
+          aria-expanded={historyExpanded}
+          aria-controls={isMobile ? undefined : "chat-history"}
+          title={historyExpanded ? "Hide conversations" : "Show conversations"}
+          onClick={() =>
+            isMobile
+              ? setHistoryMobileOpen(!historyMobileOpen)
+              : setHistoryOpen(!historyOpen)
+          }
+        >
+          {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+          Chats
+        </Button>
+        <h1 className="text-lg font-medium">Home</h1>
+        <div className="ml-auto flex items-center gap-2">
           <Button
             variant="outline"
-            className="mb-5 w-full"
+            size="sm"
             disabled={send.isPending}
             onClick={() => selectConversation()}
           >
             <Sparkles />
             New chat
           </Button>
-          <p className="mb-3 px-2 text-[10px] tracking-wider text-muted-foreground">
-            RECENT CONVERSATIONS
-          </p>
-          <div className="flex flex-col gap-1">
-            {sessions.error ? (
-              <ErrorState
-                error={sessions.error}
-                retry={() => void sessions.refetch()}
-              />
-            ) : null}
-            {sessions.isPending ? (
-              <LoadingRows />
-            ) : !threads.length ? (
-              <p className="px-2 py-4 text-xs leading-6 text-muted-foreground">
-                Your conversations and their outcomes will live here.
-              </p>
-            ) : (
-              threads.map((thread) => (
-                <button
-                  key={thread.id}
-                  disabled={send.isPending}
-                  aria-current={sessionId === thread.id ? "true" : undefined}
-                  className={cn(
-                    "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
-                    sessionId === thread.id && "bg-muted",
-                  )}
-                  onClick={() => {
-                    selectConversation(thread.id);
-                    setCustomProvider(undefined);
-                    setCustomModel(undefined);
-                  }}
-                >
-                  <span className="line-clamp-2 text-xs leading-5">
-                    {thread.title}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {dateLabel(thread.updated_at)}
-                  </span>
-                </button>
-              ))
-            )}
-            {sessions.hasNextPage ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={sessions.isFetchingNextPage}
-                onClick={() => void sessions.fetchNextPage()}
-              >
-                Load more conversations
-              </Button>
-            ) : null}
-            <details
-              className="mt-4"
-              onToggle={(event) => setShowLegacy(event.currentTarget.open)}
+          <Button variant="ghost" size="icon-sm" asChild>
+            <Link
+              href="/agent-settings"
+              aria-label="Configure agents"
+              title="Configure agents"
             >
-              <summary className="cursor-pointer px-2 text-xs text-muted-foreground">
-                Earlier runs
-              </summary>
-              {showLegacy ? (
-                <div className="mt-2 flex flex-col gap-1">
-                  {legacy.error ? (
-                    <ErrorState
-                      error={legacy.error}
-                      retry={() => void legacy.refetch()}
-                    />
-                  ) : null}
-                  {legacy.isPending ? <LoadingRows /> : null}
-                  {legacy.data?.pages
-                    .flatMap((page) => page.items)
-                    .filter((item) => !item.session_id)
-                    .map((item) => (
-                      <button
-                        key={item.id}
-                        disabled={send.isPending}
-                        className="rounded-lg p-3 text-left text-xs hover:bg-muted"
-                        onClick={() => selectConversation(undefined, item.id)}
-                      >
-                        {item.title}
-                      </button>
-                    ))}
-                  {legacy.hasNextPage ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={legacy.isFetchingNextPage}
-                      onClick={() => void legacy.fetchNextPage()}
-                    >
-                      Load earlier runs
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </details>
-          </div>
-        </aside>
+              <Settings2 />
+            </Link>
+          </Button>
+        </div>
+      </div>
+      <Sheet
+        open={isMobile && historyMobileOpen}
+        onOpenChange={setHistoryMobileOpen}
+      >
+        <SheetContent
+          side="left"
+          className="w-72 gap-0"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            historyToggle.current?.focus();
+          }}
+        >
+          <SheetHeader>
+            <SheetTitle>Conversations</SheetTitle>
+            <SheetDescription>Reopen a saved conversation.</SheetDescription>
+          </SheetHeader>
+          {history}
+        </SheetContent>
+      </Sheet>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-1 overflow-hidden",
+          !isMobile && historyOpen && "md:grid-cols-[220px_minmax(0,1fr)]",
+        )}
+      >
+        {!isMobile && historyOpen && (
+          <aside
+            id="chat-history"
+            aria-label="Conversation history"
+            className="min-h-0 overflow-y-auto border-r border-border bg-card/40"
+          >
+            {history}
+          </aside>
+        )}
+
         <div className="flex min-h-0 min-w-0 flex-col">
           {sessionId || legacyRunId ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-6 md:p-9">
-              <div className="mb-7 flex items-center gap-3">
-                <Bot className="size-5 text-primary" />
-                <p className="text-sm font-medium">
-                  {session.data?.title ?? run?.title ?? "Conversation"}
-                </p>
-                {run ? <Status value={run.state} /> : null}
-              </div>
-              {session.error ? (
-                <ErrorState
-                  error={session.error}
-                  retry={() => void session.refetch()}
-                />
-              ) : null}
-              {legacyRun.error && legacyRunId ? (
-                <ErrorState
-                  error={legacyRun.error}
-                  retry={() => void legacyRun.refetch()}
-                />
-              ) : null}
-              {runs.error ? (
-                <ErrorState
-                  error={runs.error}
-                  retry={() => void runs.refetch()}
-                />
-              ) : null}
-              <Conversation className="max-h-[65vh] min-h-60">
-                <ConversationContent className="gap-6 p-0 pb-12">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <Conversation key={sessionId ?? legacyRunId} className="min-h-0">
+                <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-4 py-5 md:px-8">
+                  <div className="flex shrink-0 items-start gap-3">
+                    <Bot className="size-5 shrink-0 text-primary" />
+                    <p className="min-w-0 break-words text-sm font-medium">
+                      {session.data?.title ?? run?.title ?? "Conversation"}
+                    </p>
+                    {run ? <Status value={run.state} /> : null}
+                  </div>
+                  {session.error ? (
+                    <ErrorState
+                      error={session.error}
+                      retry={() => void session.refetch()}
+                    />
+                  ) : null}
+                  {legacyRun.error && legacyRunId ? (
+                    <ErrorState
+                      error={legacyRun.error}
+                      retry={() => void legacyRun.refetch()}
+                    />
+                  ) : null}
+                  {runs.error ? (
+                    <ErrorState
+                      error={runs.error}
+                      retry={() => void runs.refetch()}
+                    />
+                  ) : null}
+
                   {sessionId ? (
                     <>
                       {transcript.isPending && (
@@ -507,7 +588,7 @@ export function Agents() {
               </Conversation>
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center px-6 py-6 text-center">
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-6 text-center sm:justify-center">
               <h2 className="text-2xl font-medium tracking-tight">
                 What would you like to work on?
               </h2>
@@ -549,7 +630,8 @@ export function Agents() {
             </div>
           )}
           <form
-            className="shrink-0 border-t border-border bg-card/40 p-5 md:px-8"
+            aria-label="Chat composer"
+            className="max-h-[50%] shrink-0 overflow-y-auto border-t border-border bg-background px-3 py-3 md:px-6"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend)
@@ -606,7 +688,7 @@ export function Agents() {
                 <Badge
                   variant="outline"
                   key={skill}
-                  className="font-normal text-muted-foreground"
+                  className="hidden font-normal text-muted-foreground xl:inline-flex"
                 >
                   {label(skill)} skill
                 </Badge>
@@ -625,8 +707,8 @@ export function Agents() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={submitChatOnEnter}
-                rows={3}
-                className="resize-none bg-background pr-14"
+                rows={2}
+                className="max-h-40 min-h-20 resize-none overflow-y-auto bg-background pr-14"
               />
               <Button
                 aria-label="Run agent"
@@ -638,7 +720,7 @@ export function Agents() {
                 {send.isPending ? <Spinner /> : <ArrowUp />}
               </Button>
             </div>
-            <div className="mt-3 flex flex-wrap justify-between gap-2 text-[10px] text-muted-foreground">
+            <div className="mt-2 hidden flex-wrap justify-between gap-2 text-[10px] text-muted-foreground md:flex">
               <span>
                 Skills and tool grants are pinned to each run.{" "}
                 <Link href="/memory" className="underline underline-offset-2">
@@ -669,6 +751,6 @@ export function Agents() {
           </form>
         </div>
       </div>
-    </>
+    </section>
   );
 }

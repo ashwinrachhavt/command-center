@@ -334,3 +334,8 @@ and copy action remain visible.
 Home starts with the Command Center supervisor and a general-purpose composer; lead intake is an example rather than the identity of the chat. Session selection is URL-addressable. Searchable paginated conversation history stays separate from recent run activity, and selecting an existing conversation preserves its configured profile. Stream token/tool activity, show saved questions in place and distinguish waiting from cancellation. Load transcript deltas, defer older run detail and stop rapid polling when idle.
 
 Show cached-answer provenance and an explicit fresh-answer option. Settings → Local AI clients creates named, revocable credentials and shows each token once, with copy/hide controls and setup instructions. Keep token values out of query caches, URLs and browser persistence. Lead-intake results link to the saved records and exact source version; private pasted-source identifiers are not external web links.
+
+
+### Home chat layout — confirmed 2026-09-23
+
+Navigation and conversation history collapse independently with visible controls; desktop choices persist across reloads. On mobile, history opens in a dismissible drawer and restores focus to its trigger. Home chat fills the available dynamic viewport: a compact toolbar, one message scroll region, and a bounded composer. Long pasted drafts scroll within the textarea, and long saved messages remain reachable without page or nested transcript scrolling. Changing panel visibility preserves the selected conversation and unsent text.

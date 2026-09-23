@@ -1933,6 +1933,25 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   if (messageMatch) {
     const sessionId = messageMatch[1];
     const items = sessionMessages[sessionId] ?? [];
+    if (
+      method === "GET" &&
+      new URLSearchParams(location.search).has("long_chat") &&
+      items.length >= 2
+    ) {
+      items[0].content =
+        "Start of pasted source.\n\n" +
+        "Synthetic conversation context and a long source URL https://example.test/".repeat(
+          100,
+        );
+      items[1].content =
+        "## Saved response\n\n" +
+        Array.from(
+          { length: 45 },
+          (_, index) =>
+            `Paragraph ${index + 1}: Synthetic follow-up details remain readable.\n\n`,
+        ).join("") +
+        "Final line of the saved response.";
+    }
     if (method === "POST") {
       const body = JSON.parse(String(init?.body)) as {
         content: string;
