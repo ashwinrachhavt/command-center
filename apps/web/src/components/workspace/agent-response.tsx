@@ -57,6 +57,7 @@ function SourceLinkDialog({
 
 const linkSafety: LinkSafetyConfig = {
   enabled: true,
+  onLinkCheck: (url) => /^\/(?![\/\\])/.test(url),
   renderModal: (props) => <SourceLinkDialog {...props} />,
 };
 

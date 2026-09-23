@@ -386,6 +386,13 @@ const runQuestions: Record<string, Record<string, unknown>[]> = {
     },
   ],
 };
+const localClients: {
+  id: string;
+  name: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+}[] = [];
 const questionAnswerKeys: Record<string, string[]> = {};
 const failedQuestionAnswers = new Set<string>();
 let failedQuestionRefreshes = 0;
@@ -1864,8 +1871,8 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       if (existing) return Response.json(existing);
       const created = {
         ...conversationBase,
-        id: `session-${body.task_id ?? body.opportunity_id}`,
-        title: "Work conversation",
+        id: `session-${body.task_id ?? body.opportunity_id ?? crypto.randomUUID()}`,
+        title: body.title ?? "Work conversation",
         task_id: body.task_id ?? null,
         opportunity_id: body.opportunity_id ?? null,
         last_sequence: 0,
@@ -1877,16 +1884,49 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     }
     const taskId = url.searchParams.get("task_id");
     const opportunityId = url.searchParams.get("opportunity_id");
-    return Response.json(
-      page(
-        sessions.filter(
-          (item) =>
-            (taskId && item.task_id === taskId) ||
-            (opportunityId && item.opportunity_id === opportunityId),
-        ),
-        1,
-      ),
+    const standalone = url.searchParams.get("standalone") === "true";
+    const filtered = sessions.filter(
+      (item) =>
+        (!taskId || item.task_id === taskId) &&
+        (!opportunityId || item.opportunity_id === opportunityId) &&
+        (!standalone || (!item.task_id && !item.opportunity_id)),
     );
+    const limit = Number(url.searchParams.get("limit") ?? 30);
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    return Response.json({
+      items: filtered.slice(offset, offset + limit),
+      total: filtered.length,
+      limit,
+      offset,
+    });
+  }
+  const sessionDetail = route.match(/^agent-sessions\/([^/]+)$/);
+  if (sessionDetail && method === "GET") {
+    const item = sessions.find((session) => session.id === sessionDetail[1]);
+    return item
+      ? Response.json(item)
+      : Response.json({ detail: "Session not found" }, { status: 404 });
+  }
+  if (route === "mcp-clients") {
+    if (method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const created = {
+        id: crypto.randomUUID(),
+        name: body.name,
+        created_at: base.created_at,
+        expires_at: "2099-01-01T00:00:00Z",
+        revoked_at: null,
+      };
+      localClients.unshift(created);
+      return Response.json({ ...created, token: "synthetic-preview-token" });
+    }
+    return Response.json(localClients);
+  }
+  const revokeClient = route.match(/^mcp-clients\/([^/]+)\/revoke$/);
+  if (revokeClient && method === "POST") {
+    const record = localClients.find((item) => item.id === revokeClient[1])!;
+    record.revoked_at = base.updated_at;
+    return Response.json(record);
   }
   const messageMatch = route.match(/^agent-sessions\/([^/]+)\/messages$/);
   if (messageMatch) {
@@ -2057,6 +2097,16 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       error_code: null,
     };
     standaloneRuns.unshift(run);
+    (sessionRuns[sessionId] ??= []).unshift(run);
+    if (!sessions.some((item) => item.id === sessionId))
+      sessions.push({
+        ...conversationBase,
+        id: sessionId,
+        title: run.title,
+        task_id: null,
+        opportunity_id: null,
+        last_sequence: messages.length + 2,
+      });
     for (const [author, content] of [
       ["user", body.prompt],
       ["assistant", run.output],

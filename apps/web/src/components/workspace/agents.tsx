@@ -1,17 +1,14 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowUp,
-  Bot,
-  BookOpen,
-  CircleStop,
-  Clock3,
-  FileText,
-  Sparkles,
-} from "lucide-react";
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { ArrowUp, Bot, BookOpen, FileText, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,11 +23,12 @@ import {
 } from "@/components/ui/select";
 import {
   api,
+  ApiError,
   dateLabel,
   label,
-  runFailureMessage,
   type AgentProfile,
   type AgentMessage,
+  type AgentSession,
   type ModelProvider,
   type Page,
   type Run,
@@ -45,13 +43,15 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
-import {
-  Tool,
-  ToolHeader,
-  ToolContent,
-  ToolOutput,
-} from "@/components/ai-elements/tool";
 import { deferView } from "./deferred-view";
+import { RunActivity } from "./run-activity";
+import { AnswerReuseNotice } from "./answer-reuse-notice";
+import {
+  appendSavedMessage,
+  sessionMessageKey,
+  useSessionMessages,
+} from "./use-session-messages";
+import { activeRunStates, useSessionRuns } from "./use-session-runs";
 import {
   ErrorState,
   LoadingRows,
@@ -70,11 +70,23 @@ const RichAgentResponse = deferView<{ children: string }>(
 
 export function Agents() {
   const params = useSearchParams();
-  const [profileId, setProfileId] = useState(
-    params?.get("agent") ?? "research",
-  );
+  const router = useRouter();
+  const pathname = usePathname();
+  const selectedSessionId = params?.get("session") ?? undefined;
+  const legacyRunId = params?.get("run") ?? undefined;
+  const [showLegacy, setShowLegacy] = useState(false);
+  const selectConversation = (sessionId?: string, runId?: string) => {
+    const next = new URLSearchParams(params?.toString());
+    next.delete("session");
+    next.delete("run");
+    if (sessionId) next.set("session", sessionId);
+    else if (runId) next.set("run", runId);
+    router.push(`${pathname ?? "/"}${next.size ? `?${next}` : ""}`, {
+      scroll: false,
+    });
+  };
+  const [profileId, setProfileId] = useState(params?.get("agent") ?? "lead");
   const [prompt, setPrompt] = useState("");
-  const [selected, setSelected] = useState<string>();
   const [customProvider, setCustomProvider] = useState<ModelProvider>();
   const [customModel, setCustomModel] = useState<string>();
   const profiles = useQuery({
@@ -82,112 +94,173 @@ export function Agents() {
     queryFn: () =>
       api<(AgentProfile & { skills: string[] })[]>("agents/profiles"),
   });
-  const runs = useQuery({
-    queryKey: ["runs"],
-    queryFn: () => api<Page<Run>>("agent-runs"),
-    refetchInterval: 4000,
+  const sessions = useInfiniteQuery({
+    queryKey: ["agent-sessions", "history"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      api<Page<AgentSession>>(
+        `agent-sessions?standalone=true&limit=30&offset=${pageParam}`,
+        { signal },
+      ),
+    getNextPageParam: (page) =>
+      page.offset + page.items.length < page.total
+        ? page.offset + page.items.length
+        : undefined,
+    refetchInterval: 30_000,
   });
-  const profile = profiles.data?.find((p) => p.id === profileId);
-  const activeProvider = customProvider ?? profile?.provider ?? "openai";
-  const activeModel = customModel ?? profile?.model ?? "gpt-5-mini";
-  const selectedRun = runs.data?.items.find((r) => r.id === selected);
-  const run = selectedRun?.session_id
-    ? runs.data?.items.find((r) => r.session_id === selectedRun.session_id)
-    : selectedRun;
-  const threads = runs.data?.items.filter(
-    (item, index, items) =>
-      !item.session_id ||
-      items.findIndex((other) => other.session_id === item.session_id) ===
-        index,
-  );
-  const transcript = useQuery({
-    queryKey: ["agent-chat-messages", run?.session_id, run?.id, run?.state],
-    enabled: !!run?.session_id,
-    queryFn: async () => {
-      const messages: AgentMessage[] = [];
-      let after = 0;
-      for (;;) {
-        const page = await api<Page<AgentMessage>>(
-          `agent-sessions/${run!.session_id}/messages?limit=100&after_sequence=${after}`,
-        );
-        messages.push(...page.items);
-        if (page.items.length < 100) return messages;
-        after = page.items[page.items.length - 1].sequence;
-      }
-    },
-    refetchInterval:
-      run && ["queued", "running", "waiting_for_user"].includes(run.state)
-        ? 1500
+  const legacy = useInfiniteQuery({
+    queryKey: ["runs", "legacy-history"],
+    enabled: showLegacy,
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      api<Page<Run>>(`agent-runs?limit=30&offset=${pageParam}`, { signal }),
+    getNextPageParam: (page) =>
+      page.offset + page.items.length < page.total
+        ? page.offset + page.items.length
+        : undefined,
+  });
+  const legacyRun = useQuery({
+    queryKey: ["agent-run", legacyRunId],
+    enabled: !!legacyRunId,
+    queryFn: ({ signal }) => api<Run>(`agent-runs/${legacyRunId}`, { signal }),
+    refetchInterval: (query) =>
+      query.state.data && activeRunStates.has(query.state.data.state)
+        ? 10_000
         : false,
   });
-  const steps = useQuery({
-    queryKey: ["run-steps", run?.id],
-    enabled: !!run,
-    queryFn: () =>
-      api<
-        {
-          id: string;
-          name: string;
-          state: "input-available" | "output-available" | "output-error";
-          output: string | null;
-        }[]
-      >(`agent-runs/${run!.id}/steps`),
-    refetchInterval:
-      run && ["queued", "running"].includes(run.state) ? 3000 : false,
+  const sessionId =
+    selectedSessionId ?? legacyRun.data?.session_id ?? undefined;
+  const session = useQuery({
+    queryKey: ["agent-session", sessionId],
+    enabled: !!sessionId,
+    queryFn: ({ signal }) =>
+      api<AgentSession>(`agent-sessions/${sessionId}`, { signal }),
   });
+  const runs = useSessionRuns(sessionId, 1);
+  const run = runs.data?.items[0] ?? (legacyRunId ? legacyRun.data : undefined);
+  const [profileScope, setProfileScope] = useState<string>();
+  const conversationScope = sessionId ?? legacyRunId ?? "new";
+  const profile = profiles.data?.find(
+    (p) =>
+      p.id ===
+      (run &&
+      (activeRunStates.has(run.state) || profileScope !== conversationScope)
+        ? run.profile
+        : profileId),
+  );
+  const activeProvider = customProvider ?? profile?.provider ?? "openai";
+  const activeModel = customModel ?? profile?.model ?? "gpt-5-mini";
+  const transcript = useSessionMessages(
+    sessionId,
+    !!run && activeRunStates.has(run.state),
+  );
+  const threads = [
+    ...new Map(
+      sessions.data?.pages
+        .flatMap((page) => page.items)
+        .map((item) => [item.id, item]) ?? [],
+    ).values(),
+  ];
   const [runIntent] = useState(() => new RetainedRequestIntent());
   const [cancelIntent] = useState(() => new RetainedRequestIntent());
   const client = useQueryClient();
   const send = useMutation({
-    mutationFn: (submission: {
+    mutationFn: async (submission: {
       profile: string;
       prompt: string;
       provider?: ModelProvider;
       model?: string;
-      continue_run_id?: string;
+      sessionId?: string;
+      legacyRunId?: string;
+      fresh_answer?: boolean;
     }) => {
-      const target = "agent-runs";
-      const body = submission;
-      const intent = runIntent.forRequest("POST", target, body);
-      return api<Run>("agent-runs", {
+      if (submission.legacyRunId && !submission.sessionId) {
+        const body = {
+          profile: submission.profile,
+          prompt: submission.prompt,
+          provider: submission.provider,
+          model: submission.model,
+          continue_run_id: submission.legacyRunId,
+        };
+        const intent = runIntent.forRequest("POST", "agent-runs", body);
+        const adopted = await api<Run>("agent-runs", {
+          method: "POST",
+          body,
+          key: intent.key,
+        });
+        runIntent.confirmRequest("POST", "agent-runs", body);
+        return { adopted };
+      }
+      let target = submission.sessionId;
+      if (!target) {
+        const body = { title: submission.prompt.slice(0, 300) };
+        const intent = runIntent.forRequest("POST", "agent-sessions", body);
+        const created = await api<AgentSession>("agent-sessions", {
+          method: "POST",
+          body,
+          key: intent.key,
+        });
+        runIntent.confirmRequest("POST", "agent-sessions", body);
+        client.setQueryData(["agent-session", created.id], created);
+        target = created.id;
+        selectConversation(target);
+      }
+      const endpoint = `agent-sessions/${target}/messages`;
+      const body = {
+        content: submission.prompt,
+        profile: submission.profile,
+        provider: submission.provider,
+        model: submission.model,
+        ...(submission.fresh_answer ? { fresh_answer: true } : {}),
+      };
+      const intent = runIntent.forRequest("POST", endpoint, body);
+      const message = await api<AgentMessage>(endpoint, {
         method: "POST",
         body,
         key: intent.key,
       });
+      runIntent.confirmRequest("POST", endpoint, body);
+      return { message };
     },
-    onSuccess: (r, submission) => {
-      runIntent.confirmRequest("POST", "agent-runs", submission);
-      client.invalidateQueries({ queryKey: ["runs"] });
-      void client.invalidateQueries({ queryKey: ["agent-chat-messages"] });
-      client.setQueryData<Page<Run>>(["runs"], (current) =>
-        current
-          ? {
-              ...current,
-              items: [r, ...current.items.filter((item) => item.id !== r.id)],
-            }
-          : current,
-      );
-      setSelected(r.id);
+    onSuccess: (result, submission) => {
+      const savedSessionId =
+        result.message?.session_id ?? result.adopted?.session_id;
+      if (result.message) appendSavedMessage(client, result.message);
+      if (savedSessionId) {
+        selectConversation(savedSessionId);
+        void client.invalidateQueries({
+          queryKey: sessionMessageKey(savedSessionId),
+        });
+        void client.invalidateQueries({
+          queryKey: ["agent-session-runs", savedSessionId],
+        });
+      } else if (result.adopted)
+        selectConversation(undefined, result.adopted.id);
+      void client.invalidateQueries({ queryKey: ["agent-sessions"] });
+      void client.invalidateQueries({ queryKey: ["runs"] });
       setPrompt((current) => (current === submission.prompt ? "" : current));
       toast.success("Message saved to your conversation");
     },
     onError: (e) => toast.error(e.message),
   });
   const cancel = useMutation({
-    mutationFn: (r: Run) => {
-      const target = `agent-runs/${r.id}/cancel`;
-      const body = { expected_version: r.row_version };
-      const intent = cancelIntent.forRequest("POST", target, body);
-      return api(target, {
-        method: "POST",
-        body,
-        key: intent.key,
-      });
+    mutationFn: async (run: Run) => {
+      const post = async (fresh: Run) => {
+        const target = `agent-runs/${fresh.id}/cancel`;
+        const body = { expected_version: fresh.row_version };
+        const intent = cancelIntent.forRequest("POST", target, body);
+        await api<Run>(target, { method: "POST", body, key: intent.key });
+        return { target, body };
+      };
+      try {
+        return await post(await api<Run>(`agent-runs/${run.id}`));
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409) throw error;
+        return post(await api<Run>(`agent-runs/${run.id}`));
+      }
     },
-    onSuccess: (_result, r) => {
-      cancelIntent.confirmRequest("POST", `agent-runs/${r.id}/cancel`, {
-        expected_version: r.row_version,
-      });
+    onSuccess: ({ target, body }) => {
+      cancelIntent.confirmRequest("POST", target, body);
       client.invalidateQueries();
       toast.success(
         "Cancellation recorded. An in-flight call may finish, but its result cannot update this run.",
@@ -218,7 +291,8 @@ export function Agents() {
           <Button
             variant="outline"
             className="mb-5 w-full"
-            onClick={() => setSelected(undefined)}
+            disabled={send.isPending}
+            onClick={() => selectConversation()}
           >
             <Sparkles />
             New chat
@@ -227,73 +301,128 @@ export function Agents() {
             RECENT CONVERSATIONS
           </p>
           <div className="flex flex-col gap-1">
-            {runs.error ? (
+            {sessions.error ? (
               <ErrorState
-                error={runs.error}
-                retry={() => void runs.refetch()}
+                error={sessions.error}
+                retry={() => void sessions.refetch()}
               />
             ) : null}
-            {runs.isPending && !runs.data ? (
+            {sessions.isPending ? (
               <LoadingRows />
-            ) : runs.data?.items.length === 0 ? (
+            ) : !threads.length ? (
               <p className="px-2 py-4 text-xs leading-6 text-muted-foreground">
                 Your conversations and their outcomes will live here.
               </p>
-            ) : runs.data ? (
-              threads?.map((r) => (
+            ) : (
+              threads.map((thread) => (
                 <button
-                  key={r.id}
+                  key={thread.id}
+                  disabled={send.isPending}
+                  aria-current={sessionId === thread.id ? "true" : undefined}
                   className={cn(
                     "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
-                    run?.id === r.id && "bg-muted",
+                    sessionId === thread.id && "bg-muted",
                   )}
                   onClick={() => {
-                    setSelected(r.id);
-                    setProfileId(r.profile);
+                    selectConversation(thread.id);
                     setCustomProvider(undefined);
                     setCustomModel(undefined);
                   }}
                 >
                   <span className="line-clamp-2 text-xs leading-5">
-                    {r.title}
+                    {thread.title}
                   </span>
-                  <span className="flex w-full items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground">
-                      {dateLabel(r.created_at)}
-                    </span>
-                    <Status value={r.state} />
+                  <span className="text-[10px] text-muted-foreground">
+                    {dateLabel(thread.updated_at)}
                   </span>
                 </button>
               ))
+            )}
+            {sessions.hasNextPage ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={sessions.isFetchingNextPage}
+                onClick={() => void sessions.fetchNextPage()}
+              >
+                Load more conversations
+              </Button>
             ) : null}
+            <details
+              className="mt-4"
+              onToggle={(event) => setShowLegacy(event.currentTarget.open)}
+            >
+              <summary className="cursor-pointer px-2 text-xs text-muted-foreground">
+                Earlier runs
+              </summary>
+              {showLegacy ? (
+                <div className="mt-2 flex flex-col gap-1">
+                  {legacy.error ? (
+                    <ErrorState
+                      error={legacy.error}
+                      retry={() => void legacy.refetch()}
+                    />
+                  ) : null}
+                  {legacy.isPending ? <LoadingRows /> : null}
+                  {legacy.data?.pages
+                    .flatMap((page) => page.items)
+                    .filter((item) => !item.session_id)
+                    .map((item) => (
+                      <button
+                        key={item.id}
+                        disabled={send.isPending}
+                        className="rounded-lg p-3 text-left text-xs hover:bg-muted"
+                        onClick={() => selectConversation(undefined, item.id)}
+                      >
+                        {item.title}
+                      </button>
+                    ))}
+                  {legacy.hasNextPage ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={legacy.isFetchingNextPage}
+                      onClick={() => void legacy.fetchNextPage()}
+                    >
+                      Load earlier runs
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </details>
           </div>
         </aside>
         <div className="flex min-h-0 min-w-0 flex-col">
-          {run ? (
+          {sessionId || legacyRunId ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-6 md:p-9">
               <div className="mb-7 flex items-center gap-3">
                 <Bot className="size-5 text-primary" />
                 <p className="text-sm font-medium">
-                  {profiles.data?.find((p) => p.id === run.profile)?.name ??
-                    run.profile}
+                  {session.data?.title ?? run?.title ?? "Conversation"}
                 </p>
-                <Status value={run.state} />
-                {["queued", "running"].includes(run.state) && (
-                  <Button
-                    className="ml-auto"
-                    size="sm"
-                    variant="ghost"
-                    disabled={cancel.isPending}
-                    onClick={() => cancel.mutate(run)}
-                  >
-                    <CircleStop />
-                    Cancel
-                  </Button>
-                )}
+                {run ? <Status value={run.state} /> : null}
               </div>
+              {session.error ? (
+                <ErrorState
+                  error={session.error}
+                  retry={() => void session.refetch()}
+                />
+              ) : null}
+              {legacyRun.error && legacyRunId ? (
+                <ErrorState
+                  error={legacyRun.error}
+                  retry={() => void legacyRun.refetch()}
+                />
+              ) : null}
+              {runs.error ? (
+                <ErrorState
+                  error={runs.error}
+                  retry={() => void runs.refetch()}
+                />
+              ) : null}
               <Conversation className="max-h-[65vh] min-h-60">
                 <ConversationContent className="gap-6 p-0 pb-12">
-                  {run.session_id ? (
+                  {sessionId ? (
                     <>
                       {transcript.isPending && (
                         <p
@@ -309,7 +438,7 @@ export function Agents() {
                           retry={() => void transcript.refetch()}
                         />
                       )}
-                      {transcript.data?.map((message) => (
+                      {transcript.data?.items.map((message) => (
                         <Message key={message.id} from={message.author}>
                           <MessageContent className="whitespace-pre-wrap">
                             {message.author === "assistant" ? (
@@ -320,90 +449,59 @@ export function Agents() {
                               message.content
                             )}
                           </MessageContent>
+                          <AnswerReuseNotice
+                            message={message}
+                            disabled={
+                              send.isPending ||
+                              (!!run && activeRunStates.has(run.state))
+                            }
+                            onFresh={() => {
+                              const original = transcript.data?.items.findLast(
+                                (item) =>
+                                  item.author === "user" &&
+                                  item.sequence < message.sequence,
+                              );
+                              if (original)
+                                send.mutate({
+                                  profile: message.profile,
+                                  prompt: original.content,
+                                  provider: activeProvider,
+                                  model: activeModel,
+                                  sessionId,
+                                  fresh_answer: true,
+                                });
+                            }}
+                          />
                         </Message>
                       ))}
                     </>
-                  ) : (
+                  ) : run ? (
                     <Message from="user">
                       <MessageContent className="whitespace-pre-wrap">
                         {run.prompt}
                       </MessageContent>
                     </Message>
-                  )}
-                  {steps.error ? (
-                    <ErrorState
-                      error={steps.error}
-                      retry={() => void steps.refetch()}
+                  ) : null}
+                  {run ? (
+                    <RunActivity
+                      key={run.id}
+                      run={run}
+                      showOutput={
+                        !transcript.data?.items.some(
+                          (message) =>
+                            message.run_id === run.id &&
+                            message.author === "assistant",
+                        )
+                      }
+                      deferDetails={!activeRunStates.has(run.state)}
+                      cancelling={cancel.isPending}
+                      onCancel={(item) => cancel.mutate(item)}
                     />
-                  ) : null}
-                  {steps.isPending && !steps.data ? (
-                    <p className="text-sm text-muted-foreground" role="status">
-                      Loading run steps…
-                    </p>
-                  ) : steps.data?.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No steps were recorded for this run.
+                  ) : runs.isPending ? (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      Loading saved activity…
                     </p>
                   ) : null}
-                  {steps.data?.map((step) => (
-                    <Tool key={step.id} className="mb-0">
-                      <ToolHeader
-                        type="dynamic-tool"
-                        toolName={step.name}
-                        title={label(step.name)}
-                        state={step.state}
-                      />
-                      <ToolContent>
-                        {step.output ? (
-                          <ToolOutput
-                            output={
-                              step.state === "output-error"
-                                ? undefined
-                                : step.output
-                            }
-                            errorText={
-                              step.state === "output-error"
-                                ? step.output
-                                : undefined
-                            }
-                          />
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            {run.state === "running"
-                              ? "Waiting for the tool result…"
-                              : "No result was recorded for this step."}
-                          </p>
-                        )}
-                      </ToolContent>
-                    </Tool>
-                  ))}
-                  {run.output ? (
-                    !run.session_id ||
-                    !transcript.data?.some(
-                      (message) =>
-                        message.run_id === run.id &&
-                        message.author === "assistant",
-                    ) ? (
-                      <Message from="assistant">
-                        <MessageContent>
-                          <RichAgentResponse>{run.output}</RichAgentResponse>
-                        </MessageContent>
-                      </Message>
-                    ) : null
-                  ) : ["queued", "running"].includes(run.state) ? (
-                    <div className="mt-8 flex items-center gap-3 text-sm text-muted-foreground">
-                      <Clock3 className="size-4 animate-pulse" />
-                      {run.state === "queued"
-                        ? "Waiting for a worker. Your request is saved."
-                        : "Your agent is working. This page updates automatically."}
-                    </div>
-                  ) : (
-                    <p className="mt-8 text-sm text-muted-foreground">
-                      {run.state === "failed"
-                        ? runFailureMessage(run.error_code)
-                        : "This run was cancelled."}
-                    </p>
-                  )}
                 </ConversationContent>
                 <ConversationScrollButton />
               </Conversation>
@@ -414,8 +512,8 @@ export function Agents() {
                 What would you like to work on?
               </h2>
               <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                Research an opportunity, develop an idea, or turn a conversation
-                into your next step.
+                Ask a question, develop an idea, or make progress on your work.
+                Command Center can bring in the right tools and specialists.
               </p>
               <div className="mt-5 flex max-w-xl flex-wrap justify-center gap-2">
                 {[
@@ -424,6 +522,12 @@ export function Agents() {
                     text: "Research a company",
                     prompt:
                       "Help me research a company. Ask me which company and what I want to learn first.",
+                  },
+                  {
+                    icon: FileText,
+                    text: "Save a lead from pasted text",
+                    prompt:
+                      "Help me save a lead from a message or page. I’ll paste the source text next.",
                   },
                   {
                     icon: FileText,
@@ -450,23 +554,25 @@ export function Agents() {
               e.preventDefault();
               if (canSend)
                 send.mutate({
-                  profile: profileId,
+                  profile: profile?.id ?? profileId,
                   prompt,
                   provider: activeProvider,
                   model: activeModel,
-                  ...(run ? { continue_run_id: run.id } : {}),
+                  sessionId,
+                  legacyRunId,
                 });
             }}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
               <Select
-                value={profileId}
+                value={profile?.id ?? profileId}
                 disabled={
                   !!run &&
                   ["queued", "running", "waiting_for_user"].includes(run.state)
                 }
                 onValueChange={(id) => {
                   setProfileId(id);
+                  setProfileScope(conversationScope);
                   setCustomProvider(undefined);
                   setCustomModel(undefined);
                 }}
@@ -512,9 +618,9 @@ export function Agents() {
               <Textarea
                 aria-label="Message your agent"
                 placeholder={
-                  run
+                  sessionId || legacyRunId
                     ? "Continue this conversation…"
-                    : "Give your agent a focused task…"
+                    : "Ask Command Center…"
                 }
                 required
                 maxLength={20000}

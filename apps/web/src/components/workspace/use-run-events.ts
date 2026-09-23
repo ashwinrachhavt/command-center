@@ -86,6 +86,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
   const pendingText = useRef(new Map<string, string>());
   const frame = useRef<number | undefined>(undefined);
   const [resumeSequence, setResumeSequence] = useState(0);
+  const automaticAttempts = useRef(0);
 
   const flushText = useCallback(() => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -132,6 +133,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
   useEffect(() => {
     lastSequence.current = 0;
     terminalStatus.current = false;
+    automaticAttempts.current = 0;
     pendingText.current.clear();
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
@@ -289,6 +291,33 @@ export function useRunEvents(runId: string, enabled: boolean) {
     };
   }, [attempt, enabled, flushText, queueText, runId]);
 
+  useEffect(() => {
+    if (!enabled || connection !== "disconnected" || terminalStatus.current)
+      return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      if (
+        document.visibilityState === "hidden" ||
+        automaticAttempts.current >= 3
+      )
+        return;
+      timer = setTimeout(
+        () => {
+          automaticAttempts.current += 1;
+          setAttempt((value) => value + 1);
+        },
+        1000 * 2 ** automaticAttempts.current,
+      );
+    };
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [attempt, connection, enabled, runId]);
+
   useEffect(
     () => () => {
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -304,6 +333,9 @@ export function useRunEvents(runId: string, enabled: boolean) {
     connection,
     connectionError,
     lastSequence: resumeSequence,
-    retry: () => setAttempt((value) => value + 1),
+    retry: () => {
+      automaticAttempts.current = 0;
+      setAttempt((value) => value + 1);
+    },
   };
 }

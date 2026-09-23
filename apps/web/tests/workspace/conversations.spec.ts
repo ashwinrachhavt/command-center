@@ -17,6 +17,10 @@ test("restores an opportunity conversation with specialist activity and outputs"
   ).toBeVisible();
   const continuedInstruction = page.getByText("Add compensation questions.");
   await expect(continuedInstruction.locator("..")).toContainText("Applied");
+  await page
+    .getByRole("region", { name: "Prepare interview brief activity" })
+    .getByRole("button", { name: "Show activity details" })
+    .click();
   await expect(page.getByText("Research specialist")).toBeVisible();
   await expect(page.getByText("Northstar interview brief · v2")).toBeVisible();
 
@@ -90,7 +94,7 @@ test("preserves a newly typed draft and fetches terminal run details", async ({
   });
   expect(completed).toBe(true);
   await expect(page.getByText("Final specialist result")).toBeVisible({
-    timeout: 7_000,
+    timeout: 15_000,
   });
   await expect(
     page.getByRole("heading", { name: "Final run outcome" }),

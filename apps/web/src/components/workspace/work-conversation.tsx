@@ -34,10 +34,17 @@ import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { submitChatOnEnter } from "@/lib/submit-chat-on-enter";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
+import { AnswerReuseNotice } from "./answer-reuse-notice";
 import { AgentResponse } from "./agent-response";
-
-const activeStates = new Set(["queued", "running", "waiting_for_user"]);
-const messagePageSize = 100;
+import {
+  appendSavedMessage,
+  sessionMessageKey,
+  useSessionMessages,
+} from "./use-session-messages";
+import {
+  activeRunStates as activeStates,
+  useSessionRuns,
+} from "./use-session-runs";
 
 export function WorkConversation({
   resource,
@@ -65,52 +72,19 @@ export function WorkConversation({
   });
   const sessionQuery = useQuery({
     queryKey: sessionKey,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api<Page<AgentSession>>(
         `agent-sessions?${scopeField}=${recordId}&limit=1`,
+        { signal },
       ),
+    refetchInterval: 30_000,
   });
   const session = sessionQuery.data?.items[0];
-  const messageKey = ["agent-session-messages", session?.id] as const;
-  const messages = useQuery({
-    queryKey: messageKey,
-    enabled: !!session,
-    queryFn: async () => {
-      const cached =
-        queryClient.getQueryData<Page<AgentMessage>>(messageKey)?.items ?? [];
-      const merged = [...cached];
-      let cursor = merged.at(-1)?.sequence ?? 0;
-      let page: Page<AgentMessage>;
-      do {
-        page = await api<Page<AgentMessage>>(
-          `agent-sessions/${session!.id}/messages?after_sequence=${cursor}&limit=${messagePageSize}`,
-        );
-        for (const item of page.items) {
-          if (!merged.some((message) => message.id === item.id))
-            merged.push(item);
-        }
-        cursor = page.items.at(-1)?.sequence ?? cursor;
-      } while (page.items.length === messagePageSize);
-      merged.sort((a, b) => a.sequence - b.sequence);
-      return {
-        items: merged,
-        total: Math.max(page.total, merged.length),
-        limit: messagePageSize,
-        offset: 0,
-      };
-    },
-    refetchInterval: 2500,
-  });
-  const runs = useQuery({
-    queryKey: ["agent-session-runs", session?.id],
-    enabled: !!session,
-    queryFn: () =>
-      api<Page<Run>>(`agent-sessions/${session!.id}/runs?limit=30`),
-    refetchInterval: 2500,
-  });
+  const runs = useSessionRuns(session?.id);
   const activeRuns =
     runs.data?.items.filter((run) => activeStates.has(run.state)) ?? [];
   const activeRun = activeRuns[0];
+  const messages = useSessionMessages(session?.id, !!activeRun);
 
   const addressedProfileId = activeRun?.profile ?? profileId;
   const selectedProfile =
@@ -118,8 +92,8 @@ export function WorkConversation({
     profiles.data?.[0];
 
   const send = useMutation({
-    mutationFn: async () => {
-      const content = draft;
+    mutationFn: async (request?: { content: string; freshAnswer: boolean }) => {
+      const content = request?.content ?? draft;
       const profile = selectedProfile?.id ?? profileId;
       let target = session;
       if (!target) {
@@ -145,7 +119,11 @@ export function WorkConversation({
       }
       const wasActive = !!activeRun;
       const messageTarget = `agent-sessions/${target.id}/messages`;
-      const messageBody = { content, profile };
+      const messageBody = {
+        content,
+        profile,
+        ...(request?.freshAnswer ? { fresh_answer: true } : {}),
+      };
       const messageRequest = sendIntent.forRequest(
         "POST",
         messageTarget,
@@ -166,6 +144,7 @@ export function WorkConversation({
       };
     },
     onSuccess: ({
+      message,
       target,
       wasActive,
       submittedContent,
@@ -173,6 +152,7 @@ export function WorkConversation({
       messageBody,
     }) => {
       sendIntent.confirmRequest("POST", messageTarget, messageBody);
+      appendSavedMessage(queryClient, message);
       setDraft((current) => (current === submittedContent ? "" : current));
       setSendError(undefined);
       setSavedNotice(
@@ -181,7 +161,9 @@ export function WorkConversation({
           : "Message saved. Work is now queued.",
       );
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: messageKey }),
+        queryClient.invalidateQueries({
+          queryKey: sessionMessageKey(target.id),
+        }),
         queryClient.invalidateQueries({
           queryKey: ["agent-session-runs", target.id],
         }),
@@ -295,7 +277,8 @@ export function WorkConversation({
                   error={messages.error}
                   retry={() => messages.refetch()}
                 />
-              ) : messages.isPending && session ? (
+              ) : null}
+              {messages.isPending && session ? (
                 <LoadingRows />
               ) : !messages.data?.items.length ? (
                 <div className="flex min-h-36 flex-col items-center justify-center text-center">
@@ -339,6 +322,24 @@ export function WorkConversation({
                           message.content
                         )}
                       </MessageContent>
+                      <AnswerReuseNotice
+                        message={message}
+                        disabled={
+                          send.isPending || !!activeRun || !!disabledReason
+                        }
+                        onFresh={() => {
+                          const original = messages.data?.items.findLast(
+                            (item) =>
+                              item.author === "user" &&
+                              item.sequence < message.sequence,
+                          );
+                          if (original)
+                            send.mutate({
+                              content: original.content,
+                              freshAnswer: true,
+                            });
+                        }}
+                      />
                     </Message>
                   );
                 })
@@ -360,6 +361,7 @@ export function WorkConversation({
                       <RunActivity
                         key={run.id}
                         run={run}
+                        deferDetails={!activeStates.has(run.state)}
                         showOutput={!assistantRunIds.has(run.id)}
                         cancelling={
                           cancel.isPending && cancel.variables?.id === run.id

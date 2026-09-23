@@ -102,6 +102,7 @@ export async function api<T>(
     body?: unknown;
     key?: string;
     signal?: AbortSignal;
+    retry?: boolean;
   } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
@@ -148,6 +149,7 @@ export async function api<T>(
       return data as T;
     } catch (error) {
       if (
+        options.retry === false ||
         options.signal?.aborted ||
         attempt > 0 ||
         (error instanceof ApiError && error.status < 500)

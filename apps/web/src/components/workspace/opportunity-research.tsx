@@ -154,10 +154,12 @@ export function OpportunityResearch({
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">{source.title}</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Version {source.version} · {source.provider} · retrieved {dateLabel(source.retrieved_at)}
+                      Version {source.version} · {source.provider} · retrieved{" "}
+                      {dateLabel(source.retrieved_at)}
                     </p>
                     <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">
-                      {source.excerpt || "No excerpt was stored for this source."}
+                      {source.excerpt ||
+                        "No excerpt was stored for this source."}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
@@ -172,16 +174,22 @@ export function OpportunityResearch({
                       >
                         View saved version {source.version}
                       </Button>
-                      <Button asChild size="sm" variant="ghost">
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Public page
-                          <ExternalLink />
-                        </a>
-                      </Button>
+                      {/^https?:\/\//i.test(source.url) ? (
+                        <Button asChild size="sm" variant="ghost">
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Public page
+                            <ExternalLink />
+                          </a>
+                        </Button>
+                      ) : (
+                        <span className="self-center text-xs text-muted-foreground">
+                          Pasted or saved source
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

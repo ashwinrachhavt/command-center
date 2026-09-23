@@ -73,7 +73,7 @@ for (const scope of ["agents", "tasks"] as const) {
     release();
     await expect(composer).toHaveValue("");
     expect(JSON.parse(submissions[0])).toMatchObject({
-      [scope === "agents" ? "prompt" : "content"]: "First line\nSecond line",
+      content: "First line\nSecond line",
     });
     if (scope === "tasks") {
       await expect(page.getByText("1 active run")).toBeVisible();

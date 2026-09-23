@@ -31,7 +31,9 @@ export function RunQuestions({
     queryKey: ["agent-run-questions", runId],
     queryFn: ({ signal }) =>
       api<AgentRunQuestion[]>(`agent-runs/${runId}/questions`, { signal }),
-    refetchInterval: 2500,
+    refetchInterval: canAnswer ? 30_000 : false,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
   const answer = useMutation({
     mutationFn: async ({
@@ -72,6 +74,7 @@ export function RunQuestions({
           queryKey: ["agent-run-questions", runId],
         }),
         queryClient.invalidateQueries({ queryKey: ["agent-session-runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["agent-run", runId] }),
       ]);
     },
     onError: (error, { question }) => {
