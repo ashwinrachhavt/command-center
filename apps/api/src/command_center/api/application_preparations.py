@@ -11,7 +11,13 @@ from sqlalchemy import select
 from command_center.api import schemas as s
 from command_center.api.agents import available_profile
 from command_center.api.browser import Device
-from command_center.api.browser_contracts import FieldId, FieldValue, HistoryTargets, ResumeFile
+from command_center.api.browser_contracts import (
+    FieldId,
+    FieldValue,
+    HistoryTargets,
+    JobIdentity,
+    ResumeFile,
+)
 from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.capabilities import fence_agent_write
 from command_center.core.identity import CurrentIdentity, Identity
@@ -41,6 +47,7 @@ class PreparationCreate(s.Contract):
     continue_preparation_id: UUID | None = None
     continue_on_new_page: bool = False
     job_context: JobContextCreate | None = None
+    job_identity: JobIdentity | None = None
 
 
 class PreparationRevision(s.Contract):
@@ -102,6 +109,7 @@ class ApplicationPreparationRead(s.Contract):
     replace_fields: list[str]
     upload_fields: list[str]
     history_targets: HistoryTargets = Field(default_factory=HistoryTargets)
+    job_identity: JobIdentity | None = None
     fields: list[PreparedFieldRead]
     created_at: datetime
 
@@ -126,6 +134,7 @@ def preparation_request_payload(body: s.Contract) -> dict[str, Any]:
         "cover_letter_upload_fields",
         "attach_cover_letter",
         "continue_on_new_page",
+        "job_identity",
     ):
         if not payload.get(name):
             payload.pop(name, None)
@@ -194,6 +203,7 @@ def preparation_read(
             "replace_fields": payload["replace_fields"],
             "upload_fields": payload["upload_fields"],
             "history_targets": payload.get("history_targets", {}),
+            "job_identity": payload.get("job_identity"),
             "fields": [
                 {key: field[key] for key in PreparedFieldRead.model_fields}
                 for field in payload["fields"]
@@ -266,6 +276,7 @@ def create_preparation(
             continue_preparation_id=body.continue_preparation_id,
             continue_on_new_page=body.continue_on_new_page,
             job_context=body.job_context.model_dump() if body.job_context else None,
+            job_identity=body.job_identity.as_value() if body.job_identity else None,
         )
         db.flush()
         return preparation_read(preparation).model_dump(mode="json")

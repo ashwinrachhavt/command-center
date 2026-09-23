@@ -115,11 +115,22 @@ class ApplicationTrack(Base):
                 func.greatest(
                     cls.updated_at, Task.updated_at, ApplicationPreparation.updated_at
                 ).label("last_activity_at"),
+                ArtifactVersion.payload["job_identity"].label("job_identity"),
             )
             .select_from(cls)
             .join(Task, Task.id == cls.task_id)
             .join(ApplicationPreparation, ApplicationPreparation.id == latest)
             .join(BrowserSnapshot, BrowserSnapshot.id == ApplicationPreparation.snapshot_id)
+            .outerjoin(
+                Artifact,
+                (Artifact.id == ApplicationPreparation.artifact_id)
+                & (Artifact.owner_id == owner_id),
+            )
+            .outerjoin(
+                ArtifactVersion,
+                (ArtifactVersion.id == ApplicationPreparation.current_version_id)
+                & (ArtifactVersion.artifact_id == Artifact.id),
+            )
             .where(cls.owner_id == owner_id)
         )
 

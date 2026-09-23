@@ -1,6 +1,6 @@
 # Command Center — Design Spec
 
-**Companion specs:** [Product](../product/product-spec.md) · [Tech](../tech/tech-spec.md). **Revision:** 2026-09-22-r24. **State:** full-page section navigation, contextual record inspection and appearance controls implemented locally; broader hardening remains tracked in Engineering. New agent interaction contracts below are documentation, not implemented UI. [Product Spec](../product/product-spec.md) owns product requirements.
+**Companion specs:** [Product](../product/product-spec.md) · [Tech](../tech/tech-spec.md). **Revision:** 2026-09-22-r25. **State:** full-page section navigation, contextual record inspection and appearance controls implemented locally; broader hardening remains tracked in Engineering. New agent interaction contracts below are documentation, not implemented UI. [Product Spec](../product/product-spec.md) owns product requirements.
 
 This is the canonical design specification for navigation, page composition, interactions, visual language and accessibility. Product Spec owns user outcomes and scope; Tech Spec owns data, runtime and API contracts; Engineering owns delivery evidence. Do not create competing design requirements in a root DESIGN.md. Requirements below describe the intended experience. [Engineering](../tech/engineering.md#accepted-workspace-hardening) distinguishes accepted fixes from implemented behavior; dated checks live there.
 
@@ -202,6 +202,8 @@ Confirmed direction: one lead with visible specialists using Deep Agents on Lang
 - **Waiting and recovery:** questions and approval requests remain visible after refresh/restart. Cancelling stops future work and reports any operation whose external result is still unknown. Memory suggestions and artifact review must not look like permission to send or update an external record.
 
 The [technical draft](../tech/tech-spec.md#first-agent-release-architecture-draft) owns state and boundary proposals. The historical design review below does not approve this new agent experience.
+
+In isolated companion `0.4.5`, recognized equal posting IDs continue the saved application across pages; a recognized different posting starts another application with visible feedback. Unknown identity keeps the existing explicit choice. Reader status identifies Direct browser or AgentBrowser accurately. Applications exposes the canonical posting link and labels a `same_job` history entry as matching the same posting across pages. Page titles alone do not imply identity, filling still does not imply submission, and the current smoke-test build is unchanged.
 
 ### Dashboard and work inspector proposal
 

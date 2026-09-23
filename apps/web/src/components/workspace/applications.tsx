@@ -473,6 +473,24 @@ function ApplicationDetail({ id, back }: { id: string; back: () => void }) {
               )}
             </div>
           </div>
+          {item.job_identity && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>
+                {label(item.job_identity.platform)} · Posting{" "}
+                {item.job_identity.posting_id}
+              </span>
+              <Button variant="link" size="sm" asChild>
+                <a
+                  href={item.job_identity.canonical_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open job posting{" "}
+                  <ArrowUpRight data-icon="inline-end" aria-hidden />
+                </a>
+              </Button>
+            </div>
+          )}
           <ApplicationJobContext application={item} />
           <ApplicationMaterials
             taskId={item.task.id}
@@ -624,9 +642,11 @@ function SavedPackage({ taskId, item }: { taskId: string; item: Package }) {
         {item.page_title || "Application page"}
         {item.continuation_mode === "confirmed_page"
           ? " · You confirmed this page belongs to this application."
-          : item.continuation_mode === "same_page"
-            ? " · Updated capture of this page."
-            : ""}
+          : item.continuation_mode === "same_job"
+            ? " · Matched the same job posting across pages."
+            : item.continuation_mode === "same_page"
+              ? " · Updated capture of this page."
+              : ""}
       </p>
       {item.resume ? (
         <button

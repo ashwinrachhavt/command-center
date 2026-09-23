@@ -146,6 +146,7 @@ async function fixture(
         structure: {
           engine: "agent-browser",
           page_url: "https://jobs.example.test/apply",
+          full_url: tab.url,
           title: "Synthetic role",
           controls:
             options.emptyInitial === "career" && snapshots.length === 1

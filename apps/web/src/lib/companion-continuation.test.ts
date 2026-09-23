@@ -119,6 +119,7 @@ async function fixture(options: { url?: string; losePrepare?: boolean } = {}) {
   const structure = {
     engine: "agent-browser",
     page_url: currentSnapshot.page_url,
+    full_url: tab.url,
     title: currentSnapshot.title,
     controls: [{ id: "f0" }],
     job_context: null,

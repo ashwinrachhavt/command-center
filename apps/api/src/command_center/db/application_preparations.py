@@ -22,6 +22,13 @@ from command_center.db.career import CareerEntry, date_interval, decode_career
 from command_center.db.conversations import AgentSession
 from command_center.db.crm import CandidateProfile, Opportunity, record_event
 from command_center.db.errors import RecordConflict, RecordNotFound
+from command_center.db.job_identity import (
+    JobIdentityValue,
+    identity_key,
+    observed_identity,
+    posting_identity,
+    stored_identity,
+)
 from command_center.db.models import Actor, Task
 from command_center.db.profile_facts import ProfileFact, ProfileFactRevision
 
@@ -436,6 +443,7 @@ class ApplicationPreparation(Base):
         continue_on_new_page: bool = False,
         job_context: dict[str, Any] | None = None,
         cover_letter_version_id: UUID | None = None,
+        job_identity: JobIdentityValue | None = None,
     ) -> "ApplicationPreparation":
         from command_center.db.applications import ApplicationTrack
         from command_center.db.browser import application_file, resume_file
@@ -454,10 +462,26 @@ class ApplicationPreparation(Base):
             or previous_snapshot.device_id != snapshot.device_id
         ):
             raise RecordNotFound("Application preparation not found")
+        observed_job = observed_identity(snapshot.page_url, job_identity)
+        previous_job = None
+        if previous and previous_snapshot:
+            previous_job = stored_identity(
+                (previous.current_version().payload or {}).get("job_identity")
+            )
+            previous_job = previous_job or posting_identity(previous_snapshot.page_url)
+        same_job = bool(
+            observed_job
+            and previous_job
+            and identity_key(observed_job) == identity_key(previous_job)
+        )
+        if observed_job and previous_job and not same_job:
+            raise RecordConflict("This page identifies a different job. Start a new application")
+        saved_job = previous_job or observed_job
         if (
             previous_snapshot
             and previous_snapshot.page_url != snapshot.page_url
             and not continue_on_new_page
+            and not same_job
         ):
             raise RecordConflict("Confirm that this new page belongs to the same application")
         if previous:
@@ -535,12 +559,21 @@ class ApplicationPreparation(Base):
             "replace_fields": [],
             "upload_fields": [],
             "history_targets": history_targets(facts),
+            **({"job_identity": saved_job} if saved_job else {}),
             "fields": initial_answers(snapshot.fields, facts, opportunity_id),
         }
         continuation = (
             {
                 "continued_from_preparation_id": str(previous.id),
-                "continuation_mode": "confirmed_page" if continue_on_new_page else "same_page",
+                "continuation_mode": (
+                    "confirmed_page"
+                    if continue_on_new_page
+                    else "same_job"
+                    if same_job
+                    and previous_snapshot
+                    and previous_snapshot.page_url != snapshot.page_url
+                    else "same_page"
+                ),
             }
             if previous
             else {}

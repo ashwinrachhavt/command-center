@@ -17,6 +17,14 @@ let coverLetterChoice;
 let autofillBusy = false;
 let actionBusy = false;
 element("page-reader").value = stored.pageReader ?? "agent-browser";
+renderReaderChoice();
+
+function renderReaderChoice() {
+  element("reader-status").textContent =
+    element("page-reader").value === "agent-browser"
+      ? "AgentBrowser uses the local companion browser."
+      : "Direct browser reads this tab through the extension.";
+}
 
 function syncAutofillControls() {
   const pending = draft?.autofill && draft.autofill.stage !== "done";
@@ -82,10 +90,7 @@ function syncAutofillControls() {
 element("page-reader").addEventListener("change", async () => {
   const pageReader = element("page-reader").value;
   await chrome.storage.local.set({ pageReader });
-  element("reader-status").textContent =
-    pageReader === "agent-browser"
-      ? "AgentBrowser uses the local companion browser."
-      : "Direct browser reads this tab through the extension.";
+  renderReaderChoice();
 });
 
 function validate(name, value) {
@@ -694,6 +699,8 @@ async function renderDraft() {
     message(draft.lastAttempt.result.message);
   }
   syncAutofillControls();
+  if (draft.autofill?.newJob)
+    autofillStatus("Saved separately from the previous application.");
   if (draft.preparation) void pollGeneration();
 }
 
@@ -947,6 +954,51 @@ element("disconnect").addEventListener("click", async () => {
   );
 });
 
+function readerStructure(structure, tab, reader, allowEmpty) {
+  const url = new URL(tab.url);
+  if (
+    structure?.engine !== "agent-browser" ||
+    structure.page_url !== url.origin + url.pathname ||
+    structure.full_url !== tab.url ||
+    typeof structure.title !== "string" ||
+    structure.title.length > 300 ||
+    !Array.isArray(structure.controls) ||
+    structure.controls.length > 100 ||
+    (!structure.controls.length && !allowEmpty) ||
+    structure.controls.some(
+      (control) =>
+        !control ||
+        typeof control !== "object" ||
+        Array.isArray(control) ||
+        (control.label !== undefined &&
+          (typeof control.label !== "string" || control.label.length > 500)) ||
+        (control.type !== undefined &&
+          (typeof control.type !== "string" || control.type.length > 50)),
+    )
+  )
+    throw new Error(`${reader} found no usable form structure on this page.`);
+  element("reader-status").textContent =
+    `Read by ${reader} · ${structure.controls.length} controls`;
+  return reader === "Direct browser"
+    ? { ...structure, engine: "direct-browser" }
+    : structure;
+}
+
+async function directBrowserStructure(tab, allowEmpty = false) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ["page-structure.js"],
+  });
+  return readerStructure(
+    Array.isArray(results) && results.length === 1 && results[0]?.frameId === 0
+      ? results[0].result
+      : null,
+    tab,
+    "Direct browser",
+    allowEmpty,
+  );
+}
+
 async function agentBrowserStructure(tab, allowEmpty = false) {
   const nonce = crypto.randomUUID();
   await chrome.scripting.executeScript({
@@ -971,22 +1023,7 @@ async function agentBrowserStructure(tab, allowEmpty = false) {
       throw new Error(
         reply?.error ?? "AgentBrowser could not inspect this page.",
       );
-    const structure = reply.structure;
-    const url = new URL(tab.url);
-    if (
-      structure?.engine !== "agent-browser" ||
-      structure.page_url !== url.origin + url.pathname ||
-      typeof structure.title !== "string" ||
-      !Array.isArray(structure.controls) ||
-      structure.controls.length > 100 ||
-      (!structure.controls.length && !allowEmpty)
-    )
-      throw new Error(
-        "AgentBrowser found no usable form structure on this page.",
-      );
-    element("reader-status").textContent =
-      `Read by AgentBrowser · ${structure.controls.length} controls`;
-    return structure;
+    return readerStructure(reply.structure, tab, "AgentBrowser", allowEmpty);
   } catch (error) {
     if (
       /native messaging|native host|specified native|receiving end/i.test(
@@ -1044,10 +1081,11 @@ async function inspectForm(useReader = false) {
         : "No supported application controls were found. Open the application step, then share again.",
     );
   }
-  const structure =
-    useReader && element("page-reader").value === "agent-browser"
+  const structure = useReader
+    ? element("page-reader").value === "agent-browser"
       ? await agentBrowserStructure(tab, Boolean(historyExpandable))
-      : null;
+      : await directBrowserStructure(tab, Boolean(historyExpandable))
+    : null;
   if (structure) snapshot.title = structure.title.slice(0, 300);
   return { tab, snapshot, structure };
 }
@@ -1078,7 +1116,80 @@ element("share").addEventListener("click", (event) =>
 );
 
 function autofillStatus(text) {
-  element("autofill-status").textContent = text;
+  element("autofill-status").textContent =
+    text && draft?.autofill?.newJob
+      ? `Different job detected. Starting a new application. ${text}`
+      : text;
+}
+
+function jobIdentity(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !["greenhouse", "lever", "ashby", "workday", "icims"].includes(
+      value.platform,
+    ) ||
+    ["organization", "posting_id"].some(
+      (key) =>
+        typeof value[key] !== "string" ||
+        !value[key].trim() ||
+        value[key].length > 200 ||
+        value[key] !== value[key].trim(),
+    ) ||
+    typeof value.canonical_url !== "string" ||
+    value.canonical_url.length > 2000 ||
+    value.canonical_url !== value.canonical_url.trim()
+  )
+    return null;
+  try {
+    const url = new URL(value.canonical_url);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.port && url.port !== "443")
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  return {
+    platform: value.platform,
+    organization: value.organization,
+    posting_id: value.posting_id,
+    canonical_url: value.canonical_url,
+  };
+}
+
+function previousJobIdentity(previous) {
+  const saved = jobIdentity(previous?.preparation?.job_identity);
+  if (saved) return saved;
+  if (!previous?.pageUrl || previous.structurePageUrl !== previous.pageUrl)
+    return null;
+  try {
+    const url = new URL(previous.pageUrl);
+    if (
+      previous.structure?.page_url !== url.origin + url.pathname ||
+      previous.snapshot?.page_url !== previous.structure.page_url
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  return jobIdentity(previous.structure?.job_identity);
+}
+
+function sameJob(left, right) {
+  return Boolean(
+    left &&
+    right &&
+    ["platform", "organization", "posting_id"].every(
+      (key) => left[key] === right[key],
+    ),
+  );
 }
 
 async function autofillTab(operation) {
@@ -1099,6 +1210,8 @@ async function runAutofill() {
       autofillStatus("Reading this application…");
       const { tab, snapshot, structure } = await inspectForm(true);
       clearTimeout(generationTimer);
+      const observedIdentity = jobIdentity(structure?.job_identity);
+      const previousIdentity = previousJobIdentity(draft);
       const previousPageUrl = draft?.pageUrl ?? draft?.autofill?.pageUrl;
       const previousApplication = draft?.preparation
         ? {
@@ -1107,11 +1220,23 @@ async function runAutofill() {
             pageUrl: previousPageUrl ?? draft.snapshot.page_url,
           }
         : null;
-      const choosing = previousApplication && previousPageUrl !== tab.url;
+      const recognizedSameJob = sameJob(previousIdentity, observedIdentity);
+      const newJob = Boolean(
+        previousApplication &&
+        previousIdentity &&
+        observedIdentity &&
+        !recognizedSameJob,
+      );
+      const choosing =
+        previousApplication &&
+        previousPageUrl !== tab.url &&
+        !recognizedSameJob &&
+        !newJob;
       draft = {
         snapshot,
         pageUrl: tab.url,
         structure,
+        structurePageUrl: tab.url,
         values: {},
         touched: {},
         replacementTouched: {},
@@ -1124,8 +1249,11 @@ async function runAutofill() {
         coverLetterVersionId: coverLetterChoice ?? null,
         autofill: {
           stage: choosing ? "choose_application" : "capture",
-          previousId: choosing ? null : (previousApplication?.id ?? null),
+          previousId:
+            choosing || newJob ? null : (previousApplication?.id ?? null),
           previousApplication,
+          ...(newJob ? { newJob: true } : {}),
+          ...(observedIdentity ? { jobIdentity: observedIdentity } : {}),
           tabId: tab.id,
           pageUrl: tab.url,
           resumeVersionId: resumeChoice ?? null,
@@ -1180,6 +1308,9 @@ async function runAutofill() {
               ? { continue_on_new_page: true }
               : {}),
             job_context: draft.structure?.job_context ?? null,
+            ...(operation.jobIdentity
+              ? { job_identity: operation.jobIdentity }
+              : {}),
           },
         }),
       );
@@ -1238,6 +1369,8 @@ async function runAutofill() {
       operation.historyPreviousId = draft.preparation.id;
       draft.snapshot = snapshot;
       draft.structure = structure;
+      draft.structurePageUrl = tab.url;
+      operation.historyJobIdentity = jobIdentity(structure?.job_identity);
       operation.stage = "history_capture";
       await saveDraft();
     }
@@ -1262,6 +1395,9 @@ async function runAutofill() {
             resume_version_id: operation.resumeVersionId,
             cover_letter_version_id: operation.coverLetterVersionId ?? null,
             continue_preparation_id: operation.historyPreviousId,
+            ...(operation.historyJobIdentity
+              ? { job_identity: operation.historyJobIdentity }
+              : {}),
           },
         }),
       );

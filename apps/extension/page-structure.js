@@ -2,6 +2,172 @@
 (() => {
   const bounded = (value, size = 500) =>
     (typeof value === "string" ? value : "").trim().slice(0, size);
+  const jobIdentity = () => {
+    try {
+      const raw = location.href;
+      // URL parsing can silently strip whitespace or interpret backslashes as
+      // delimiters. Reject them before interpreting this captured URL.
+      if (
+        typeof raw !== "string" ||
+        raw.length > 4096 ||
+        /[\s\u0000-\u001f\u007f-\u009f\\]/.test(raw) ||
+        !/^https:\/\/[^/?#]+(?:[/?#]|$)/i.test(raw)
+      )
+        return null;
+      const url = new URL(raw);
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.port ||
+        raw.match(/^https:\/\/([^/?#]+)/i)?.[1].includes("@")
+      )
+        return null;
+      const safe = (value) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(value);
+      // Check the original path as well: URL would normalize dot segments away.
+      const rawPath = raw.match(/^https:\/\/[^/?#]+([^?#]*)/i)?.[1] || "/";
+      const rawSegments = rawPath.split("/").slice(1);
+      if (rawSegments.at(-1) === "") rawSegments.pop();
+      if (!rawSegments.length || rawSegments.length > 16) return null;
+      const segments = rawSegments.map((segment) =>
+        decodeURIComponent(segment),
+      );
+      if (segments.some((segment) => !safe(segment))) return null;
+      const host = url.hostname;
+      const numeric = (value) => /^[0-9]{1,200}$/.test(value);
+      const uuid = (value) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          value,
+        );
+      const result = (
+        platform,
+        organization,
+        postingId,
+        path,
+        hostname = host,
+      ) => {
+        const canonicalUrl = `https://${hostname}/${path.join("/")}`;
+        return organization.length <= 200 &&
+          postingId.length <= 200 &&
+          canonicalUrl.length <= 2000
+          ? {
+              platform,
+              organization,
+              posting_id: postingId,
+              canonical_url: canonicalUrl,
+            }
+          : null;
+      };
+
+      if (["boards.greenhouse.io", "job-boards.greenhouse.io"].includes(host)) {
+        if (
+          segments.length === 3 &&
+          segments[1] === "jobs" &&
+          numeric(segments[2])
+        )
+          return result(
+            "greenhouse",
+            segments[0],
+            segments[2],
+            segments,
+            "job-boards.greenhouse.io",
+          );
+        if (
+          segments.length === 2 &&
+          segments[0] === "embed" &&
+          segments[1] === "job_app"
+        ) {
+          const organizations = url.searchParams.getAll("for");
+          const postings = url.searchParams.getAll("token");
+          // URLSearchParams already decoded these values exactly once.
+          if (
+            organizations.length !== 1 ||
+            postings.length !== 1 ||
+            !safe(organizations[0]) ||
+            !numeric(postings[0])
+          )
+            return null;
+          return result(
+            "greenhouse",
+            organizations[0],
+            postings[0],
+            [organizations[0], "jobs", postings[0]],
+            "job-boards.greenhouse.io",
+          );
+        }
+        return null;
+      }
+
+      if (["jobs.lever.co", "jobs.eu.lever.co"].includes(host)) {
+        if (
+          !uuid(segments[1]) ||
+          !(
+            segments.length === 2 ||
+            (segments.length === 3 && segments[2] === "apply")
+          )
+        )
+          return null;
+        const postingId = segments[1].toLowerCase();
+        return result("lever", segments[0], postingId, [
+          segments[0],
+          postingId,
+        ]);
+      }
+
+      if (host === "jobs.ashbyhq.com") {
+        if (
+          !uuid(segments[1]) ||
+          !(
+            segments.length === 2 ||
+            (segments.length === 3 && segments[2] === "application")
+          )
+        )
+          return null;
+        const postingId = segments[1].toLowerCase();
+        return result("ashby", segments[0], postingId, [
+          segments[0],
+          postingId,
+        ]);
+      }
+
+      const workday = host.match(
+        /^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.(wd[0-9]+)\.myworkdayjobs\.com$/,
+      );
+      if (workday && workday[2].length <= 63) {
+        const offset = /^[a-z]{2}-[A-Z]{2}$/.test(segments[0]) ? 1 : 0;
+        const path = segments.slice(offset);
+        if (
+          path.length < 4 ||
+          path[1] !== "job" ||
+          (path.length > 4 && path[4] !== "apply")
+        )
+          return null;
+        const split = path[3].lastIndexOf("_");
+        const postingId = path[3].slice(split + 1);
+        if (split < 1 || !/^[A-Za-z0-9-]{1,200}$/.test(postingId)) return null;
+        return result(
+          "workday",
+          `${host}@${path[0]}`,
+          postingId,
+          segments.slice(0, offset + 4),
+        );
+      }
+
+      if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.icims\.com$/.test(host)) {
+        if (
+          segments.length < 2 ||
+          segments[0] !== "jobs" ||
+          !numeric(segments[1])
+        )
+          return null;
+        return result("icims", host, segments[1], segments.slice(0, 2));
+      }
+      return null;
+    } catch {
+      // Malformed escaping, unsupported origins and ambiguous paths stay manual.
+      return null;
+    }
+  };
   const controls = [];
   const sourceText = (node) => {
     if (
@@ -180,6 +346,8 @@
   visit(document);
   return {
     engine: "agent-browser",
+    // Local capture binding only; snapshot payloads use the stripped page_url.
+    full_url: location.href,
     page_url: location.origin + location.pathname,
     title: bounded(document.title, 300),
     headings: Array.from(document.querySelectorAll("h1,h2"))
@@ -188,5 +356,6 @@
     controls,
     skipped_frames: skippedFrames,
     job_context: jobContext(),
+    job_identity: jobIdentity(),
   };
 })();

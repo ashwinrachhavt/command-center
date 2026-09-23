@@ -3023,7 +3023,8 @@ export interface components {
             /** Continued From Preparation Id */
             continued_from_preparation_id?: string | null;
             /** Continuation Mode */
-            continuation_mode?: ("same_page" | "confirmed_page") | null;
+            continuation_mode?: ("same_page" | "confirmed_page" | "same_job") | null;
+            job_identity?: components["schemas"]["JobIdentity"] | null;
             resume: components["schemas"]["ResumeFile"] | null;
             /** Resume Artifact Id */
             resume_artifact_id: string | null;
@@ -3072,6 +3073,7 @@ export interface components {
             /** Upload Fields */
             upload_fields: string[];
             history_targets?: components["schemas"]["HistoryTargets"];
+            job_identity?: components["schemas"]["JobIdentity"] | null;
             /** Fields */
             fields: components["schemas"]["PreparedFieldRead"][];
             /**
@@ -3117,6 +3119,7 @@ export interface components {
             last_activity_at: string;
             /** Job Context Artifact Id */
             job_context_artifact_id: string | null;
+            job_identity?: components["schemas"]["JobIdentity"] | null;
         };
         /** ApplicationRevision */
         ApplicationRevision: {
@@ -4558,6 +4561,20 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** JobIdentity */
+        JobIdentity: {
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "greenhouse" | "lever" | "ashby" | "workday" | "icims";
+            /** Organization */
+            organization: string;
+            /** Posting Id */
+            posting_id: string;
+            /** Canonical Url */
+            canonical_url: string;
+        };
         /** JobRead */
         JobRead: {
             /**
@@ -5769,6 +5786,7 @@ export interface components {
              */
             continue_on_new_page: boolean;
             job_context?: components["schemas"]["JobContextCreate"] | null;
+            job_identity?: components["schemas"]["JobIdentity"] | null;
         };
         /** PreparationGenerationRead */
         PreparationGenerationRead: {

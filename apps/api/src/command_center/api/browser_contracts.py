@@ -11,6 +11,7 @@ from pydantic import Field, HttpUrl, model_validator
 
 from command_center.api import schemas as s
 from command_center.db.browser import HTML_NUMBER_PATTERN, parse_browser_decimal, temporal_numbers
+from command_center.db.job_identity import JobIdentityValue, JobPlatform, posting_identity
 
 FieldId = Annotated[str, Field(pattern=r"^f[0-9]{1,3}$")]
 FieldValue = Annotated[str, Field(max_length=5000)]
@@ -65,6 +66,27 @@ class TemporalConstraints(s.Contract):
 class HistoryTargets(s.Contract):
     experience: int = Field(default=0, ge=0, le=10)
     education: int = Field(default=0, ge=0, le=10)
+
+
+class JobIdentity(s.Contract):
+    platform: JobPlatform
+    organization: str = Field(min_length=1, max_length=200)
+    posting_id: str = Field(min_length=1, max_length=200)
+    canonical_url: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_posting(self) -> "JobIdentity":
+        if posting_identity(self.canonical_url) != self.model_dump():
+            raise ValueError("Choose a recognized canonical job posting")
+        return self
+
+    def as_value(self) -> JobIdentityValue:
+        return {
+            "platform": self.platform,
+            "organization": self.organization,
+            "posting_id": self.posting_id,
+            "canonical_url": self.canonical_url,
+        }
 
 
 class CareerField(s.Contract):

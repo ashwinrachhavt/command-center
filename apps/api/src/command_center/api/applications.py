@@ -14,7 +14,7 @@ from command_center.api.application_preparations import (
     human_only,
     preparation_read,
 )
-from command_center.api.browser_contracts import FieldResult, ResumeFile
+from command_center.api.browser_contracts import FieldResult, JobIdentity, ResumeFile
 from command_center.api.workspace import (
     Database,
     Limit,
@@ -77,6 +77,7 @@ class ApplicationRead(s.Contract):
     preparation_count: int
     last_activity_at: datetime
     job_context_artifact_id: UUID | None
+    job_identity: JobIdentity | None = None
 
 
 class ApplicationContextCreate(s.Revision):
@@ -123,7 +124,8 @@ class ApplicationPackageRead(s.Contract):
     page_title: str
     page_url: str
     continued_from_preparation_id: UUID | None = None
-    continuation_mode: Literal["same_page", "confirmed_page"] | None = None
+    continuation_mode: Literal["same_page", "confirmed_page", "same_job"] | None = None
+    job_identity: JobIdentity | None = None
     resume: ResumeFile | None
     resume_artifact_id: UUID | None
     cover_letter: ResumeFile | None = None
@@ -132,7 +134,18 @@ class ApplicationPackageRead(s.Contract):
 
 
 def application_read(row: Row[Any]) -> ApplicationRead:
-    track, task, preparation_id, snapshot_id, page_url, title, origin, count, activity = row
+    (
+        track,
+        task,
+        preparation_id,
+        snapshot_id,
+        page_url,
+        title,
+        origin,
+        count,
+        activity,
+        job_identity,
+    ) = row
     return ApplicationRead(
         task=s.TaskRead.model_validate(task),
         status=track.status,
@@ -146,6 +159,7 @@ def application_read(row: Row[Any]) -> ApplicationRead:
         preparation_count=count,
         last_activity_at=activity,
         job_context_artifact_id=track.job_context_artifact_id,
+        job_identity=job_identity,
     )
 
 
@@ -345,6 +359,7 @@ def packages(
                     "continued_from_preparation_id"
                 ),
                 ArtifactVersion.payload["continuation_mode"].label("continuation_mode"),
+                ArtifactVersion.payload["job_identity"].label("job_identity"),
                 ArtifactVersion.payload["resume"].label("resume"),
                 ArtifactVersion.payload["cover_letter"].label("cover_letter"),
             )
