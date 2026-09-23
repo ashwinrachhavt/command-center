@@ -16,6 +16,7 @@ type FixtureWindow = {
   fixtureRemove: (keys: unknown) => Promise<unknown>;
   fixtureMessage: (message: unknown) => Promise<unknown>;
   fixtureInspect: () => Promise<unknown>;
+  fixtureReadStructure: () => Promise<unknown>;
 };
 
 const read = (name: string) =>
@@ -145,6 +146,7 @@ async function fixture(
       structure: await job.evaluate(read("page-structure.js")),
     };
   });
+  await page.exposeFunction("fixtureReadStructure", () => readStructure(job));
   await page.route("http://localhost:8000/api/v1/browser/**", async (route) => {
     const request = route.request();
     if (request.method() === "OPTIONS") {
@@ -322,7 +324,12 @@ async function fixture(
             query: async () => [{ id: 7, url }],
             sendMessage: (_: unknown, msg: unknown) => w.fixtureMessage(msg),
           },
-          scripting: { executeScript: async () => {} },
+          scripting: {
+            executeScript: async ({ files }: { files?: string[] }) =>
+              files?.includes("page-structure.js")
+                ? [{ frameId: 0, result: await w.fixtureReadStructure() }]
+                : [],
+          },
           runtime: { sendNativeMessage: () => w.fixtureInspect() },
         },
       });
@@ -569,15 +576,17 @@ test("AgentBrowser failure is explicit and never falls back or creates a prepara
     "AgentBrowser is unavailable",
   );
   expect(f.count().preparationCount).toBe(0);
+  expect(f.count().applied).toBe(0);
   await page.getByLabel("Page reader").selectOption("direct");
   await page.getByRole("button", { name: /Autofill this page/ }).click();
   await expect(page.locator("#autofill-status")).toContainText(
     "2 filled or attached",
   );
+  await expect(page.locator("#reader-status")).toContainText("Direct browser");
   expect(f.count().nativeReads).toBe(1);
 });
 
-test("jobs with different query parameters start separate application tasks", async ({
+test("unknown query-distinct jobs wait for an explicit new-application choice", async ({
   page,
 }) => {
   const f = await fixture(page);
@@ -590,6 +599,20 @@ test("jobs with different query parameters start separate application tasks", as
   );
   await f.open();
   await page.getByRole("button", { name: /Autofill this page/ }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Continue this application",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const startNew = page.getByRole("button", {
+    name: "Start a new application",
+    exact: true,
+  });
+  await expect(startNew).toBeEnabled();
+  expect(f.count().preparationCount).toBe(1);
+  expect(f.count().applied).toBe(1);
+  await startNew.click();
   await expect
     .poll(
       () =>
@@ -598,6 +621,7 @@ test("jobs with different query parameters start separate application tasks", as
     .toBe(2);
   const calls = f.calls.filter((call) => call.route.endsWith("/preparations"));
   expect(calls[1].body.continue_preparation_id).toBeNull();
+  expect(calls[1].body.continue_on_new_page).toBeUndefined();
 });
 
 test("cover-letter selection survives a lost preparation reply and uploads distinct exact files", async ({
