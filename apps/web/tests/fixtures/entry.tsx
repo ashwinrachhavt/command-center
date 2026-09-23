@@ -5,6 +5,8 @@ import { isResource } from "../../src/components/workspace/context";
 import { Records } from "../../src/components/workspace/records";
 import { Overview } from "../../src/components/workspace/overview";
 import { Agents } from "../../src/components/workspace/agents";
+import { AgentSettings } from "../../src/components/workspace/agent-settings";
+import { OpportunityNavigation } from "../../src/components/workspace/opportunity-navigation";
 import { BrowserPage } from "../../src/components/workspace/browser";
 import { Applications } from "../../src/components/workspace/applications";
 import { applicationsFixture } from "./applications";
@@ -111,6 +113,13 @@ const artifact = {
   latest_version: 3,
   document_type_id: "document-type-brief",
 };
+const generatedArtifact = {
+  ...artifact,
+  id: "artifact-generated-brief",
+  title: "Platform research memo",
+  latest_version: 1,
+  review_status: "unreviewed",
+};
 const resumeArtifact = {
   ...base,
   id: "artifact-resume",
@@ -146,6 +155,7 @@ const rows: Record<string, Record<string, unknown>[]> = {
   tasks,
   artifacts: [
     artifact,
+    generatedArtifact,
     resumeArtifact,
     resumeExtractionArtifact,
     sourceArtifact,
@@ -184,6 +194,20 @@ const sessions: Record<string, unknown>[] = [
     task_id: "task-question",
     opportunity_id: null,
     last_sequence: 1,
+  },
+];
+const standaloneRuns: Record<string, unknown>[] = [
+  {
+    ...conversationBase,
+    id: "run-1",
+    profile: "research",
+    title: "Northstar research",
+    prompt: "Summarize this synthetic company.",
+    state: "completed",
+    session_id: null,
+    output:
+      "## Company brief\n\n**Northstar** builds developer tools.\n\n- Ask about the platform roadmap.\n- Review team responsibilities.",
+    error_code: null,
   },
 ];
 const sessionMessages: Record<string, Record<string, unknown>[]> = {
@@ -390,6 +414,19 @@ const runArtifacts: Record<string, Record<string, unknown>[]> = {
   ],
 };
 const artifactVersions: Record<string, Record<string, unknown>[]> = {
+  "artifact-generated-brief": [
+    {
+      id: "generated-brief-v1",
+      artifact_id: "artifact-generated-brief",
+      version: 1,
+      payload: {
+        text: "# Platform research\n\nA synthetic research memo to review.\n\n## Next steps\n\nDiscuss ownership and accessibility with the team.",
+      },
+      content_sha256: "synthetic-generated-sha",
+      input_version_ids: [],
+      created_at: base.created_at,
+    },
+  ],
   "artifact-1": [
     {
       id: "artifact-version-3",
@@ -442,6 +479,18 @@ const artifactVersions: Record<string, Record<string, unknown>[]> = {
   ],
 };
 const versionReads: string[] = [];
+const artifactReviews: Record<string, Record<string, unknown>[]> = {};
+if (new URLSearchParams(location.search).get("binary-generated") === "1") {
+  artifactVersions["artifact-generated-brief"][0].payload = null;
+}
+if (new URLSearchParams(location.search).get("structured-generated") === "1") {
+  artifactVersions["artifact-generated-brief"][0].payload = {
+    fields: [{ label: "Preferred start", answer: "After the interview" }],
+    prior_applications: 0,
+    submitted: false,
+    source: "https://example.test/" + "source".repeat(60),
+  };
+}
 if (new URLSearchParams(location.search).get("long-history") === "1") {
   artifactVersions["artifact-1"] = Array.from({ length: 30 }, (_, index) => ({
     id: `long-version-${30 - index}`,
@@ -977,7 +1026,7 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     artifactVersions,
   );
   if (application) return application;
-  const library = await libraryFixture(url, init, rows);
+  const library = await libraryFixture(url, init, rows, documentImports);
   if (library) return library;
   const work = await recordWorkFixture(url, init, {
     rows,
@@ -1359,7 +1408,7 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     return new Response(`Synthetic bytes for ${downloadMatch[2]}`, {
       headers: {
         "Content-Type": pdf ? "application/pdf" : "application/octet-stream",
-        "Content-Disposition": `attachment; filename=synthetic-document.${pdf ? "pdf" : "txt"}`,
+        "Content-Disposition": `attachment; filename="synthetic-document.${pdf ? "pdf" : "txt"}"`,
         "X-Content-Type-Options": "nosniff",
       },
     });
@@ -1588,7 +1637,25 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     artifactVersions[artifactVersionsMatch[1]] = versions;
     return Response.json(created, { status: 201 });
   }
-  if (/^versions\/[^/]+\/reviews$/.test(route)) return Response.json([]);
+  const artifactReviewMatch = route.match(/^versions\/([^/]+)\/reviews$/);
+  if (artifactReviewMatch) {
+    const versionId = artifactReviewMatch[1];
+    if (method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const review = {
+        ...body,
+        id: crypto.randomUUID(),
+        created_at: base.created_at,
+      };
+      (artifactReviews[versionId] ??= []).unshift(review);
+      const artifact = rows.artifacts.find(
+        (item) => artifactVersions[String(item.id)]?.[0]?.id === versionId,
+      );
+      if (artifact) artifact.review_status = body.decision;
+      return Response.json(review, { status: 201 });
+    }
+    return Response.json(artifactReviews[versionId] ?? []);
+  }
   if (route === "research/search" && method === "POST") {
     trackLeadRequest("search");
     const body = JSON.parse(String(init?.body)) as { query: string };
@@ -1951,6 +2018,68 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     }
     return Response.json(runQuestions[runQuestionsMatch[1]] ?? []);
   }
+  if (route === "agent-runs") {
+    if (method === "GET") return Response.json(page(standaloneRuns));
+    const body = JSON.parse(String(init?.body));
+    const previous = standaloneRuns.find(
+      (run) => run.id === body.continue_run_id,
+    );
+    const sessionId = String(previous?.session_id ?? crypto.randomUUID());
+    const messages = (sessionMessages[sessionId] ??= []);
+    if (previous && !previous.session_id) {
+      previous.session_id = sessionId;
+      for (const [author, content] of [
+        ["user", previous.prompt],
+        ["assistant", previous.output],
+      ]) {
+        if (content)
+          messages.push({
+            ...conversationBase,
+            id: crypto.randomUUID(),
+            session_id: sessionId,
+            run_id: previous.id,
+            sequence: messages.length + 1,
+            author,
+            profile: previous.profile,
+            content,
+          });
+      }
+    }
+    const run = {
+      ...conversationBase,
+      id: crypto.randomUUID(),
+      session_id: sessionId,
+      profile: body.profile,
+      title: previous?.title ?? body.prompt,
+      prompt: body.prompt,
+      state: "completed",
+      output: "Synthetic reply saved in this conversation.",
+      error_code: null,
+    };
+    standaloneRuns.unshift(run);
+    for (const [author, content] of [
+      ["user", body.prompt],
+      ["assistant", run.output],
+    ]) {
+      messages.push({
+        ...conversationBase,
+        id: crypto.randomUUID(),
+        session_id: sessionId,
+        run_id: run.id,
+        sequence: messages.length + 1,
+        author,
+        profile: body.profile,
+        content,
+      });
+    }
+    return Response.json(run);
+  }
+  const standaloneRoute = route.match(/^agent-runs\/([^/]+)(?:\/(steps))?$/);
+  const standaloneRun = standaloneRuns.find(
+    (run) => run.id === standaloneRoute?.[1],
+  );
+  if (standaloneRun)
+    return Response.json(standaloneRoute?.[2] ? [] : standaloneRun);
   const runRoute = route.match(
     /^agent-runs\/([^/]+)(?:\/(steps|artifacts|cancel))?$/,
   );
@@ -2045,18 +2174,16 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     };
     const matches = groups[view as keyof typeof groups] || [];
     payload = {
-      items: matches
-        .slice(offset, offset + limit)
-        .map((task) => ({
-          ...task,
-          due_status: !task.due_date
-            ? "unscheduled"
-            : task.due_date < today
-              ? "overdue"
-              : task.due_date === today
-                ? "today"
-                : "upcoming",
-        })),
+      items: matches.slice(offset, offset + limit).map((task) => ({
+        ...task,
+        due_status: !task.due_date
+          ? "unscheduled"
+          : task.due_date < today
+            ? "overdue"
+            : task.due_date === today
+              ? "today"
+              : "upcoming",
+      })),
       total: matches.length,
       limit,
       offset,
@@ -2158,37 +2285,6 @@ const fixtureFetch: typeof fetch = async (input, init) => {
         revision: "mixed-v1",
       },
     ];
-  if (route === "agent-runs" && method === "POST") {
-    const body = JSON.parse(String(init?.body));
-    return Response.json({
-      ...base,
-      id: crypto.randomUUID(),
-      profile: body.profile,
-      title: body.prompt,
-      prompt: body.prompt,
-      state: "queued",
-      output: null,
-      error: null,
-    });
-  }
-  if (route === "agent-runs")
-    payload = {
-      items: [
-        {
-          ...base,
-          id: "run-1",
-          profile: "research",
-          title: "Northstar research",
-          prompt: "Summarize this synthetic company.",
-          state: "completed",
-          output:
-            "## Company brief\n\n**Northstar** builds developer tools.\n\n- Ask about the platform roadmap.\n- Review team responsibilities.",
-          error: null,
-        },
-      ],
-      total: 1,
-    };
-  if (route === "agent-runs/run-1/steps") payload = [];
   if (route === "integrations")
     payload = {
       services: [
@@ -2215,12 +2311,21 @@ function Preview() {
   return (
     <Providers>
       <WorkspaceShell>
+        {["/opportunities", "/applications", "/jobs"].includes(path) && (
+          <OpportunityNavigation />
+        )}
         {path === "/" ? (
+          <Agents />
+        ) : path === "/overview" ? (
           <Overview />
         ) : path === "/notes" ? (
           <Library key="notes" notes />
         ) : path === "/library" ? (
           <Library />
+        ) : path === "/documents" ? (
+          <Library key="vault" vault />
+        ) : path === "/agent-settings" ? (
+          <AgentSettings />
         ) : path === "/agents" ? (
           <Agents />
         ) : path === "/settings" ? (

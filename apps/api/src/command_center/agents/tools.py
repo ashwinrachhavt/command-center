@@ -484,27 +484,19 @@ class ToolRegistry:
                 ),
             )
         if "save_record_work" in self.profile.tools:
+            from command_center.api.record_work import WorkOutput
+
+            output_schema = WorkOutput.model_json_schema()
+            output_schema["properties"]["task_id"] = task_id
+            output_schema["required"].append("task_id")
             self.add(
                 "save_record_work",
                 "Save the final contact follow-up or cited company brief for this task. "
                 "The server chooses the target and channel. Cite only sources actually used. "
-                "Company briefs need public sources. This completes the task without sending.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "task_id": task_id,
-                        "text": {"type": "string", "minLength": 1, "maxLength": 30000},
-                        "subject": {"type": "string", "maxLength": 300},
-                        "source_version_ids": {
-                            "type": "array",
-                            "items": task_id,
-                            "maxItems": 20,
-                            "uniqueItems": True,
-                        },
-                    },
-                    "required": ["task_id", "text"],
-                    "additionalProperties": False,
-                },
+                "Company briefs need public sources. Researched contacts need contact_research "
+                "with verbatim evidence quotes from captured pages. "
+                "This completes the task without sending.",
+                output_schema,
                 lambda args: self.request(
                     "POST",
                     f"tasks/{UUID(args['task_id'])}/record-work/output",

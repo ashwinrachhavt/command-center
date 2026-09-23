@@ -82,13 +82,14 @@ def validate_event(event_type: str, role: str, data: dict[str, Any]) -> dict[str
             raise ValueError("Invalid tool event")
     elif event_type == "usage":
         counts = [data[name] for name in ("input_tokens", "output_tokens", "total_tokens")]
-        if any(not isinstance(count, int) or count < 0 for count in counts):
+        if any(type(count) is not int or count < 0 for count in counts):
             raise ValueError("Invalid usage event")
         if data["total_tokens"] != data["input_tokens"] + data["output_tokens"]:
             raise ValueError("Invalid usage event")
     elif data["state"] not in {"queued", "running", "waiting_for_user", *TERMINAL_STATES}:
         raise ValueError("Invalid run status")
-    normalized = public_input(data)
+    # Usage has exactly three validated integer counters, not credential tokens.
+    normalized = dict(data) if event_type == "usage" else public_input(data)
     if len(json.dumps(normalized, separators=(",", ":"), default=str)) > 24_000:
         if event_type == "tool-input-available":
             normalized["input"] = {"summary": "Tool input omitted because it exceeded the limit"}

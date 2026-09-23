@@ -4,6 +4,28 @@
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
+## Calm workbench usability cleanup — 2026-09-22
+
+Home now opens agent conversations with a visible desktop composer. The sidebar keeps Opportunities, Tasks, Library, Document Vault, Contacts and Companies, with agent configuration and other tools below. Applications and saved roles remain accessible within Opportunities; legacy routes continue to work. Generated and authored artifacts open in a centered reading/review canvas, full width on mobile, with selected-version history, editing and export preserved.
+
+Library includes notes, research and message drafts, with current-version review filtering and a recorded-agent-output collection. Uploaded originals and their pinned extracted content live in Document Vault over the existing immutable artifact lifecycle. A newer version never inherits an earlier approval. Agent configuration exposes existing profiles, skills, connectors and memory; workflow cards link to current capabilities. Scheduling and persistent grant editing remain outside this pass.
+
+Companion `0.4.6` uses the active Chrome tab by default. The earlier default required a dedicated AgentBrowser/helper even for ordinary Chrome use. An explicitly saved choice is preserved. Capture failures now explain tab permissions, and setup/capture settings are easier to find. Synthetic coverage exercises default capture, file attachment, edited answers, permission denial, explicit native-reader failure and recovery. Reload the unpacked extension and refresh the application tab after updating. Authenticated ATS behavior remains unverified here.
+
+The supplied screenshots and the user's calm-workbench choice guide the canonical Design Spec. The private self-contained design preview uses synthetic data and existing local Geist fonts; no reference images or personal workspace content were committed.
+
+Validation: `make check` passes with 532 backend tests, 328 UI unit tests, 33 companion browser tests, 15 offline evaluation-contract tests, generated-contract checks, style/types and the production Next.js build. The broad workspace run passed 90 of 91 cases; its remaining PDF filename expectation was corrected to honor the API's download header, then all 17 document/usability cases passed. The final Library review-badge refresh passes all seven focused usability regressions, and final ESLint/diff checks pass. Desktop and 390px visual checks used synthetic data. Logs remain in ignored `.local/usability-*.log`. This pass is local and uncommitted; no deployment, paid-model call, external message or application submission was performed.
+
+## Quick notes and performance budgets — 2026-09-23
+
+Contacts now defaults to a 200-character connection note with compact saved context and optional bounded lookup. Enrich contact and Batch enrich explicitly request detailed research; Companies retains its sourced research workflow. The quick profile uses low reasoning, an 800-token output ceiling per call, seven model steps, eight tools, a 40k-character context ceiling and one search/capture maximum. Host checks enforce lookup quotas across checkpoint replay. Migration `0029_connection_notes` preserves the note limit independently of full research requests and refuses a downgrade that would discard those contracts.
+
+Batch enrichment selects at most ten contacts from the current page, queues two requests concurrently and shows per-person outcomes. Retry keys survive an interrupted response; successful requests are not repeated. Changing pages or search resets selection. Structured artifacts now display saved fields instead of an empty reader, and text artifacts expose additional saved metadata. Validated numeric token-usage events survive redaction while credential-shaped fields remain hidden.
+
+Integrated `make check` passed: 542 backend tests, 333 UI unit tests, 33 companion browser checks, 15 offline evaluation-contract checks, contracts/style/types and the production build. The full workspace browser suite passed 95 cases; all five final record-work cases also passed, including the added mobile batch-selection regression. An earlier simultaneous unit/browser run timed out in two existing Memory tests; both passed when the suites ran separately. This is deterministic/synthetic coverage, not a live provider latency, cost or output-quality benchmark.
+
+The local API, web, agent/integration/execution workers and beat were rebuilt and restarted on schema `0029_connection_notes` after a private database backup and idle-worker checks. API readiness and web health return 200; all six services use the final built images. Live OpenAPI exposes quick-note requests and Library/Vault/review filters. Reload companion 0.4.6 to use the capture-default fix; authenticated ATS behavior remains a hands-on verification item. No paid generation or external outreach was performed.
+
 ## Build objective
 
 The first release provides Copilot-style application assistance with user Next/Submit, outreach approved and sent through Command Center, and isolated research scripts producing documents. Deep Agents on LangGraph targets an always-on backend; Composio supplies Gmail, Google Calendar, Linear and Notion, with reviewed external changes and Slack deferred. [Product Spec](../product/product-spec.md#first-agent-release--confirmed-interview-direction) owns this boundary; [Tech Spec](tech-spec.md#first-agent-release-architecture-draft) owns architecture and context contracts. Application preparation, exact resume uploads, reviewed memory, durable token/tool streaming, scoped connected-app context, reviewed external actions, isolated scripts/PDF exports and spending/recovery controls are implemented locally. The accepted workspace remedies are implemented with synthetic regressions; their evidence and limits are recorded below. The user will perform hands-on platform/provider QA. Paid-model evaluation and selecting/deploying an always-on host remain separate release work.
@@ -488,3 +510,23 @@ Validation: `make check` includes generated-contract drift, backend style/types/
 ### Navigation clarification validation
 
 The sidebar now uses ordinary section routes; contextual body record actions retain their inspector behavior. Eight synthetic workspace browser checks pass, including full-page section navigation at 1600px and 390px, nested body-record context, mobile focus return and appearance. These update the existing TypeScript Playwright suite; they do not claim a pytest browser migration or live Clerk verification. Design Spec DS-01–DS-04 owns acceptance.
+
+### Contact research and connection notes — 2026-09-22
+
+Implemented the contacts-row research/draft/copy/edit workflow for work-opportunity outreach with a 200-character connection-note limit. Reuses RecordWork tasks, scoped agents, Firecrawl source captures and immutable FollowUp versions. Migration `0027_contact_research` is required before running the updated API; restart workers to load the updated outreach directives/tools. Targeted backend tests cover evidence integrity, uncertain identity, edit preservation, length enforcement and migration round-trip; browser verification uses synthetic records. Paid-model quality and real-founder research remain unverified.
+
+
+### Standalone chat continuity (2026-09-22)
+
+The Agents composer starts an unscoped `AgentSession` and sends replies with
+`continue_run_id`. Replies append durable messages to that session; an active run
+accepts additional instructions, and a completed run starts the next turn in the
+same conversation. Older one-shot runs are attached lazily with their original
+prompt and completed answer preserved. The sidebar groups runs by session; New chat
+starts a separate conversation. Migration `0028_standalone_conversations` allows
+zero or one work scope and refuses a downgrade that would discard standalone chats.
+
+Cohere catalog entries now require a supported Command tool model, and custom Aya
+selections are rejected before enqueueing. Native Cohere API errors are classified
+without exposing provider response bodies. Synthetic tests cover continuity,
+legacy adoption, idempotency, ownership and unsupported model filtering.

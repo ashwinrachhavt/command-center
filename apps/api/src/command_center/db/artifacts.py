@@ -23,6 +23,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
+from sqlalchemy.sql.elements import ColumnElement
 
 from command_center.db.base import Base, UTCDateTime, utc_now
 
@@ -65,14 +66,22 @@ class Artifact(Base):
         document_type_id: UUID | None = None,
         kind: str | None = None,
         task_id: UUID | None = None,
+        review: str | None = None,
     ) -> Select[tuple["Artifact"]]:
         """Search current writing and the extraction of the current original only."""
         from command_center.db.document_imports import DocumentImport
 
         statement = select(cls).where(cls.owner_id == owner_id, cls.archived_at.is_(None))
-        if collection == "library":
+        uploaded = (
+            select(DocumentImport.id)
+            .where(
+                DocumentImport.owner_id == owner_id,
+                DocumentImport.artifact_id == cls.id,
+            )
+            .exists()
+        )
+        if collection in {"library", "vault", "notes", "generated"}:
             statement = statement.where(
-                cls.kind.in_(["document", "research", "package"]),
                 ~select(DocumentImport.id)
                 .where(
                     DocumentImport.owner_id == owner_id,
@@ -80,6 +89,23 @@ class Artifact(Base):
                 )
                 .exists(),
             )
+            statement = statement.where(uploaded if collection == "vault" else ~uploaded)
+        if collection == "generated":
+            from command_center.db.models import AuditEvent
+
+            statement = statement.where(
+                select(AuditEvent.id)
+                .where(
+                    AuditEvent.actor_id == owner_id,
+                    AuditEvent.subject_type == "artifacts",
+                    AuditEvent.subject_id == cls.id,
+                    AuditEvent.action == "artifact.version_created",
+                    AuditEvent.details["agent_run_id"].as_string().is_not(None),
+                )
+                .exists()
+            )
+        if review:
+            statement = statement.where(cls.latest_review_decision() == review)
         if collection == "notes" or document_type_id:
             statement = statement.join(Document).join(DocumentType)
             if collection == "notes":
@@ -126,6 +152,27 @@ class Artifact(Base):
                 )
             )
         return statement
+
+    @classmethod
+    def latest_review_decision(cls) -> ColumnElement[str]:
+        """A review applies only to the current immutable version."""
+        latest_id = (
+            select(ArtifactVersion.id)
+            .where(ArtifactVersion.artifact_id == cls.id)
+            .order_by(ArtifactVersion.version.desc())
+            .limit(1)
+            .correlate(cls)
+            .scalar_subquery()
+        )
+        decision = (
+            select(ArtifactReview.decision)
+            .where(ArtifactReview.artifact_version_id == latest_id)
+            .order_by(ArtifactReview.created_at.desc(), ArtifactReview.id.desc())
+            .limit(1)
+            .correlate(cls)
+            .scalar_subquery()
+        )
+        return func.coalesce(decision, "unreviewed")
 
     def create_task(self, *, task_id: UUID, request_id: UUID, **fields: Any) -> "Task":
         """Keep a new commitment and its source document in the same transaction."""

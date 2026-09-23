@@ -38,6 +38,14 @@ def clear_question_fixtures(engine: Engine) -> None:
         connection.execute(text("ALTER TABLE contact_observations ENABLE TRIGGER immutable_rows"))
         connection.execute(text("DELETE FROM agent_resume_intents"))
         connection.execute(text("DELETE FROM agent_questions"))
+        standalone = (
+            "SELECT id FROM agent_sessions WHERE task_id IS NULL AND opportunity_id IS NULL"
+        )
+        connection.execute(text(f"DELETE FROM agent_messages WHERE session_id IN ({standalone})"))
+        connection.execute(
+            text(f"UPDATE agent_runs SET session_id=NULL WHERE session_id IN ({standalone})")
+        )
+        connection.execute(text(f"DELETE FROM agent_sessions WHERE id IN ({standalone})"))
         connection.execute(
             text(
                 "UPDATE agent_runs SET state='cancelled', lease_id=NULL, lease_expires_at=NULL, "
@@ -170,3 +178,35 @@ def test_upgrade_downgrade_upgrade_and_no_schema_drift(
     command.upgrade(migration_config, "head")
     assert database_is_ready(engine)
     command.check(migration_config)
+
+
+def test_connection_note_downgrade_keeps_the_character_limit_contract(engine, migration_config):
+    from command_center.db.crm import Contact
+    from command_center.db.models import Task
+    from command_center.db.record_work import RecordWork
+
+    with Session(engine) as db, db.begin():
+        owner = Actor(id=uuid4(), kind="human", display_name="Synthetic quick note owner")
+        db.add(owner)
+        db.flush()
+        person = Contact(owner_id=owner.id, name="Synthetic Casey")
+        task = Task(owner_id=owner.id, title="Draft connection note", state="open")
+        db.add_all([person, task])
+        db.flush()
+        work = RecordWork(
+            task_id=task.id,
+            owner_id=owner.id,
+            contact_id=person.id,
+            channel="linkedin",
+            connection_note=True,
+        )
+        db.add(work)
+        task_id = task.id
+    try:
+        with pytest.raises(RuntimeError, match="preserve the request contract"):
+            command.downgrade(migration_config, "0028_standalone_conversations")
+        with Session(engine) as db:
+            assert db.get(RecordWork, task_id).connection_note is True
+    finally:
+        with Session(engine) as db, db.begin():
+            db.delete(db.get(RecordWork, task_id))

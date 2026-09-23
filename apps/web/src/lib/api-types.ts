@@ -3235,6 +3235,12 @@ export interface components {
             latest_version: number;
             /** Document Type Id */
             document_type_id?: string | null;
+            /**
+             * Review Status
+             * @default unreviewed
+             * @enum {string}
+             */
+            review_status: "unreviewed" | "approved" | "rejected" | "revoked";
         };
         /** ArtifactUpdate */
         ArtifactUpdate: {
@@ -3679,6 +3685,16 @@ export interface components {
             name: string;
             state: components["schemas"]["ConnectionState"];
         };
+        /** ContactCitation */
+        ContactCitation: {
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+            /** Quote */
+            quote: string;
+        };
         /** ContactCreate */
         ContactCreate: {
             /** Name */
@@ -3746,6 +3762,29 @@ export interface components {
              */
             imported_at: string;
         };
+        /** ContactOutreachRead */
+        ContactOutreachRead: {
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** State */
+            state: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Artifact Id */
+            artifact_id: string | null;
+            /** Version Id */
+            version_id: string | null;
+            /** Message */
+            message: string;
+            research: components["schemas"]["ContactResearch"] | null;
+            /** Researched At */
+            researched_at: string | null;
+            /** Sources */
+            sources: components["schemas"]["OutreachSourceRead"][];
+        };
         /** ContactRead */
         ContactRead: {
             /**
@@ -3785,6 +3824,36 @@ export interface components {
             notes?: string | null;
             /** Archived At */
             archived_at: string | null;
+            outreach?: components["schemas"]["ContactOutreachRead"] | null;
+        };
+        /** ContactResearch */
+        ContactResearch: {
+            /**
+             * Identity
+             * @enum {string}
+             */
+            identity: "matched" | "uncertain";
+            /**
+             * Company
+             * @default
+             */
+            company: string;
+            /**
+             * Role
+             * @default
+             */
+            role: string;
+            /** Summary */
+            summary: string;
+            /**
+             * Caveats
+             * @default
+             */
+            caveats: string;
+            /** Identity Evidence */
+            identity_evidence?: components["schemas"]["ContactCitation"][];
+            /** Employment Evidence */
+            employment_evidence?: components["schemas"]["ContactCitation"][];
         };
         /** ContactUpdate */
         ContactUpdate: {
@@ -5274,6 +5343,21 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** OutreachSourceRead */
+        OutreachSourceRead: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Url */
+            url: string;
+            /**
+             * Retrieved At
+             * Format: date-time
+             */
+            retrieved_at: string;
+        };
         /** Page[ActionRead] */
         Page_ActionRead_: {
             /** Items */
@@ -6461,6 +6545,8 @@ export interface components {
         };
         /** RunCreate */
         RunCreate: {
+            /** Continue Run Id */
+            continue_run_id?: string | null;
             /** Profile */
             profile: string;
             /** Prompt */
@@ -6950,6 +7036,16 @@ export interface components {
         /** WorkCreate */
         WorkCreate: {
             /**
+             * Research Requested
+             * @default false
+             */
+            research_requested: boolean;
+            /**
+             * Connection Note
+             * @default false
+             */
+            connection_note: boolean;
+            /**
              * Instructions
              * @default
              */
@@ -6970,6 +7066,7 @@ export interface components {
         };
         /** WorkOutput */
         WorkOutput: {
+            contact_research?: components["schemas"]["ContactResearch"] | null;
             /** Text */
             text: string;
             /**
@@ -8261,11 +8358,12 @@ export interface operations {
                 q?: string;
                 limit?: number;
                 offset?: number;
-                collection?: "all" | "library" | "notes";
+                collection?: "all" | "library" | "notes" | "vault" | "generated";
                 document_type_id?: string | null;
                 kind?: ("document" | "research" | "package" | "message" | "source") | null;
                 sort?: "recent" | "title";
                 task_id?: string | null;
+                review?: ("unreviewed" | "approved" | "rejected" | "revoked") | null;
             };
             header?: never;
             path?: never;

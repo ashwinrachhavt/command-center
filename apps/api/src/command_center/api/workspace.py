@@ -501,12 +501,22 @@ def list_contacts(
     offset: Offset = 0,
     company_id: UUID | None = None,
 ) -> dict[str, Any]:
-    return listing(Contact, db, identity.id, q, limit, offset, company_id=company_id)
+    page = listing(Contact, db, identity.id, q, limit, offset, company_id=company_id)
+    outreach = RecordWork.contact_outreach(
+        db, owner_id=identity.id, contact_ids=[UUID(row["id"]) for row in page["items"]]
+    )
+    for row in page["items"]:
+        row["outreach"] = outreach.get(UUID(row["id"]))
+    return page
 
 
 @router.get("/contacts/{record_id}", response_model=s.ContactRead)
-def get_contact(record_id: UUID, identity: CurrentIdentity, db: Database) -> Contact:
-    return owned(db, Contact, record_id, identity.id)
+def get_contact(record_id: UUID, identity: CurrentIdentity, db: Database) -> dict[str, Any]:
+    row = serialize(owned(db, Contact, record_id, identity.id))
+    row["outreach"] = RecordWork.contact_outreach(
+        db, owner_id=identity.id, contact_ids=[record_id]
+    ).get(record_id)
+    return row
 
 
 @router.post("/contacts", response_model=s.ContactRead, status_code=201)

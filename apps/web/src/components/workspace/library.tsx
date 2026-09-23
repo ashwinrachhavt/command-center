@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -35,9 +36,17 @@ import { DocumentTasks } from "./document-tasks";
 type Artifact = Schema["ArtifactRead"];
 type DocumentType = { id: string; slug: string; name: string };
 
-export function Library({ notes = false }: { notes?: boolean }) {
+export function Library({
+  notes: legacyNotes = false,
+  vault = false,
+}: {
+  notes?: boolean;
+  vault?: boolean;
+}) {
   const workspace = useWorkspaceContext();
   const params = useSearchParams();
+  const notes = !vault && (legacyNotes || params.get("view") === "notes");
+  const generated = !vault && params.get("view") === "generated";
   const selected = notes ? params.get("note") : null;
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
@@ -47,6 +56,8 @@ export function Library({ notes = false }: { notes?: boolean }) {
   const [creating, setCreating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showUploads, setShowUploads] = useState(false);
+  const [review, setReview] = useState("all");
+  const [newNote, setNewNote] = useState(false);
   const listHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -60,9 +71,15 @@ export function Library({ notes = false }: { notes?: boolean }) {
     queryFn: () => api<DocumentType[]>("document-types"),
   });
   const noteType = types.data?.find((item) => item.slug === "notes");
-  const collection = notes ? "notes" : "library";
+  const collection = vault
+    ? "vault"
+    : notes
+      ? "notes"
+      : generated
+        ? "generated"
+        : "library";
   const records = useQuery({
-    queryKey: ["artifacts", collection, query, type, sort, offset],
+    queryKey: ["artifacts", collection, query, type, review, sort, offset],
     queryFn: ({ signal }) => {
       const filter = new URLSearchParams({
         collection,
@@ -71,7 +88,8 @@ export function Library({ notes = false }: { notes?: boolean }) {
         limit: "30",
         offset: String(offset),
       });
-      if (type !== "all") filter.set("document_type_id", type);
+      if (type !== "all" && !notes) filter.set("document_type_id", type);
+      if (review !== "all" && !vault && !notes) filter.set("review", review);
       return api<Page<Artifact>>(`artifacts?${filter}`, { signal });
     },
   });
@@ -90,30 +108,83 @@ export function Library({ notes = false }: { notes?: boolean }) {
             YOUR WORKSPACE
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {notes ? "Notes" : "Library"}
+            {vault ? "Document Vault" : "Library"}
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            {notes
-              ? "Think on the page. Keep the ideas, turn the next step into a task."
-              : "Your documents, research and finished writing. A place to find what you know."}
+            {vault
+              ? "Original files, extracted text, and source metadata. Keep the documents you rely on together."
+              : "Your notes and agent-created work. Read, refine, and review every saved version."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {!notes && (
+          {vault && (
             <Button variant="outline" onClick={() => setUploading(true)}>
               <Upload />
               Upload document
             </Button>
           )}
-          <Button
-            disabled={notes && !noteType}
-            onClick={() => setCreating(true)}
-          >
-            <Plus />
-            {notes ? "New note" : "Write document"}
-          </Button>
+          {!vault && !notes && (
+            <Button
+              variant="outline"
+              disabled={!noteType}
+              onClick={() => {
+                setNewNote(true);
+                setCreating(true);
+              }}
+            >
+              <NotebookPen />
+              New note
+            </Button>
+          )}
+          {!vault && (
+            <Button
+              disabled={notes && !noteType}
+              onClick={() => {
+                setNewNote(notes);
+                setCreating(true);
+              }}
+            >
+              <Plus />
+              {notes ? "New note" : "Write document"}
+            </Button>
+          )}
         </div>
       </header>
+      {!vault && (
+        <nav
+          aria-label="Library collections"
+          className="mb-6 flex flex-wrap gap-1 border-b border-border pb-3"
+        >
+          {[
+            {
+              name: "All work",
+              href: "/library",
+              active: !notes && !generated,
+            },
+            { name: "Notes", href: "/library?view=notes", active: notes },
+            {
+              name: "Agent outputs",
+              href: "/library?view=generated",
+              active: generated,
+            },
+          ].map((item) => (
+            <Button
+              key={item.name}
+              variant={item.active ? "secondary" : "ghost"}
+              size="sm"
+              asChild
+            >
+              <Link
+                href={item.href}
+                aria-current={item.active ? "page" : undefined}
+                onClick={() => setOffset(0)}
+              >
+                {item.name}
+              </Link>
+            </Button>
+          ))}
+        </nav>
+      )}
       {types.error && (
         <ErrorState error={types.error} retry={() => types.refetch()} />
       )}
@@ -142,7 +213,13 @@ export function Library({ notes = false }: { notes?: boolean }) {
               />
               <Input
                 className="pl-9"
-                aria-label={notes ? "Search notes" : "Search library"}
+                aria-label={
+                  vault
+                    ? "Search vault"
+                    : notes
+                      ? "Search notes"
+                      : "Search library"
+                }
                 placeholder="Search titles and saved content…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -169,6 +246,29 @@ export function Library({ notes = false }: { notes?: boolean }) {
                       {item.name}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            )}
+            {!vault && !notes && (
+              <Select
+                value={review}
+                onValueChange={(value) => {
+                  setReview(value);
+                  setOffset(0);
+                }}
+              >
+                <SelectTrigger
+                  className="w-40"
+                  aria-label="Review status filter"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All review states</SelectItem>
+                  <SelectItem value="unreviewed">Needs review</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="revoked">Revoked</SelectItem>
                 </SelectContent>
               </Select>
             )}
@@ -201,7 +301,9 @@ export function Library({ notes = false }: { notes?: boolean }) {
                 ? "SEARCH RESULTS"
                 : notes
                   ? "ALL NOTES"
-                  : "SAVED IN YOUR LIBRARY"}
+                  : vault
+                    ? "YOUR SOURCE DOCUMENTS"
+                    : "SAVED IN YOUR LIBRARY"}
             </h2>
             <span role="status" className="text-xs text-muted-foreground">
               {records.data
@@ -251,6 +353,14 @@ export function Library({ notes = false }: { notes?: boolean }) {
                           (item) => item.id === record.document_type_id,
                         )?.name ?? label(record.kind)}{" "}
                         · {dateLabel(record.updated_at)}
+                        {!vault && !notes && (
+                          <span className="ml-2 inline-block rounded bg-muted px-2 py-0.5">
+                            {!record.review_status ||
+                            record.review_status === "unreviewed"
+                              ? "Needs review"
+                              : label(record.review_status)}
+                          </span>
+                        )}
                       </span>
                     </span>
                     {(!notes || !selected) && (
@@ -282,19 +392,25 @@ export function Library({ notes = false }: { notes?: boolean }) {
                   ? "Try a different phrase or document type. Search covers saved versions; working drafts stay in the writer."
                   : notes
                     ? "Capture an interview, a question, or a half-formed idea. Your writing autosaves as you go."
-                    : "Upload a document or start writing. Originals stay intact, with extracted text and version history close by."}
+                    : vault
+                      ? "Upload a résumé, paper, brief, or other source document. Read the original alongside its extracted text."
+                      : "Write a note or ask an agent to research or draft something. Saved outputs and their reviews appear here."}
               </p>
               {!query && type === "all" && (
                 <Button
                   className="mt-5"
                   variant="outline"
                   disabled={notes && !noteType}
-                  onClick={() => setCreating(true)}
+                  onClick={() =>
+                    vault ? setUploading(true) : setCreating(true)
+                  }
                 >
                   <Plus />
-                  {notes
-                    ? "Write your first note"
-                    : "Write your first document"}
+                  {vault
+                    ? "Upload your first document"
+                    : notes
+                      ? "Write your first note"
+                      : "Write your first document"}
                 </Button>
               )}
             </div>
@@ -332,7 +448,7 @@ export function Library({ notes = false }: { notes?: boolean }) {
           />
         )}
       </div>
-      {!notes && (
+      {vault && (
         <div className="mt-6 border-t border-border pt-5">
           <Button
             variant="ghost"
@@ -355,14 +471,18 @@ export function Library({ notes = false }: { notes?: boolean }) {
         resource="artifacts"
         open={creating}
         onOpenChange={setCreating}
-        noun={notes ? "note" : "document"}
-        draftKey={notes ? "new-note" : "new-library-document"}
+        noun={notes || newNote ? "note" : "document"}
+        draftKey={notes || newNote ? "new-note" : "new-library-document"}
         defaults={{
           kind: "document",
-          ...(notes && noteType ? { document_type_id: noteType.id } : {}),
+          ...((notes || newNote) && noteType
+            ? { document_type_id: noteType.id }
+            : {}),
         }}
         hiddenFields={
-          notes ? ["kind", "document_type_id", "sensitivity"] : ["kind"]
+          notes || newNote
+            ? ["kind", "document_type_id", "sensitivity"]
+            : ["kind"]
         }
         onSaved={(record) =>
           notes

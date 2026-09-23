@@ -14,9 +14,7 @@ import {
   ChevronsUpDown,
   Command,
   Files,
-  FileCheck,
-  LayoutDashboard,
-  NotebookPen,
+  House,
   Plug,
   Puzzle,
   Search,
@@ -61,26 +59,33 @@ import { Appearance } from "@/components/appearance";
 import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 
 export const navigation = [
-  { path: "/", name: "Overview", icon: LayoutDashboard },
+  { path: "/", name: "Home", icon: House },
   { path: "/opportunities", name: "Opportunities", icon: BriefcaseBusiness },
-  { path: "/applications", name: "Applications", icon: FileCheck },
+  { path: "/tasks", name: "Tasks", icon: CheckCheck },
+  { path: "/library", name: "Library", icon: BookOpen },
+  { path: "/documents", name: "Document Vault", icon: Files },
   { path: "/contacts", name: "Contacts", icon: Users },
   { path: "/companies", name: "Companies", icon: Building2 },
-  { path: "/jobs", name: "Roles", icon: Search },
-  { path: "/tasks", name: "Tasks", icon: CheckCheck },
-  { path: "/notes", name: "Notes", icon: NotebookPen },
-  { path: "/library", name: "Library", icon: Files },
-  { path: "/actions", name: "Reviewed actions", icon: FileCheck },
-  { path: "/agents", name: "Agents", icon: Bot },
+  { path: "/agent-settings", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
-  { path: "/memory", name: "Memory", icon: BookOpen },
   { path: "/activity", name: "Activity", icon: Activity },
-  { path: "/connections", name: "Connected apps", icon: Plug },
   { path: "/settings", name: "Settings", icon: Settings2 },
 ];
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
-  const path = usePathname();
+  const pathname = usePathname();
+  const path =
+    (
+      {
+        "/agents": "/",
+        "/applications": "/opportunities",
+        "/jobs": "/opportunities",
+        "/notes": "/library",
+        "/artifacts": "/library",
+        "/connections": "/agent-settings",
+        "/memory": "/agent-settings",
+      } as Record<string, string>
+    )[pathname] ?? pathname;
   const profile = useQuery({
     queryKey: ["me"],
     queryFn: () => api<Profile>("me"),
@@ -163,20 +168,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
       >
         {navigation.map((item, i) => (
           <div key={item.path}>
-            {(item.path === "/" ||
-              item.path === "/agents" ||
-              item.path === "/activity") && (
+            {(item.path === "/" || item.path === "/agent-settings") && (
               <p
                 className={cn(
                   "px-3 pb-2 text-[10px] font-medium tracking-[0.08em] text-muted-foreground",
                   i > 0 && "mt-6",
                 )}
               >
-                {i === 0
-                  ? "WORKSPACE"
-                  : item.path === "/agents"
-                    ? "ASSISTANTS"
-                    : "MANAGE"}
+                {i === 0 ? "WORKSPACE" : "WORKSPACE TOOLS"}
               </p>
             )}
             <Link

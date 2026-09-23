@@ -1,8 +1,15 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
+  --background: #fafafa;
+  --surface: #fff;
+  --text: #25272d;
+  --muted: #626873;
+  --border: #e1e3e7;
+  --primary: #30333a;
+  --on-primary: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #edf0ef;
-  background: #141617;
+  color: var(--text);
+  background: var(--background);
 }
 * {
   box-sizing: border-box;
@@ -19,19 +26,19 @@ header {
   align-items: center;
   gap: 12px;
   padding: 20px 24px;
-  border-bottom: 1px solid #2a2e2f;
+  border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
 header small {
   display: block;
   margin-top: 4px;
   font-size: 10px;
-  color: #9ba5a2;
+  color: var(--muted);
   font-weight: 400;
 }
 header a {
   margin-left: auto;
-  color: #9ba5a2;
+  color: var(--muted);
   text-decoration: none;
   font-size: 20px;
 }
@@ -40,24 +47,24 @@ header a {
   place-items: center;
   width: 32px;
   height: 32px;
-  border: 1px solid #58cfaa40;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  color: #58cfaa;
-  background: #58cfaa10;
+  color: var(--primary);
+  background: var(--surface);
   font-size: 19px;
 }
 main {
   padding: 24px;
 }
 h1 {
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1.25;
   letter-spacing: -0.7px;
   font-weight: 500;
   margin: 12px 0 16px;
 }
 p {
-  color: #a2ada7;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.9;
 }
@@ -70,9 +77,9 @@ input,
 select,
 textarea {
   width: 100%;
-  background: #101213;
-  border: 1px solid #343b3b;
-  color: #edf0ef;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
   padding: 11px;
   border-radius: 7px;
   font: inherit;
@@ -85,8 +92,8 @@ button {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 7px;
-  background: #58cfaa;
-  color: #08251b;
+  background: var(--primary);
+  color: var(--on-primary);
   font: inherit;
   font-weight: 600;
   padding: 11px 13px;
@@ -99,9 +106,9 @@ button span {
 }
 .secondary {
   margin-top: 8px;
-  background: #202525;
-  color: #e3e8e6;
-  border-color: #343b3b;
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
   font-weight: 400;
 }
 button:disabled {
@@ -114,7 +121,7 @@ input:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
 select:focus-visible {
-  outline: 2px solid #58cfaa;
+  outline: 2px solid var(--primary);
   outline-offset: 3px;
 }
 .status {
@@ -122,13 +129,13 @@ select:focus-visible {
   align-items: center;
   gap: 6px;
   font-size: 10px;
-  color: #9ba5a2;
-  margin-bottom: 28px;
+  color: var(--muted);
+  margin-bottom: 18px;
 }
 .status i {
   width: 5px;
   height: 5px;
-  background: #58cfaa;
+  background: var(--primary);
   border-radius: 50%;
 }
 .text-button {
@@ -140,15 +147,15 @@ select:focus-visible {
   width: auto;
   font-size: 11px;
   background: transparent;
-  color: #9ba5a2;
+  color: var(--muted);
   font-weight: 400;
 }
 footer {
   margin-top: 28px;
   padding-top: 18px;
-  border-top: 1px solid #2a2e2f;
+  border-top: 1px solid var(--border);
   font-size: 10px;
-  color: #87948e;
+  color: var(--muted);
   text-align: center;
 }
 #message {
@@ -156,7 +163,7 @@ footer {
   overflow-wrap: anywhere;
 }
 .proposal {
-  border: 1px solid #343b3b;
+  border: 1px solid var(--border);
   border-radius: 9px;
   margin-top: 20px;
   padding: 14px;
@@ -179,7 +186,7 @@ footer {
 .field-review {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid #2a2e2f;
+  border-top: 1px solid var(--border);
 }
 .field-review label {
   margin-top: 0;
@@ -187,7 +194,7 @@ footer {
 .field-review small,
 .hint {
   display: block;
-  color: #9ba5a2;
+  color: var(--muted);
   font-size: 10px;
   line-height: 1.6;
   margin-top: 7px;
@@ -207,17 +214,17 @@ footer {
 .workspace-link {
   display: block;
   margin: 12px 0;
-  color: #7cddbd;
+  color: var(--text);
   font-size: 11px;
 }
 .file-summary {
-  color: #d8dfdc;
+  color: var(--text);
   font-size: 11px;
 }
 .result-list {
   margin: 10px 0 0;
   padding-left: 18px;
-  color: #a2ada7;
+  color: var(--muted);
   font-size: 10px;
   line-height: 1.6;
 }
@@ -228,7 +235,7 @@ footer {
 }
 .answer strong {
   display: block;
-  color: #9ba5a2;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 400;
 }
@@ -238,7 +245,7 @@ footer {
 }
 .proposal small {
   display: block;
-  color: #9ba5a2;
+  color: var(--muted);
   font-size: 10px;
   line-height: 1.8;
   margin-top: 12px;
@@ -247,7 +254,7 @@ footer {
   margin-top: 24px;
 }
 .advanced summary {
-  color: #a2ada7;
+  color: var(--muted);
   cursor: pointer;
 }
 [hidden] {
@@ -261,9 +268,47 @@ footer {
 }
 .completed-fields summary {
   cursor: pointer;
-  color: #a2ada7;
+  color: var(--muted);
   font-size: 12px;
 }
 #application-title {
   overflow-wrap: anywhere;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #151619;
+    --surface: #1a1c20;
+    --text: #e9eaed;
+    --muted: #a0a6b1;
+    --border: #30333b;
+    --primary: #d9dce1;
+    --on-primary: #181a20;
+  }
+}
+.capture-settings,
+.optional-letter,
+.connection-settings {
+  margin: 16px 0;
+  padding: 12px 0;
+  border-block: 1px solid var(--border);
+}
+summary {
+  cursor: pointer;
+  color: var(--text);
+  line-height: 1.6;
+}
+summary .hint {
+  display: inline;
+  margin-left: 6px;
+}
+#message:not(:empty) {
+  border-left: 3px solid var(--primary);
+  padding: 10px 12px;
+  background: var(--surface);
+  font-size: 12px;
+}
+#autofill {
+  min-height: 44px;
+  text-align: center;
 }

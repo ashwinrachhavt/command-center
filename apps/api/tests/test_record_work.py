@@ -117,6 +117,80 @@ def test_requested_follow_up_is_one_task_and_one_scoped_saved_draft(work_client,
     assert post(work_client, route, {}, token=token).status_code == 403
 
 
+def test_quick_connection_note_is_bounded_and_does_not_require_enrichment(
+    work_client, settings, engine, mocker
+):
+    person = post(
+        work_client, "contacts", {"name": "Synthetic Casey", "notes": "Developer tools"}
+    ).json()
+    profile_loader = mocker.patch(
+        "command_center.api.record_work.available_profile",
+        return_value=(
+            AgentProfile(
+                name="Quick",
+                description="Synthetic",
+                model="synthetic",
+                instructions="Write a note",
+                tools=["record_work_context", "save_record_work"],
+            ),
+            "synthetic",
+        ),
+    )
+    route = f"record-work/contacts/{person['id']}"
+    response = post(work_client, route, {"connection_note": True})
+    assert response.status_code == 201, response.text
+    work = response.json()
+    assert profile_loader.call_args.args[1] == "connection"
+    assert post(work_client, route, {"connection_note": True}).json()["task_id"] == work["task_id"]
+    assert post(work_client, route, {}).status_code == 409
+    token = claim(work_client, engine, settings, work)
+    context = work_client.get(
+        f"/api/v1/tasks/{work['task_id']}/record-work/context",
+        headers={"Authorization": "Bearer " + token},
+    ).json()
+    assert context["connection_note"] is True
+    assert context["research_requested"] is False
+    output_route = f"tasks/{work['task_id']}/record-work/output"
+    for oversized in ("x" * 201, "🙂" * 101):
+        assert post(work_client, output_route, {"text": oversized}, token=token).status_code == 422
+    saved = post(
+        work_client,
+        output_route,
+        {"text": "Hi Casey, I’m exploring developer tools. Could we connect?"},
+        token=token,
+    )
+    assert saved.status_code == 200, saved.text
+    work_client.app.dependency_overrides[authenticate] = lambda: Identity(
+        work_client.actor_id, "synthetic"
+    )
+    contact = work_client.get(f"/api/v1/contacts/{person['id']}").json()
+    assert contact["outreach"]["message"].startswith("Hi Casey")
+    assert contact["outreach"]["research"] is None
+    version = work_client.get(
+        f"/api/v1/artifacts/{saved.json()['output_artifact_id']}/versions/{saved.json()['output_version_id']}"
+    ).json()
+    assert version["payload"]["connection_note"] is True
+
+
+def test_quick_note_scope_is_validated(work_client):
+    contact = post(work_client, "contacts", {"name": "Synthetic Casey"}).json()
+    company = post(work_client, "companies", {"name": "Synthetic Labs"}).json()
+    assert (
+        post(
+            work_client,
+            f"record-work/contacts/{contact['id']}",
+            {"connection_note": True, "channel": "email"},
+        ).status_code
+        == 422
+    )
+    assert (
+        post(
+            work_client, f"record-work/companies/{company['id']}", {"connection_note": True}
+        ).status_code
+        == 422
+    )
+
+
 def test_company_output_needs_public_evidence_and_cancelled_runs_cannot_write(
     work_client, settings, engine
 ):
@@ -267,3 +341,197 @@ def test_record_work_mcp_tools_dispatch_only_to_scoped_endpoints(
     request.assert_called_once_with(
         "POST", f"tasks/{work['task_id']}/record-work/output", {"text": "A private draft"}
     )
+
+
+@pytest.fixture
+def researched_contact(work_client, settings, engine, mocker):
+    from command_center.db.artifacts import Artifact, ArtifactVersion
+    from command_center.db.evidence import SourceRecord
+
+    profile = AgentProfile(
+        name="Synthetic outreach",
+        description="Synthetic",
+        model="synthetic",
+        instructions="Synthetic research",
+        tools=[
+            "record_work_context",
+            "save_record_work",
+            "research_search",
+            "capture_research_source",
+            "document_read",
+            "approved_profile",
+        ],
+    )
+    mocker.patch("command_center.api.record_work.available_profile", return_value=(profile, "test"))
+    person = post(
+        work_client,
+        "contacts",
+        {
+            "name": "Synthetic Taylor",
+            "title": "Keep my saved title",
+            "linkedin_url": "https://www.linkedin.com/in/synthetic-taylor",
+        },
+    ).json()
+    work = post(
+        work_client,
+        f"record-work/contacts/{person['id']}",
+        {
+            "research_requested": True,
+            "instructions": "Explore work opportunities; within 200 chars",
+        },
+    ).json()
+    quote = "Synthetic Taylor is the founder and CEO of Example Labs."
+    with Session(engine) as db, db.begin():
+        artifact = Artifact.draft(
+            db,
+            record_id=uuid4(),
+            owner_id=work_client.actor_id,
+            title="Official team",
+            kind="source",
+            sensitivity="public",
+            text=quote,
+            document_type_id=None,
+            request_id=uuid4(),
+        )
+        version = db.scalar(
+            select(ArtifactVersion).where(ArtifactVersion.artifact_id == artifact.id)
+        )
+        source_id = str(version.id)
+        db.add(
+            SourceRecord(
+                artifact_version_id=version.id,
+                provider="firecrawl",
+                account_scope="public",
+                locator="https://example.com/team",
+                extraction_method="synthetic_fixture",
+            )
+        )
+        db.add(TaskArtifact(task_id=UUID(work["task_id"]), artifact_id=artifact.id))
+    token = claim(work_client, engine, settings, work)
+    evidence = [{"source_version_id": source_id, "quote": quote}]
+    body = {
+        "text": (
+            "Hi Taylor, I'm exploring opportunities in developer tools. I'd like to connect "
+            "and learn whether my experience could be useful at Example Labs."
+        ),
+        "source_version_ids": [source_id],
+        "contact_research": {
+            "identity": "matched",
+            "company": "Example Labs",
+            "role": "Founder and CEO",
+            "summary": "Official team page matches the selected person.",
+            "caveats": "Hiring needs have not been confirmed.",
+            "identity_evidence": evidence,
+            "employment_evidence": evidence,
+        },
+    }
+    return person, work, body, token
+
+
+def test_researched_note_projects_evidence_and_preserves_human_edits(
+    work_client,
+    engine,
+    researched_contact,
+):
+    person, work, body, token = researched_contact
+    saved = post(work_client, f"tasks/{work['task_id']}/record-work/output", body, token=token)
+    assert saved.status_code == 200, saved.text
+    work_client.app.dependency_overrides[authenticate] = lambda: Identity(
+        work_client.actor_id, "test"
+    )
+    contact = work_client.get(f"/api/v1/contacts/{person['id']}").json()
+    assert contact["title"] == "Keep my saved title" and contact["company_id"] is None
+    outreach = contact["outreach"]
+    assert outreach["message"] == body["text"]
+    assert outreach["research"]["company"] == "Example Labs"
+    assert outreach["sources"][0]["url"] == "https://example.com/team"
+    listed = work_client.get("/api/v1/contacts").json()["items"]
+    assert next(row for row in listed if row["id"] == person["id"])["outreach"] == outreach
+    detail = work_client.get(f"/api/v1/follow-ups/{outreach['artifact_id']}").json()
+    edited = "Hi Taylor, I'm exploring work in developer tools. Could we connect?"
+    update = {
+        "expected_version": detail["artifact"]["row_version"],
+        "based_on_version_id": detail["version"]["id"],
+        "text": edited,
+        "channel": "linkedin",
+    }
+    invalid = work_client.patch(
+        f"/api/v1/follow-ups/{outreach['artifact_id']}",
+        json={**update, "text": "x" * 201},
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert invalid.status_code == 422
+    response = work_client.patch(
+        f"/api/v1/follow-ups/{outreach['artifact_id']}",
+        json=update,
+        headers={"Idempotency-Key": str(uuid4())},
+    )
+    assert response.status_code == 200, response.text
+    latest = work_client.get(f"/api/v1/contacts/{person['id']}").json()["outreach"]
+    assert latest["message"] == edited
+    assert latest["research"] == outreach["research"]
+    assert latest["version_id"] != outreach["version_id"]
+    with Session(engine) as db, db.begin():
+        db.get(AgentRun, UUID(work["run_id"])).finish("completed")
+    refresh = post(
+        work_client, f"record-work/contacts/{person['id']}", {"research_requested": True}
+    ).json()
+    with Session(engine) as db, db.begin():
+        db.get(AgentRun, UUID(refresh["run_id"])).finish("failed", error_code="synthetic")
+    retained = work_client.get(f"/api/v1/contacts/{person['id']}").json()["outreach"]
+    assert retained["state"] == "failed" and retained["message"] == edited
+
+
+@pytest.mark.parametrize(
+    "problem", ["missing", "long", "quote", "employment", "unlisted", "other_task"]
+)
+def test_researched_notes_reject_unbacked_claims_and_excess_length(
+    work_client,
+    engine,
+    researched_contact,
+    problem,
+):
+    person, work, body, token = researched_contact
+    if problem == "missing":
+        body.pop("contact_research")
+    elif problem == "long":
+        body["text"] = "x" * 201
+    elif problem == "quote":
+        body["contact_research"]["identity_evidence"][0]["quote"] = (
+            "An invented quote that is not on the page"
+        )
+    elif problem == "employment":
+        body["contact_research"]["employment_evidence"] = []
+    elif problem == "unlisted":
+        body["source_version_ids"] = []
+    else:
+        with Session(engine) as db, db.begin():
+            link = db.scalar(
+                select(TaskArtifact).where(TaskArtifact.task_id == UUID(work["task_id"]))
+            )
+            db.delete(link)
+    response = post(work_client, f"tasks/{work['task_id']}/record-work/output", body, token=token)
+    assert response.status_code == 422, response.text
+    with Session(engine) as db:
+        assert db.get(Task, UUID(work["task_id"])).state != "done"
+
+
+def test_uncertain_identity_is_visible_without_inventing_current_employment(
+    work_client, researched_contact
+):
+    person, work, body, token = researched_contact
+    body["source_version_ids"] = []
+    body["text"] = "Hi Taylor, I'm exploring new work opportunities and would be glad to connect."
+    body["contact_research"] = {
+        "identity": "uncertain",
+        "summary": "Could not reliably identify this person.",
+        "caveats": "Public pages describe two people with the same name.",
+    }
+    response = post(work_client, f"tasks/{work['task_id']}/record-work/output", body, token=token)
+    assert response.status_code == 200, response.text
+    work_client.app.dependency_overrides[authenticate] = lambda: Identity(
+        work_client.actor_id, "test"
+    )
+    outreach = work_client.get(f"/api/v1/contacts/{person['id']}").json()["outreach"]
+    assert outreach["research"]["identity"] == "uncertain"
+    assert not outreach["research"]["company"] and not outreach["sources"]

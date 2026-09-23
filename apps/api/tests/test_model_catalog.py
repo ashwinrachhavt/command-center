@@ -9,6 +9,13 @@ from pydantic import SecretStr
 from command_center.integrations.model_catalog import ModelCatalogUnavailable, discover_models
 
 
+def test_aya_chat_models_are_not_selectable_for_tool_using_agents():
+    from command_center.integrations.model_catalog import chat_compatible
+
+    assert not chat_compatible("cohere", {"endpoints": ["chat"]}, "c4ai-aya-expanse-32b")
+    assert chat_compatible("cohere", {"endpoints": ["chat"]}, "command-a-03-2025")
+
+
 def test_gemini_discovery_paginates_and_disables_non_chat_models(settings):
     settings = settings.model_copy(update={"gemini_api_key": SecretStr("synthetic-key")})
 
@@ -74,7 +81,7 @@ def test_other_catalogs_include_all_models_and_flag_agent_compatibility(settings
         },
         "cohere": {
             "models": [
-                {"name": "synthetic-chat", "endpoints": ["chat"]},
+                {"name": "command-r-synthetic", "endpoints": ["chat"]},
                 {"name": "synthetic-embed", "endpoints": ["embed"]},
             ]
         },

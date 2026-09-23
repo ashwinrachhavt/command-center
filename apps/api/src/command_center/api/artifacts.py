@@ -44,6 +44,9 @@ def artifact_data(db: Database, artifact: Artifact) -> dict[str, Any]:
     )
     facet = db.get(Document, artifact.id)
     data["document_type_id"] = str(facet.document_type_id) if facet else None
+    data["review_status"] = db.scalar(
+        select(Artifact.latest_review_decision()).where(Artifact.id == artifact.id)
+    )
     return data
 
 
@@ -72,11 +75,12 @@ def list_artifacts(
     q: Search = "",
     limit: Limit = 30,
     offset: Offset = 0,
-    collection: Literal["all", "library", "notes"] = "all",
+    collection: Literal["all", "library", "notes", "vault", "generated"] = "all",
     document_type_id: UUID | None = None,
     kind: Literal["document", "research", "package", "message", "source"] | None = None,
     sort: Literal["recent", "title"] = "recent",
     task_id: UUID | None = None,
+    review: Literal["unreviewed", "approved", "rejected", "revoked"] | None = None,
 ) -> dict[str, Any]:
     if task_id:
         owned(db, Task, task_id, identity.id)
@@ -87,6 +91,7 @@ def list_artifacts(
         document_type_id=document_type_id,
         kind=kind,
         task_id=task_id,
+        review=review,
     )
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     order = func.lower(Artifact.title) if sort == "title" else Artifact.updated_at.desc()
@@ -98,6 +103,12 @@ def list_artifacts(
         "offset": offset,
     }
     ids = [UUID(item["id"]) for item in page["items"]]
+    reviews = {
+        artifact_id: decision
+        for artifact_id, decision in db.execute(
+            select(Artifact.id, Artifact.latest_review_decision()).where(Artifact.id.in_(ids))
+        ).all()
+    }
     versions = {
         key: value
         for key, value in db.execute(
@@ -117,6 +128,7 @@ def list_artifacts(
     for item in page["items"]:
         item["latest_version"] = versions.get(UUID(item["id"]), 0)
         item["document_type_id"] = documents.get(UUID(item["id"]))
+        item["review_status"] = reviews.get(UUID(item["id"]), "unreviewed")
     return page
 
 

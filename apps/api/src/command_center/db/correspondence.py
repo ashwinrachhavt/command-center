@@ -83,6 +83,15 @@ class FollowUp(Base):
             if base is None:
                 raise ValueError("Choose the saved version this edit started from")
             sources.append(base.id)
+            base_payload = base.payload or {}
+            if "contact_research" in base_payload:
+                content = {**content, "contact_research": base_payload["contact_research"]}
+            if base_payload.get("connection_note"):
+                content = {**content, "connection_note": True}
+        if content.get("connection_note") and content["channel"] == "linkedin":
+            note = plain_text(content["text"], content["format"])
+            if len(note.encode("utf-16-le")) // 2 > 200:
+                raise ValueError("LinkedIn connection notes must be at most 200 characters")
         payload = {**content, "contact_id": str(contact.id), "linkedin_url": contact.linkedin_url}
         version = artifact.append_payload(
             payload,

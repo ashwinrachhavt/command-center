@@ -1,6 +1,8 @@
 # Command Center Companion
 
-Companion `0.4.5` is included in `frontend-redesign`. It includes bounded employment/education row creation and recognized job continuity across supported application pages. Reload the unpacked extension and refresh the job page after updating. Non-browser verification is complete; hands-on browser QA is user-led. Native AgentBrowser and real-browser integration were not exercised for these increments.
+Companion `0.4.6` simplifies setup and uses **This browser** for new installations, reading the Chrome tab where you opened the extension. It retains bounded employment/education row creation and recognized job continuity across supported application pages. Reload the unpacked extension and refresh the job page after updating. Real authenticated ATS behavior remains unverified in this pass.
+
+If capture fails, open **Capture settings** and choose **This browser (recommended)**. An explicitly saved AgentBrowser preference is preserved across upgrades; that advanced mode needs its separate native helper and browser. Open the extension from a normal application page to grant access to that tab. Chrome settings, extension pages, and the Chrome Web Store cannot be captured.
 
 Start the API on localhost:8000 and web app on localhost:3001. In Chrome's Extensions page, enable Developer mode and Load unpacked → this directory. Open the workspace's Browser companion page, create a pairing code, and paste it into the extension popup.
 

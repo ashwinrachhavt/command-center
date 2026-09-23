@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from command_center.core.identity import Identity, authenticate
 from command_center.db.artifacts import Artifact, ArtifactDerivation, ArtifactVersion
-from command_center.db.models import Actor
+from command_center.db.models import Actor, AuditEvent
 from command_center.main import create_app
 
 
@@ -175,3 +175,77 @@ def test_ungrounded_draft_has_no_source_lineage(client):
     assert version["input_version_ids"] == []
     lineage = client.get(f"/api/v1/versions/{version['id']}/lineage")
     assert lineage.status_code == 200 and lineage.json() == []
+
+
+def test_library_review_queue_tracks_only_the_latest_version(client):
+    response, _ = create_artifact(client, title="Review this brief", text="First draft")
+    artifact = response.json()
+    version = latest_version(client, artifact["id"])
+    reviewed = client.post(
+        f"/api/v1/versions/{version['id']}/reviews",
+        headers={"Idempotency-Key": str(uuid4())},
+        json={"decision": "approved", "reason": "Checked the saved evidence."},
+    )
+    assert reviewed.status_code == 201, reviewed.text
+    approved = client.get(
+        "/api/v1/artifacts", params={"collection": "library", "review": "approved"}
+    )
+    assert approved.status_code == 200, approved.text
+    assert [item["id"] for item in approved.json()["items"]] == [artifact["id"]]
+    assert approved.json()["items"][0]["review_status"] == "approved"
+    assert client.get(f"/api/v1/artifacts/{artifact['id']}").json()["review_status"] == "approved"
+    revision = client.post(
+        f"/api/v1/artifacts/{artifact['id']}/versions",
+        headers={"Idempotency-Key": str(uuid4())},
+        json={
+            "text": "Changed claims need another review.",
+            "based_on_version_id": version["id"],
+            "expected_version": artifact["row_version"],
+        },
+    )
+    assert revision.status_code == 201, revision.text
+    assert (
+        client.get(
+            "/api/v1/artifacts", params={"collection": "library", "review": "approved"}
+        ).json()["total"]
+        == 0
+    )
+    pending = client.get(
+        "/api/v1/artifacts", params={"collection": "library", "review": "unreviewed"}
+    ).json()
+    assert pending["total"] == 1
+    assert pending["items"][0]["review_status"] == "unreviewed"
+
+
+def test_library_includes_message_outputs_and_generated_filter_uses_audit(client, engine):
+    response = client.post(
+        "/api/v1/artifacts",
+        headers={"Idempotency-Key": str(uuid4())},
+        json={
+            "kind": "message",
+            "title": "Synthetic agent draft",
+            "sensitivity": "private",
+            "text": "An introduction to review.",
+        },
+    )
+    assert response.status_code == 201, response.text
+    artifact = response.json()
+    create_artifact(client, title="My own notes", text="Human-authored text")
+    with Session(engine) as db, db.begin():
+        db.add(
+            AuditEvent(
+                actor_id=client.owner_id,
+                action="artifact.version_created",
+                subject_type="artifacts",
+                subject_id=artifact["id"],
+                request_id=uuid4(),
+                details={"version": 1, "agent_run_id": str(uuid4())},
+            )
+        )
+    library = client.get("/api/v1/artifacts", params={"collection": "library"}).json()
+    assert library["total"] == 2
+    assert artifact["id"] in [item["id"] for item in library["items"]]
+    generated = client.get("/api/v1/artifacts", params={"collection": "generated"})
+    assert generated.status_code == 200, generated.text
+    assert [item["id"] for item in generated.json()["items"]] == [artifact["id"]]
+    assert client.get("/api/v1/artifacts", params={"collection": "vault"}).json()["total"] == 0

@@ -10,7 +10,9 @@ test("a ready Gemini profile runs without OpenAI", async ({ page }) => {
   const run = page.getByRole("button", { name: "Run agent" });
   await expect(run).toBeEnabled();
   await run.click();
-  await expect(page.getByText("Your agent run is queued")).toBeVisible();
+  await expect(
+    page.getByText("Message saved to your conversation"),
+  ).toBeVisible();
 });
 
 test("a mixed profile stays blocked when a specialist provider is missing", async ({

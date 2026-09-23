@@ -65,7 +65,9 @@ class AgentProfile(BaseModel):
     specialists: dict[str, "AgentProfile"] = Field(default_factory=dict, max_length=4)
     max_steps: int = Field(default=8, ge=1, le=20)
     max_output_tokens: int = Field(default=2000, ge=256, le=8000)
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
     max_tool_calls: int = Field(default=32, ge=1, le=128)
+    tool_call_limits: dict[str, int] = Field(default_factory=dict, max_length=32)
     max_parallel_tools: int = Field(default=4, ge=1, le=8)
     max_context_chars: int = Field(default=80000, ge=10000, le=200000)
     # Leave cleanup time before Celery's 840-second soft limit.
@@ -73,6 +75,11 @@ class AgentProfile(BaseModel):
 
     @model_validator(mode="after")
     def unique_tools(self) -> "AgentProfile":
+        if any(
+            name not in self.tools or not 1 <= limit <= 128
+            for name, limit in self.tool_call_limits.items()
+        ):
+            raise ValueError("Tool limits need a granted tool and a positive bounded count")
         if self.composio_tools:
             raise ValueError(
                 "Use typed connected account, context and proposal tools; "

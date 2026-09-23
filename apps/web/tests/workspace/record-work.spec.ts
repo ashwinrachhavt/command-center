@@ -1,5 +1,68 @@
 import { expect, test } from "@playwright/test";
 
+test("contact rows default to a quick note and deeper enrichment is explicit", async ({
+  page,
+}) => {
+  await page.goto("/contacts");
+  await page
+    .getByRole("button", { name: "Draft connection note", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Copy note", exact: true }).first(),
+  ).toBeVisible();
+  const requests = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("synthetic-record-work-requests") ?? "[]"),
+  );
+  expect(requests).toHaveLength(1);
+  expect(requests[0].body.connection_note).toBe(true);
+  expect(requests[0].body.research_requested).not.toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Enrich contact", exact: true }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Batch enrich", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Enrich selected contacts" });
+  await expect(dialog).toContainText("Choose up to 10 people");
+  await dialog.getByRole("checkbox").first().check();
+  await dialog.getByRole("button", { name: "Enrich 1", exact: true }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Open task", exact: true }),
+  ).toBeVisible();
+  const all = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("synthetic-record-work-requests") ?? "[]"),
+  );
+  expect(all).toHaveLength(2);
+  expect(all[1].body.research_requested).toBe(true);
+});
+
+test("batch selection fits mobile and resets when the contact search changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/contacts");
+  await page.getByRole("button", { name: "Batch enrich", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Enrich selected contacts" });
+  const selection = dialog.getByRole("checkbox").first();
+  await selection.check();
+  await expect(
+    dialog.getByRole("button", { name: "Enrich 1", exact: true }),
+  ).toBeEnabled();
+  const bounds = await selection.boundingBox();
+  expect(bounds?.width).toBe(bounds?.height);
+  expect(
+    await dialog.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search contacts" }).fill("Alex");
+  await page.getByRole("button", { name: "Batch enrich", exact: true }).click();
+  await expect(selection).not.toBeChecked();
+  await expect(
+    dialog.getByRole("button", { name: "Enrich selected", exact: true }),
+  ).toBeDisabled();
+});
+
 test("an agent-generated contact draft is saved, editable and recoverable without delivery", async ({
   page,
 }) => {

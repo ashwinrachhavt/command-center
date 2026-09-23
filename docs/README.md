@@ -21,6 +21,8 @@ Model/schema/API source and migrations establish what is implemented. A spec or 
 
 The current `frontend-redesign` release includes saved job descriptions, recoverable tailored résumé/cover-letter requests, contextual Tiptap editing and PDF export; deterministic keyword coverage pinned to saved sources; approved employment/education autofill and bounded Add-row expansion; current-job recognition across supported application pages; and the daily Overview attention/running/output queues and task controls. Companion `0.4.5` retains manual Next and Submit. See [Engineering](tech/engineering.md) for the recorded validation checkpoints. These features are integrated through `ed69ac1`. Historical-application matching, broader authenticated ATS coverage, accurate email reply targeting and live provider/model quality remain unfinished. General routines remain deferred. Hands-on platform/provider QA is user-led; paid evaluation remains disabled until a reviewed plan and allowance exist.
 
+The subsequent local usability cleanup makes Home the agent workspace, consolidates career views under Opportunities, separates Library writing/reviews from the uploaded Document Vault, and opens artifacts in a wide reading canvas. Agents groups current profiles, connectors, skills, workflow entry points and memory. Companion `0.4.6` defaults to reading the active Chrome tab. This work is local, with validation recorded in [Engineering](tech/engineering.md#calm-workbench-usability-cleanup--2026-09-22); it is not a deployment claim.
+
 For hands-on release testing, use the [smoke-test checklist](smoke-test.md). It covers core workflows, optional live integrations and known limits.
 
 ## Operational leads

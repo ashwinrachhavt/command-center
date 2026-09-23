@@ -23,7 +23,7 @@ from command_center.agents.config import AgentProfile
 from command_center.agents.runtime import run_graph
 from command_center.agents.runtime_control import RunControl, WorkMiddleware
 from command_center.core.identity import Identity, authenticate
-from command_center.db.agent_events import AgentEvent, public_input
+from command_center.db.agent_events import AgentEvent, public_input, validate_event
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
 from command_center.db.errors import RecordConflict
@@ -255,6 +255,49 @@ def test_actual_tool_middleware_emits_input_and_output() -> None:
     ]
 
 
+def test_lookup_quota_survives_resume_and_denied_call_replay():
+    profile = AgentProfile(
+        name="Quick",
+        description="Synthetic",
+        model="synthetic",
+        instructions="Use saved context",
+        tools=["research_search", "save_record_work"],
+        tool_call_limits={"research_search": 1},
+    )
+    snapshots = []
+    dispatched = []
+
+    async def persist(state):
+        snapshots.append(state)
+
+    async def invoke():
+        control = RunControl(profile, persist)
+        middleware = WorkMiddleware(control, "lead")
+
+        async def handler(request):
+            dispatched.append(request.tool_call["name"])
+            return ToolMessage("Saved", tool_call_id=request.tool_call["id"])
+
+        def request(name, identifier):
+            return ToolCallRequest(
+                tool_call={"name": name, "args": {}, "id": identifier},
+                tool=None,
+                state={},
+                runtime=SimpleNamespace(config={"configurable": {}}),
+            )
+
+        await middleware.awrap_tool_call(request("research_search", "first"), handler)
+        denied = await middleware.awrap_tool_call(request("research_search", "second"), handler)
+        assert denied.status == "error"
+        restored = WorkMiddleware(RunControl(profile, persist, prior_state=snapshots[-1]), "lead")
+        replay = await restored.awrap_tool_call(request("research_search", "second"), handler)
+        assert replay.status == "error"
+        await restored.awrap_tool_call(request("save_record_work", "save"), handler)
+
+    asyncio.run(invoke())
+    assert dispatched == ["research_search", "save_record_work"]
+
+
 def test_events_are_monotonic_fenced_and_terminal(engine) -> None:
     with Session(engine, expire_on_commit=False) as db, db.begin():
         owner = Actor(id=uuid4(), kind="human", display_name="Streaming owner")
@@ -383,6 +426,7 @@ def test_sse_replays_after_cursor_and_hides_other_owners(client, engine) -> None
                         "input": {"api_token": "must-not-leak", "query": "public"},
                     },
                 ),
+                ("usage", "lead", {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}),
             ],
         )
         run.finish("completed", output="Visible")
@@ -395,11 +439,12 @@ def test_sse_replays_after_cursor_and_hides_other_owners(client, engine) -> None
     assert response.headers["content-type"].startswith("text/event-stream")
     blocks = [block for block in response.text.strip().split("\n\n") if block]
     payloads = [json.loads(block.split("data: ", 1)[1]) for block in blocks]
-    assert [payload["sequence"] for payload in payloads] == [2, 3, 4]
+    assert [payload["sequence"] for payload in payloads] == [2, 3, 4, 5]
     assert payloads[1]["data"]["input"] == {
         "api_token": "[redacted]",
         "query": "public",
     }
+    assert payloads[2]["data"] == {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}
     assert client.get(f"/api/v1/agent-runs/{hidden_id}/events").status_code == 404
 
 
@@ -407,3 +452,12 @@ def test_event_payloads_are_bounded_and_redact_nested_credentials() -> None:
     assert public_input({"nested": {"Authorization": "secret", "value": "ok"}}) == {
         "nested": {"Authorization": "[redacted]", "value": "ok"}
     }
+
+
+@pytest.mark.parametrize("value", ["private-token-value", True, -1, 1.5])
+def test_usage_rejects_non_count_values(value) -> None:
+    with pytest.raises(ValueError, match="Invalid usage event"):
+        validate_event(
+            "usage", "lead", {"input_tokens": value, "output_tokens": 0, "total_tokens": value}
+        )
+    assert public_input({"input_tokens": value}) == {"input_tokens": "[redacted]"}

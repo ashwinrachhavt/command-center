@@ -1,8 +1,8 @@
 """Owned work conversations spanning durable agent runs."""
 
 import hashlib
-from typing import Any
-from uuid import UUID, uuid4
+from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import (
     CheckConstraint,
@@ -23,9 +23,12 @@ from command_center.db.crm import Opportunity, OwnedRecord, record_event
 from command_center.db.errors import RecordConflict, RecordNotFound
 from command_center.db.models import Task
 
+if TYPE_CHECKING:
+    from command_center.db.agents import AgentRun
+
 
 class AgentSession(OwnedRecord, Base):
-    """Canonical conversation identity for exactly one active work scope."""
+    """Canonical conversation identity, optionally attached to one work scope."""
 
     __tablename__ = "agent_sessions"
     __table_args__ = (
@@ -39,7 +42,7 @@ class AgentSession(OwnedRecord, Base):
             ["opportunities.id", "opportunities.owner_id"],
         ),
         CheckConstraint(
-            "(task_id IS NOT NULL) <> (opportunity_id IS NOT NULL)",
+            "num_nonnulls(task_id, opportunity_id) <= 1",
             name="one_scope",
         ),
         CheckConstraint("last_sequence >= 0", name="last_sequence"),
@@ -63,6 +66,71 @@ class AgentSession(OwnedRecord, Base):
     task_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     opportunity_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     last_sequence: Mapped[int] = mapped_column(Integer, default=0)
+
+    @classmethod
+    def open_chat(
+        cls, session: Session, *, record_id: UUID, owner_id: UUID, title: str, request_id: UUID
+    ) -> "AgentSession":
+        conversation = cls(
+            id=record_id, owner_id=owner_id, title=title[:300], task_id=None, opportunity_id=None
+        )
+        session.add(conversation)
+        session.flush()
+        record_event(
+            session,
+            owner_id,
+            request_id,
+            "agent_session.created",
+            cls.__tablename__,
+            conversation.id,
+        )
+        return conversation
+
+    @classmethod
+    def for_run(cls, session: Session, *, run: "AgentRun", request_id: UUID) -> "AgentSession":
+        """Adopt a legacy one-shot run once, keeping its visible transcript intact."""
+        session.refresh(run, with_for_update=True)
+        if run.session_id is not None:
+            conversation = session.get(cls, run.session_id)
+            assert conversation is not None and conversation.owner_id == run.owner_id
+            return conversation
+        conversation = cls.open_chat(
+            session,
+            record_id=uuid5(run.id, "conversation"),
+            owner_id=run.owner_id,
+            title=run.title,
+            request_id=request_id,
+        )
+        run.session_id = conversation.id
+        run.input_sequence = 1
+        run.consumed_sequence = 1
+        conversation.last_sequence = 1
+        session.add(
+            AgentMessage(
+                owner_id=run.owner_id,
+                session_id=conversation.id,
+                run_id=run.id,
+                sequence=1,
+                author="user",
+                profile=run.profile,
+                content=run.prompt,
+            )
+        )
+        session.flush()
+        if run.state == "completed" and run.output:
+            conversation.append_assistant(
+                run_id=run.id, profile=run.profile, content=run.output, request_id=request_id
+            )
+        record_event(
+            session,
+            run.owner_id,
+            request_id,
+            "agent_session.run_attached",
+            cls.__tablename__,
+            conversation.id,
+            run_id=str(run.id),
+        )
+        return conversation
 
     @classmethod
     def open(

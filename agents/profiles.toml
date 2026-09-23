@@ -52,11 +52,27 @@ name = "Outreach specialist"
 description = "Research the person and company and prepare an evidence-backed outreach draft for review."
 provider = "openai"
 model = "gpt-5-mini"
-tools = ["workspace_summary", "record_work_context", "save_record_work", "research_search", "lead_evidence", "draft_artifact", "memory_read", "approved_profile", "connected_accounts", "connected_context", "propose_connected_action", "reviewed_action", "ask_user"]
+tools = ["workspace_summary", "record_work_context", "save_record_work", "research_search", "capture_research_source", "document_read", "lead_evidence", "draft_artifact", "memory_read", "approved_profile", "connected_accounts", "connected_context", "propose_connected_action", "reviewed_action", "ask_user"]
 skills = ["research", "writing"]
-max_steps = 6
+max_steps = 14
 max_output_tokens = 2500
 directive = "outreach"
+
+[profiles.connection]
+name = "Quick connection note"
+description = "Write a short LinkedIn note from saved context, with one optional targeted lookup."
+provider = "openai"
+model = "gpt-5-mini"
+tools = ["record_work_context", "save_record_work", "research_search", "capture_research_source", "document_read", "approved_profile", "ask_user"]
+max_steps = 7
+max_output_tokens = 800
+reasoning_effort = "low"
+max_tool_calls = 8
+tool_call_limits = { research_search = 1, capture_research_source = 1, document_read = 1, approved_profile = 1 }
+max_parallel_tools = 2
+max_context_chars = 40000
+max_duration_seconds = 180
+directive = "connection"
 
 # Connected app tools use locally verified account references and explicit spending rates.
 # Human review of the exact revision is required before a background worker executes it.

@@ -273,6 +273,8 @@ const runFailureMessages: Record<string, string> = {
     "The model provider timed out. No automatic replay was attempted.",
   model_connection_failed:
     "The worker could not connect to the model provider. Check connectivity before trying again.",
+  model_tools_unsupported:
+    "This model does not support agent tools. Choose a tool-capable model and send your message again.",
   model_request_rejected:
     "The model provider rejected this agent’s request or tool configuration. Choose another model while the integration is checked.",
   model_provider_unavailable:

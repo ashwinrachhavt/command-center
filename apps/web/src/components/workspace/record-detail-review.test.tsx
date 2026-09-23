@@ -64,6 +64,7 @@ function mount(
     Response.json({ id: "review-1" }),
   ],
   reviewReads: Response[] = [Response.json([])],
+  initialVersion: Schema["VersionRead"] = v1,
 ) {
   sessionStorage.clear();
   let draft = {
@@ -92,12 +93,12 @@ function mount(
       init?.method === "GET" &&
       route.includes("/artifacts/artifact-1/version-history?")
     )
-      return Response.json(history([v1]).pages[0]);
+      return Response.json(history([initialVersion]).pages[0]);
     if (
       init?.method === "GET" &&
       route.endsWith("/artifacts/artifact-1/versions/version-1")
     )
-      return Response.json(v1);
+      return Response.json(initialVersion);
     if (
       init?.method === "GET" &&
       route.endsWith("/artifacts/artifact-1/versions/version-2")
@@ -152,6 +153,42 @@ function history(versions: Schema["VersionRead"][]) {
     pageParams: [null],
   };
 }
+
+it("shows structured artifact values instead of declaring the version empty", async () => {
+  mount(undefined, undefined, {
+    ...v1,
+    payload: {
+      fields: [{ label: "Preferred start", answer: "After the interview" }],
+      prior_applications: 0,
+      submitted: false,
+      comment: '<img src="missing" onerror="alert(1)">',
+    },
+  });
+  expect(await screen.findByText("After the interview")).toBeVisible();
+  expect(screen.getByText("0")).toBeVisible();
+  expect(screen.getByText("No")).toBeVisible();
+  expect(
+    screen.getByText('<img src="missing" onerror="alert(1)">'),
+  ).toBeVisible();
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  expect(screen.queryByText("This version is empty.")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "New version" })).toBeDisabled();
+});
+
+it("keeps saved metadata available beside a written artifact", async () => {
+  mount(undefined, undefined, {
+    ...v1,
+    payload: {
+      text: "Version one content",
+      subject: "An introduction",
+      source: "Saved research",
+    },
+  });
+  expect(await screen.findByText("Version one content")).toBeVisible();
+  fireEvent.click(screen.getByText("Saved details", { exact: true }));
+  expect(screen.getByText("An introduction")).toBeVisible();
+  expect(screen.getByText("Saved research")).toBeVisible();
+});
 
 it("pins the displayed version, content hash, reason, and submitted review through refetch", async () => {
   const { client, posts } = mount();

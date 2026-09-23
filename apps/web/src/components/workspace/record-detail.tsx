@@ -62,6 +62,7 @@ import { DocumentTasks, TaskDocuments } from "./document-tasks";
 import { DocumentOriginal } from "./document-original";
 import { PdfExportControl } from "./pdf-export";
 import { TaskActionHub } from "./task-action-hub";
+import { StructuredContent } from "./structured-content";
 
 const RichAgentResponse = deferView<{ children: string }>(
   () =>
@@ -218,6 +219,7 @@ export function ArtifactContent({
       queryClient.invalidateQueries({
         queryKey: ["reviews", submission.versionId],
       });
+      void queryClient.invalidateQueries({ queryKey: ["artifacts"] });
       reviewIntent.confirmRequest(
         "POST",
         `versions/${submission.versionId}/reviews`,
@@ -275,6 +277,13 @@ export function ArtifactContent({
   const downloadableImport = imports.data?.items.find(
     (item) => item.source_version_id === version?.id,
   );
+  const contentText =
+    typeof version?.payload?.text === "string" ? version.payload.text : null;
+  const savedFields = Object.fromEntries(
+    Object.entries(version?.payload ?? {}).filter(
+      ([key]) => contentText === null || key !== "text",
+    ),
+  );
   return (
     <div className="flex flex-col gap-5">
       {versions.isPending ||
@@ -284,7 +293,7 @@ export function ArtifactContent({
         <ErrorState error={versions.error} />
       ) : (
         <>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               value={selected ?? version?.id}
               onValueChange={requestVersion}
@@ -328,14 +337,18 @@ export function ArtifactContent({
             )}
             {!pinnedVersionMissing ? (
               <>
-                {downloadableImport ? (
+                {downloadableImport || version?.payload === null ? (
                   <Button
                     className="ml-auto"
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => download.mutate()}
                     disabled={download.isPending}
-                    aria-label={`Download original ${downloadableImport.filename}`}
+                    aria-label={
+                      downloadableImport
+                        ? `Download original ${downloadableImport.filename}`
+                        : `Download ${recordName(record)}`
+                    }
                   >
                     <Download />
                   </Button>
@@ -477,13 +490,31 @@ export function ArtifactContent({
                 }}
               />
             ) : null
-          ) : version?.payload === null ? (
+          ) : !version ? null : version.payload === null ? (
             <DocumentOriginal key={version.id} imported={downloadableImport} />
           ) : (
-            <div className="min-h-40 break-words rounded-lg border border-border bg-background p-4">
-              <RichAgentResponse>
-                {String(version?.payload?.text || "This version is empty.")}
-              </RichAgentResponse>
+            <div className="min-h-56 break-words px-1 py-6 text-base leading-8 sm:px-3">
+              {contentText ? (
+                <RichAgentResponse>{contentText}</RichAgentResponse>
+              ) : null}
+              {Object.keys(savedFields).length > 0 ? (
+                contentText ? (
+                  <details className="mt-8 border-t border-border pt-4">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      Saved details
+                    </summary>
+                    <div className="mt-4">
+                      <StructuredContent value={savedFields} />
+                    </div>
+                  </details>
+                ) : (
+                  <StructuredContent value={savedFields} />
+                )
+              ) : !contentText ? (
+                <p className="text-sm text-muted-foreground">
+                  This version is empty.
+                </p>
+              ) : null}
             </div>
           )}
           {!pinnedVersionMissing ? (
@@ -665,7 +696,9 @@ export function RecordDetail({
   const [discoveringContacts, setDiscoveringContacts] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState(initialTab ?? "overview");
+  const [activeTab, setActiveTab] = useState(
+    initialTab ?? (resource === "artifacts" ? "content" : "overview"),
+  );
   const [recordIntent] = useState(() => new RetainedRequestIntent());
   const [archiveIntent] = useState(() => new RetainedRequestIntent());
   const query = useQuery({
@@ -725,6 +758,7 @@ export function RecordDetail({
             "completed_at",
             "latest_version",
             "latest_research",
+            "review_status",
             ...(resource === "opportunities" || resource === "tasks"
               ? ["stage", "state"]
               : []),

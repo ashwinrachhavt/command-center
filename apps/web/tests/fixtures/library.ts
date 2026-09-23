@@ -69,6 +69,7 @@ export async function libraryFixture(
   url: URL,
   init: RequestInit | undefined,
   rows: Record<string, Row[]>,
+  imports: Row[] = [],
 ) {
   const route = url.pathname.replace("/api/backend/", "");
   const method = init?.method ?? "GET";
@@ -99,12 +100,23 @@ export async function libraryFixture(
       list = list.filter(
         (item) => item.document_type_id === "document-type-notes",
       );
-    if (url.searchParams.get("collection") === "library")
+    const collection = url.searchParams.get("collection");
+    if (["library", "vault", "notes", "generated"].includes(collection ?? ""))
       list = list.filter(
         (item) =>
-          ["document", "research", "package"].includes(String(item.kind)) &&
-          item.id !== "artifact-resume-extracted",
+          !imports.some((entry) => entry.extraction_artifact_id === item.id) &&
+          (collection === "vault"
+            ? imports.some((entry) => entry.artifact_id === item.id)
+            : !imports.some((entry) => entry.artifact_id === item.id)),
       );
+    if (collection === "generated")
+      list = list.filter((item) => item.id === "artifact-generated-brief");
+    list = list.map((item) => ({
+      ...item,
+      review_status: item.review_status ?? "unreviewed",
+    }));
+    const review = url.searchParams.get("review");
+    if (review) list = list.filter((item) => item.review_status === review);
     if (url.searchParams.has("task_id"))
       list = list.filter((item) =>
         state.links[String(item.id)]?.includes(

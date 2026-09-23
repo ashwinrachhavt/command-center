@@ -306,7 +306,7 @@ it.each(["agent-browser", "direct"] as const)(
     expect(f.calls.filter((call) => call.key)).toEqual([]);
     if (reader === "direct") {
       expect(document.getElementById("reader-status")).toHaveTextContent(
-        "Direct browser",
+        "Reads the application in this Chrome tab",
       );
       expect(document.getElementById("reader-status")).not.toHaveTextContent(
         "AgentBrowser",

@@ -17,6 +17,8 @@ from pydantic import (
     model_validator,
 )
 
+from command_center.db.contact_research import ContactResearch
+
 Name = Annotated[str, Field(min_length=1, max_length=200)]
 Title = Annotated[str, Field(min_length=1, max_length=300)]
 Notes = Annotated[str, StringConstraints(strip_whitespace=False), Field(max_length=20000)]
@@ -186,8 +188,27 @@ class CompanyLabel(ResponseContract):
     name: str
 
 
+class OutreachSourceRead(ResponseContract):
+    version_id: UUID
+    url: str
+    retrieved_at: datetime
+
+
+class ContactOutreachRead(ResponseContract):
+    task_id: UUID
+    state: str
+    error_code: str | None
+    artifact_id: UUID | None
+    version_id: UUID | None
+    message: str
+    research: ContactResearch | None
+    researched_at: datetime | None
+    sources: list[OutreachSourceRead]
+
+
 class ContactRead(ContactCreate, RecordRead):
     archived_at: datetime | None
+    outreach: ContactOutreachRead | None = None
 
 
 class JobRead(JobCreate, RecordRead):
@@ -236,6 +257,7 @@ class ArtifactRead(RecordRead):
     archived_at: datetime | None
     latest_version: int = 0
     document_type_id: UUID | None = None
+    review_status: Literal["unreviewed", "approved", "rejected", "revoked"] = "unreviewed"
 
 
 class VersionCreate(Revision):

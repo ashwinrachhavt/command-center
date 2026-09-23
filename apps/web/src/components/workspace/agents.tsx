@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUp,
@@ -29,12 +30,14 @@ import {
   label,
   runFailureMessage,
   type AgentProfile,
+  type AgentMessage,
   type ModelProvider,
   type Page,
   type Run,
 } from "@/lib/api";
 import { ModelSwitcher } from "./model-switcher";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
+import { submitChatOnEnter } from "@/lib/submit-chat-on-enter";
 import { cn } from "@/lib/utils";
 import {
   Conversation,
@@ -66,7 +69,10 @@ const RichAgentResponse = deferView<{ children: string }>(
 );
 
 export function Agents() {
-  const [profileId, setProfileId] = useState("research");
+  const params = useSearchParams();
+  const [profileId, setProfileId] = useState(
+    params?.get("agent") ?? "research",
+  );
   const [prompt, setPrompt] = useState("");
   const [selected, setSelected] = useState<string>();
   const [customProvider, setCustomProvider] = useState<ModelProvider>();
@@ -84,10 +90,39 @@ export function Agents() {
   const profile = profiles.data?.find((p) => p.id === profileId);
   const activeProvider = customProvider ?? profile?.provider ?? "openai";
   const activeModel = customModel ?? profile?.model ?? "gpt-5-mini";
-  const run = runs.data?.items.find((r) => r.id === selected);
+  const selectedRun = runs.data?.items.find((r) => r.id === selected);
+  const run = selectedRun?.session_id
+    ? runs.data?.items.find((r) => r.session_id === selectedRun.session_id)
+    : selectedRun;
+  const threads = runs.data?.items.filter(
+    (item, index, items) =>
+      !item.session_id ||
+      items.findIndex((other) => other.session_id === item.session_id) ===
+        index,
+  );
+  const transcript = useQuery({
+    queryKey: ["agent-chat-messages", run?.session_id, run?.id, run?.state],
+    enabled: !!run?.session_id,
+    queryFn: async () => {
+      const messages: AgentMessage[] = [];
+      let after = 0;
+      for (;;) {
+        const page = await api<Page<AgentMessage>>(
+          `agent-sessions/${run!.session_id}/messages?limit=100&after_sequence=${after}`,
+        );
+        messages.push(...page.items);
+        if (page.items.length < 100) return messages;
+        after = page.items[page.items.length - 1].sequence;
+      }
+    },
+    refetchInterval:
+      run && ["queued", "running", "waiting_for_user"].includes(run.state)
+        ? 1500
+        : false,
+  });
   const steps = useQuery({
-    queryKey: ["run-steps", selected],
-    enabled: !!selected,
+    queryKey: ["run-steps", run?.id],
+    enabled: !!run,
     queryFn: () =>
       api<
         {
@@ -96,7 +131,7 @@ export function Agents() {
           state: "input-available" | "output-available" | "output-error";
           output: string | null;
         }[]
-      >(`agent-runs/${selected}/steps`),
+      >(`agent-runs/${run!.id}/steps`),
     refetchInterval:
       run && ["queued", "running"].includes(run.state) ? 3000 : false,
   });
@@ -109,6 +144,7 @@ export function Agents() {
       prompt: string;
       provider?: ModelProvider;
       model?: string;
+      continue_run_id?: string;
     }) => {
       const target = "agent-runs";
       const body = submission;
@@ -122,9 +158,18 @@ export function Agents() {
     onSuccess: (r, submission) => {
       runIntent.confirmRequest("POST", "agent-runs", submission);
       client.invalidateQueries({ queryKey: ["runs"] });
+      void client.invalidateQueries({ queryKey: ["agent-chat-messages"] });
+      client.setQueryData<Page<Run>>(["runs"], (current) =>
+        current
+          ? {
+              ...current,
+              items: [r, ...current.items.filter((item) => item.id !== r.id)],
+            }
+          : current,
+      );
       setSelected(r.id);
       setPrompt((current) => (current === submission.prompt ? "" : current));
-      toast.success("Your agent run is queued");
+      toast.success("Message saved to your conversation");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -150,24 +195,36 @@ export function Agents() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const canSend =
+    !!prompt.trim() &&
+    !send.isPending &&
+    !profiles.isPending &&
+    !profiles.error &&
+    !!profile?.ready;
+
   return (
     <>
       <PageHeading
-        title="Agents"
-        description="Research, drafts, and a record of each run."
+        title="Home"
+        description="A place to think, make progress, and work with your agents."
+        action={
+          <Button variant="outline" asChild>
+            <Link href="/agent-settings">Configure agents</Link>
+          </Button>
+        }
       />
-      <div className="grid min-h-[620px] grid-cols-1 border-y border-border lg:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="border-b border-border bg-card/40 p-4 lg:border-r lg:border-b-0">
+      <div className="grid grid-cols-1 border-y border-border lg:h-[calc(100dvh-11.25rem)] lg:min-h-[400px] lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="max-h-48 overflow-y-auto border-b border-border bg-card/40 p-4 lg:max-h-none lg:border-r lg:border-b-0">
           <Button
             variant="outline"
             className="mb-5 w-full"
             onClick={() => setSelected(undefined)}
           >
             <Sparkles />
-            New run
+            New chat
           </Button>
           <p className="mb-3 px-2 text-[10px] tracking-wider text-muted-foreground">
-            RECENT RUNS
+            RECENT CONVERSATIONS
           </p>
           <div className="flex flex-col gap-1">
             {runs.error ? (
@@ -183,14 +240,19 @@ export function Agents() {
                 Your conversations and their outcomes will live here.
               </p>
             ) : runs.data ? (
-              runs.data.items.map((r) => (
+              threads?.map((r) => (
                 <button
                   key={r.id}
                   className={cn(
                     "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
-                    selected === r.id && "bg-muted",
+                    run?.id === r.id && "bg-muted",
                   )}
-                  onClick={() => setSelected(r.id)}
+                  onClick={() => {
+                    setSelected(r.id);
+                    setProfileId(r.profile);
+                    setCustomProvider(undefined);
+                    setCustomModel(undefined);
+                  }}
                 >
                   <span className="line-clamp-2 text-xs leading-5">
                     {r.title}
@@ -206,9 +268,9 @@ export function Agents() {
             ) : null}
           </div>
         </aside>
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-col">
           {run ? (
-            <div className="flex-1 p-6 md:p-9">
+            <div className="min-h-0 flex-1 overflow-y-auto p-6 md:p-9">
               <div className="mb-7 flex items-center gap-3">
                 <Bot className="size-5 text-primary" />
                 <p className="text-sm font-medium">
@@ -231,11 +293,43 @@ export function Agents() {
               </div>
               <Conversation className="max-h-[65vh] min-h-60">
                 <ConversationContent className="gap-6 p-0 pb-12">
-                  <Message from="user">
-                    <MessageContent className="whitespace-pre-wrap">
-                      {run.prompt}
-                    </MessageContent>
-                  </Message>
+                  {run.session_id ? (
+                    <>
+                      {transcript.isPending && (
+                        <p
+                          className="text-sm text-muted-foreground"
+                          role="status"
+                        >
+                          Loading conversation…
+                        </p>
+                      )}
+                      {transcript.error && (
+                        <ErrorState
+                          error={transcript.error}
+                          retry={() => void transcript.refetch()}
+                        />
+                      )}
+                      {transcript.data?.map((message) => (
+                        <Message key={message.id} from={message.author}>
+                          <MessageContent className="whitespace-pre-wrap">
+                            {message.author === "assistant" ? (
+                              <RichAgentResponse>
+                                {message.content}
+                              </RichAgentResponse>
+                            ) : (
+                              message.content
+                            )}
+                          </MessageContent>
+                        </Message>
+                      ))}
+                    </>
+                  ) : (
+                    <Message from="user">
+                      <MessageContent className="whitespace-pre-wrap">
+                        {run.prompt}
+                      </MessageContent>
+                    </Message>
+                  )}
                   {steps.error ? (
                     <ErrorState
                       error={steps.error}
@@ -284,11 +378,18 @@ export function Agents() {
                     </Tool>
                   ))}
                   {run.output ? (
-                    <Message from="assistant">
-                      <MessageContent>
-                        <RichAgentResponse>{run.output}</RichAgentResponse>
-                      </MessageContent>
-                    </Message>
+                    !run.session_id ||
+                    !transcript.data?.some(
+                      (message) =>
+                        message.run_id === run.id &&
+                        message.author === "assistant",
+                    ) ? (
+                      <Message from="assistant">
+                        <MessageContent>
+                          <RichAgentResponse>{run.output}</RichAgentResponse>
+                        </MessageContent>
+                      </Message>
+                    ) : null
                   ) : ["queued", "running"].includes(run.state) ? (
                     <div className="mt-8 flex items-center gap-3 text-sm text-muted-foreground">
                       <Clock3 className="size-4 animate-pulse" />
@@ -308,17 +409,15 @@ export function Agents() {
               </Conversation>
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-              <span className="mb-5 flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
-                <Sparkles className="size-6" />
-              </span>
+            <div className="flex flex-1 flex-col items-center justify-center px-6 py-6 text-center">
               <h2 className="text-2xl font-medium tracking-tight">
-                Start a request
+                What would you like to work on?
               </h2>
               <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                Choose a profile, then describe the research or draft you need.
+                Research an opportunity, develop an idea, or turn a conversation
+                into your next step.
               </p>
-              <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-2">
+              <div className="mt-5 flex max-w-xl flex-wrap justify-center gap-2">
                 {[
                   {
                     icon: BookOpen,
@@ -336,9 +435,9 @@ export function Agents() {
                   <button
                     key={item.text}
                     onClick={() => setPrompt(item.prompt)}
-                    className="rounded-xl border border-border bg-card p-4 text-left text-xs leading-6 text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
-                    <item.icon className="mb-3 size-4 text-primary" />
+                    <item.icon className="size-3.5" />
                     {item.text}
                   </button>
                 ))}
@@ -346,21 +445,26 @@ export function Agents() {
             </div>
           )}
           <form
-            className="border-t border-border bg-card/40 p-5 md:px-8"
+            className="shrink-0 border-t border-border bg-card/40 p-5 md:px-8"
             onSubmit={(e) => {
               e.preventDefault();
-              if (profile?.ready && prompt.trim())
+              if (canSend)
                 send.mutate({
                   profile: profileId,
                   prompt,
                   provider: activeProvider,
                   model: activeModel,
+                  ...(run ? { continue_run_id: run.id } : {}),
                 });
             }}
           >
             <div className="mb-3 flex flex-wrap items-center gap-2.5">
               <Select
                 value={profileId}
+                disabled={
+                  !!run &&
+                  ["queued", "running", "waiting_for_user"].includes(run.state)
+                }
                 onValueChange={(id) => {
                   setProfileId(id);
                   setCustomProvider(undefined);
@@ -407,11 +511,16 @@ export function Agents() {
             <div className="relative">
               <Textarea
                 aria-label="Message your agent"
-                placeholder="Give your agent a focused task…"
+                placeholder={
+                  run
+                    ? "Continue this conversation…"
+                    : "Give your agent a focused task…"
+                }
                 required
                 maxLength={20000}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={submitChatOnEnter}
                 rows={3}
                 className="resize-none bg-background pr-14"
               />
@@ -420,13 +529,7 @@ export function Agents() {
                 size="icon"
                 type="submit"
                 className="absolute right-3 bottom-3"
-                disabled={
-                  !prompt.trim() ||
-                  send.isPending ||
-                  profiles.isPending ||
-                  !!profiles.error ||
-                  !profile?.ready
-                }
+                disabled={!canSend}
               >
                 {send.isPending ? <Spinner /> : <ArrowUp />}
               </Button>

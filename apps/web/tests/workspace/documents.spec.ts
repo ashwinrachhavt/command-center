@@ -212,7 +212,7 @@ test("exports the selected immutable editable version and downloads its PDF deri
   const download = page.waitForEvent("download");
   await downloadButton.click();
   await expect((await download).suggestedFilename()).toBe(
-    "Northstar interview brief-v2.pdf",
+    "synthetic-document.pdf",
   );
 });
 

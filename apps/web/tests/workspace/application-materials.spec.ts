@@ -66,7 +66,10 @@ test("document generation recovers its original request after reload, then edits
   await materials
     .getByRole("button", { name: "Open draft & export", exact: true })
     .click();
-  const panel = page.getByRole("complementary", { name: "Related workspace", exact: true });
+  const panel = page.getByRole("dialog", {
+    name: "Related workspace",
+    exact: true,
+  });
   await expect(
     panel.getByText("I build accessible collaboration tools.", { exact: true }),
   ).toBeVisible();

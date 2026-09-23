@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 
 import { Agents } from "./agents";
@@ -177,4 +177,99 @@ it("searches discovered models and sends the selected ID with the request", asyn
     model: "synthetic-discovered",
     prompt: "Synthetic request",
   });
+});
+
+it("appends replies to the selected transcript and starts a fresh chat only on request", async () => {
+  mount([]);
+  const fallback = vi.mocked(fetch).getMockImplementation()!;
+  const first = { ...run, session_id: "chat-1" };
+  const second = {
+    ...first,
+    id: "run-2",
+    prompt: "And applications?",
+    state: "queued",
+    output: null,
+  };
+  let items: (typeof first | typeof second)[] = [first];
+  const messages = [
+    {
+      id: "m1",
+      author: "user",
+      content: "Research safely",
+      run_id: first.id,
+      sequence: 1,
+    },
+    {
+      id: "m2",
+      author: "assistant",
+      content: "I can help research companies.",
+      run_id: first.id,
+      sequence: 2,
+    },
+  ];
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    const route = String(input);
+    if (route.endsWith("/agent-runs") && init?.method === "GET")
+      return Promise.resolve(Response.json({ items, total: items.length }));
+    if (route.endsWith("/agent-runs") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      if (body.continue_run_id) {
+        items = [second, first];
+        messages.push({
+          id: "m3",
+          author: "user",
+          content: body.prompt,
+          run_id: second.id,
+          sequence: 3,
+        });
+        return Promise.resolve(Response.json(second));
+      }
+      return Promise.resolve(
+        Response.json({ ...second, id: "run-3", session_id: "chat-2" }),
+      );
+    }
+    if (route.includes("/agent-sessions/"))
+      return Promise.resolve(
+        Response.json({ items: messages, total: messages.length }),
+      );
+    if (route.endsWith("/steps")) return Promise.resolve(Response.json([]));
+    return fallback(input, init);
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /Synthetic run/ }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Message your agent" }),
+    { target: { value: "And applications?" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Run agent" }));
+  expect(await screen.findByText("And applications?")).toBeVisible();
+  expect(await screen.findByText("Research safely")).toBeVisible();
+  expect(
+    await screen.findByText("I can help research companies."),
+  ).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("button", { name: /Synthetic run/ }),
+    ).toHaveLength(1),
+  );
+  const posts = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/agent-runs") && init?.method === "POST",
+      );
+  expect(JSON.parse(String(posts()[0][1]?.body))).toMatchObject({
+    continue_run_id: "run-1",
+    prompt: "And applications?",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Message your agent" }),
+    { target: { value: "New topic" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Run agent" }));
+  await waitFor(() => expect(posts()).toHaveLength(2));
+  expect(JSON.parse(String(posts()[1][1]?.body))).not.toHaveProperty(
+    "continue_run_id",
+  );
 });

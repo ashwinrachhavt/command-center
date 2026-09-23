@@ -70,7 +70,7 @@ export const resourceNames: Record<
   opportunities: {
     plural: "Opportunities",
     singular: "opportunity",
-    description: "From first discovery to your next chapter.",
+    description: "Work, people, ideas, and possibilities worth your attention.",
   },
   tasks: {
     plural: "Tasks",

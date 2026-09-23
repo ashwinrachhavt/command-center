@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from cohere.core.api_error import ApiError as CohereAPIError
 from langchain_cohere import ChatCohere
 from langchain_core.exceptions import (
     ContextOverflowError,
@@ -29,6 +30,14 @@ PROVIDER_ENV: dict[ModelProvider, str] = {
     "mistral": "MISTRAL_API_KEY",
     "cohere": "COHERE_API_KEY",
 }
+
+
+class UnsupportedToolModel(ValueError):
+    """The selected text model cannot participate in an agent tool graph."""
+
+
+def cohere_tool_model(model: str) -> bool:
+    return model.startswith(("command-r", "command-a")) and "translate" not in model
 
 
 class BoundedChatCohere(ChatCohere):
@@ -67,6 +76,8 @@ def missing_profile_credentials(settings: Settings, profile: AgentProfile) -> tu
 
 
 def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatModel:
+    if profile.provider == "cohere" and not cohere_tool_model(profile.model):
+        raise UnsupportedToolModel("Choose a Cohere Command model with tool support for agent chat")
     api_key = provider_secret(settings, profile.provider)
     if not api_key.get_secret_value():
         raise ValueError(f"{PROVIDER_ENV[profile.provider]} is not configured")
@@ -77,6 +88,11 @@ def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatMode
             timeout=60,
             max_retries=0,
             max_completion_tokens=profile.max_output_tokens,
+            reasoning_effort=(
+                profile.reasoning_effort
+                if profile.model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4"))
+                else None
+            ),
             # GPT-6 reasoning with function tools requires Responses, not Chat Completions.
             use_responses_api=True if profile.model.startswith("gpt-6") else None,
             store=False,
@@ -108,6 +124,19 @@ def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatMode
 
 def model_failure_code(error: BaseException) -> str:
     """Classify provider failures without persisting their potentially private messages."""
+    if isinstance(error, UnsupportedToolModel):
+        return "model_tools_unsupported"
+    if isinstance(error, CohereAPIError):
+        return {
+            400: "model_request_rejected",
+            401: "model_authentication_failed",
+            403: "model_access_denied",
+            404: "model_not_found",
+            422: "model_request_rejected",
+            429: "model_rate_limited",
+            498: "model_authentication_failed",
+            504: "model_timeout",
+        }.get(error.status_code or 0, "model_provider_unavailable")
     for kind, code in (
         (ContextOverflowError, "context_limit"),
         (ModelAuthenticationError, "model_authentication_failed"),

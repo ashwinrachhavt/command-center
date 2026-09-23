@@ -31,6 +31,7 @@ import {
   type Run,
 } from "@/lib/api";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
+import { submitChatOnEnter } from "@/lib/submit-chat-on-enter";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
 import { AgentResponse } from "./agent-response";
@@ -434,6 +435,7 @@ export function WorkConversation({
             <Textarea
               aria-label="Message"
               value={draft}
+              onKeyDown={submitChatOnEnter}
               onChange={(event) => {
                 setDraft(event.target.value);
                 setSendError(undefined);
