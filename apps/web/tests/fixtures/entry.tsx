@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import WorkspaceError from "../../src/app/(workspace)/error";
 import { Providers } from "../../src/components/providers";
 import { WorkspaceShell } from "../../src/components/workspace/shell";
 import { isResource } from "../../src/components/workspace/context";
@@ -2364,7 +2365,9 @@ function Preview() {
         {["/opportunities", "/applications", "/jobs"].includes(path) && (
           <OpportunityNavigation />
         )}
-        {path === "/" ? (
+        {new URLSearchParams(location.search).has("routeError") ? (
+          <WorkspaceError />
+        ) : path === "/" ? (
           <Agents />
         ) : path === "/overview" ? (
           <Overview />
