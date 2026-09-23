@@ -1,7 +1,7 @@
 """Human-reported application progress, attached to the existing preparation task."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid5
 
 from sqlalchemy import (
@@ -22,6 +22,9 @@ from command_center.db.crm import record_event
 from command_center.db.errors import RecordConflict
 from command_center.db.evidence import SourceRecord
 from command_center.db.models import Task
+
+if TYPE_CHECKING:
+    from command_center.db.keyword_matching import KeywordAnalysis
 
 ApplicationStatus = Literal[
     "preparing", "submitted", "interviewing", "offer", "rejected", "withdrawn"
@@ -204,3 +207,27 @@ class ApplicationTrack(Base):
             .order_by(ArtifactVersion.version.desc())
             .limit(1)
         )
+
+    def keyword_match(
+        self,
+        db: Session,
+        *,
+        job_version_id: UUID,
+        resume_version_id: UUID,
+        keywords: list[str] | None = None,
+    ) -> tuple[ArtifactVersion, ArtifactVersion, "KeywordAnalysis"]:
+        """Compare exact owned source text without changing facts or application status."""
+        from command_center.db.application_materials import ApplicationMaterial
+        from command_center.db.keyword_matching import analyze_keywords
+
+        job = self.current_context_version(db)
+        if job is None or job.id != job_version_id:
+            raise RecordConflict("Reload the saved job description before checking keywords")
+        job_text = (job.payload or {}).get("text")
+        if not isinstance(job_text, str) or not job_text.strip():
+            raise RecordConflict("Save a job-description checkpoint before checking keywords")
+        source = ApplicationMaterial.resume_source(db, self.owner_id, resume_version_id)
+        resume_text = (source.payload or {})["text"]
+        assert isinstance(resume_text, str)
+        analysis = analyze_keywords(job_text, resume_text, keywords)
+        return job, source, analysis

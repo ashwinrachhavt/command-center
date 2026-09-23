@@ -22,6 +22,7 @@ import { api, ApiError, type ResumeOptions, type Schema } from "@/lib/api";
 import { useWorkspaceContext } from "./context";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 import { runFailureMessage } from "@/lib/api";
+import { ApplicationKeywordMatch } from "./application-keyword-match";
 
 type Material = Schema["MaterialRead"];
 type Kind = Schema["MaterialCreate"]["kind"];
@@ -60,6 +61,7 @@ function Materials({
   const client = useQueryClient();
   const workspace = useWorkspaceContext();
   const [offset, setOffset] = useState(0);
+  const [checkingKeywords, setCheckingKeywords] = useState(false);
   const writing = useWorkingDraft(actor, `application-material-${taskId}`, {
     instructions: "",
     resumeVersionId: "",
@@ -151,7 +153,7 @@ function Materials({
         });
     },
   });
-  const busy = start.isPending || pendingReceipt;
+  const busy = start.isPending || pendingReceipt || checkingKeywords;
   const unavailable =
     writing.status === "loading" ||
     writing.status === "conflict" ||
@@ -297,6 +299,23 @@ function Materials({
           {start.error.message}
         </p>
       )}
+      <ApplicationKeywordMatch
+        actor={actor}
+        taskId={taskId}
+        resumeVersionId={
+          files.some((file) => file.version_id === selected)
+            ? selected
+            : undefined
+        }
+        jobVersionId={job.data?.text.trim() ? job.data.version_id : undefined}
+        loading={
+          job.isPending || resumes.isPending || writing.status === "loading"
+        }
+        disabled={
+          start.isPending || pendingReceipt || !!job.error || !!resumes.error
+        }
+        onPendingChange={setCheckingKeywords}
+      />
       {history.error ? (
         <ErrorState error={history.error} retry={() => history.refetch()} />
       ) : history.isPending ? (

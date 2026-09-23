@@ -1917,6 +1917,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/applications/{task_id}/keyword-match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Match Keywords */
+        post: operations["match_keywords_api_v1_applications__task_id__keyword_match_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/applications/{task_id}/materials": {
         parameters: {
             query?: never;
@@ -2923,6 +2940,18 @@ export interface components {
             created_at: string;
             /** Completed At */
             completed_at: string | null;
+        };
+        /** ApplicationKeywordMatchRead */
+        ApplicationKeywordMatchRead: {
+            job: components["schemas"]["MaterialSourceRead"];
+            resume: components["schemas"]["MaterialSourceRead"];
+            resume_source: components["schemas"]["MaterialSourceRead"];
+            /**
+             * Job Truncated
+             * @default false
+             */
+            job_truncated: boolean;
+            analysis: components["schemas"]["KeywordAnalysis"];
         };
         /** ApplicationPackageRead */
         ApplicationPackageRead: {
@@ -4484,6 +4513,55 @@ export interface components {
             description?: string | null;
         };
         JsonValue: unknown;
+        /** KeywordAnalysis */
+        KeywordAnalysis: {
+            /**
+             * Algorithm
+             * @default keyword-coverage.v1
+             * @constant
+             */
+            algorithm: "keyword-coverage.v1";
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "detected" | "selected";
+            /** Score */
+            score: number | null;
+            /** Matched Count */
+            matched_count: number;
+            /** Keyword Count */
+            keyword_count: number;
+            /** Keywords */
+            keywords: components["schemas"]["KeywordMatch"][];
+            /**
+             * Limit Reached
+             * @default false
+             */
+            limit_reached: boolean;
+        };
+        /** KeywordMatch */
+        KeywordMatch: {
+            /** Term */
+            term: string;
+            /** Matched */
+            matched: boolean;
+        };
+        /** KeywordMatchCreate */
+        KeywordMatchCreate: {
+            /**
+             * Job Version Id
+             * Format: uuid
+             */
+            job_version_id: string;
+            /**
+             * Resume Version Id
+             * Format: uuid
+             */
+            resume_version_id: string;
+            /** Keywords */
+            keywords?: string[] | null;
+        };
         /** LeadCaptureRead */
         LeadCaptureRead: {
             /**
@@ -11369,6 +11447,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ApplicationPackageRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    match_keywords_api_v1_applications__task_id__keyword_match_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordMatchCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplicationKeywordMatchRead"];
                 };
             };
             /** @description Validation Error */

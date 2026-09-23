@@ -73,6 +73,35 @@ class ApplicationMaterial(Base):
         return version
 
     @classmethod
+    def resume_source(cls, db: Session, owner_id: UUID, resume_version_id: UUID) -> ArtifactVersion:
+        """Resolve readable text from the exact selected original or completed PDF export."""
+        resume_file(db, owner_id, resume_version_id)
+        imported = db.scalar(
+            select(DocumentImport).where(
+                DocumentImport.owner_id == owner_id,
+                DocumentImport.source_version_id == resume_version_id,
+                DocumentImport.state == "completed",
+            )
+        )
+        extracted_id = imported.extraction_version_id if imported else None
+        if extracted_id is None:
+            exported = db.scalar(
+                select(PdfExport).where(
+                    PdfExport.owner_id == owner_id,
+                    PdfExport.output_version_id == resume_version_id,
+                    PdfExport.state == "completed",
+                )
+            )
+            extracted_id = exported.source_version_id if exported else None
+        if extracted_id is None:
+            raise RecordConflict("Finish extracting this résumé in Library first")
+        extracted = cls.source(db, owner_id, extracted_id)
+        text = (extracted.payload or {}).get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise RecordConflict("The selected résumé has no readable extracted text")
+        return extracted
+
+    @classmethod
     def start(
         cls,
         db: Session,
@@ -101,29 +130,7 @@ class ApplicationMaterial(Base):
             raise RecordConflict("Reload the saved job description before generating")
         if not str((job.payload or {}).get("text", "")).strip():
             raise RecordConflict("Save a job-description checkpoint before generating")
-        resume_file(db, owner_id, resume_version_id)
-        imported = db.scalar(
-            select(DocumentImport).where(
-                DocumentImport.owner_id == owner_id,
-                DocumentImport.source_version_id == resume_version_id,
-                DocumentImport.state == "completed",
-            )
-        )
-        extracted_id = imported.extraction_version_id if imported else None
-        if extracted_id is None:
-            exported = db.scalar(
-                select(PdfExport).where(
-                    PdfExport.owner_id == owner_id,
-                    PdfExport.output_version_id == resume_version_id,
-                    PdfExport.state == "completed",
-                )
-            )
-            extracted_id = exported.source_version_id if exported else None
-        if extracted_id is None:
-            raise RecordConflict("Finish extracting this résumé in Library before generating")
-        extracted = cls.source(db, owner_id, extracted_id)
-        if not str((extracted.payload or {}).get("text", "")).strip():
-            raise RecordConflict("The selected résumé has no readable extracted text")
+        extracted = cls.resume_source(db, owner_id, resume_version_id)
         facts = [
             str(item.id)
             for fact, item in active_facts(db, owner_id)

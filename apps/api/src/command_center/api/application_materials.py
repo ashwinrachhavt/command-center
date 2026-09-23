@@ -18,6 +18,7 @@ from command_center.core.identity import CurrentIdentity
 from command_center.db.agents import AgentRun
 from command_center.db.application_materials import ApplicationMaterial, MaterialKind
 from command_center.db.artifacts import Artifact, ArtifactVersion
+from command_center.db.keyword_matching import KeywordAnalysis
 from command_center.db.spending import ensure_default_spending_policy
 
 router = APIRouter(prefix="/api/v1", tags=["application materials"])
@@ -47,6 +48,22 @@ class MaterialSourceRead(s.Contract):
     archived: bool
 
 
+class KeywordMatchCreate(s.Contract):
+    job_version_id: UUID
+    resume_version_id: UUID
+    keywords: list[Annotated[str, StringConstraints(min_length=1, max_length=80)]] | None = Field(
+        default=None, min_length=1, max_length=50
+    )
+
+
+class ApplicationKeywordMatchRead(s.Contract):
+    job: MaterialSourceRead
+    resume: MaterialSourceRead
+    resume_source: MaterialSourceRead
+    job_truncated: bool = False
+    analysis: KeywordAnalysis
+
+
 class MaterialRead(s.Contract):
     id: UUID
     task_id: UUID
@@ -72,6 +89,30 @@ def material_source(db: Database, version_id: UUID) -> MaterialSourceRead:
         version=version.version,
         title=artifact.title,
         archived=artifact.archived_at is not None,
+    )
+
+
+@router.post(
+    "/applications/{task_id}/keyword-match",
+    response_model=ApplicationKeywordMatchRead,
+)
+def match_keywords(
+    task_id: UUID, body: KeywordMatchCreate, identity: CurrentIdentity, db: Database
+) -> ApplicationKeywordMatchRead:
+    human_only(identity)
+    application = owned_track(db, identity.id, task_id)
+    job, source, analysis = application.keyword_match(
+        db,
+        job_version_id=body.job_version_id,
+        resume_version_id=body.resume_version_id,
+        keywords=body.keywords,
+    )
+    return ApplicationKeywordMatchRead(
+        job=material_source(db, job.id),
+        resume=material_source(db, body.resume_version_id),
+        resume_source=material_source(db, source.id),
+        job_truncated=bool((job.payload or {}).get("truncated", False)),
+        analysis=analysis,
     )
 
 
