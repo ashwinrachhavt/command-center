@@ -1,5 +1,54 @@
 import { expect, test } from "@playwright/test";
 
+for (const width of [1440, 390]) {
+  test(`LinkedIn connects and verifies after OAuth at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto("/connections");
+    await expect(page).toHaveTitle("Command Center · Synthetic preview");
+    const card = page.getByRole("region", { name: "LinkedIn", exact: true });
+    await expect(
+      card.getByText("Not connected", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      card.getByText(/Messages and connection requests are not supported/),
+    ).toBeVisible();
+    const returnUrl = new URL(
+      "/connections?connected=1&toolkit=linkedin",
+      page.url(),
+    ).href;
+    await page.route("https://provider.example/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<a href="${returnUrl}">Finish LinkedIn authorization</a>`,
+      }),
+    );
+    await card.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page).toHaveURL("https://provider.example/authorize");
+    await page
+      .getByRole("link", { name: "Finish LinkedIn authorization" })
+      .click();
+    await expect(page).toHaveURL(/\/connections$/);
+    await expect(card.getByText("Connected", { exact: true })).toBeVisible();
+    await expect(
+      card.getByText("Alex Synthetic", { exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: `/tmp/command-center-linkedin-${width}.png`,
+    });
+    expect(errors).toEqual([]);
+  });
+}
+
 test("saved account status and selection work without an automatic provider pull", async ({
   page,
 }) => {

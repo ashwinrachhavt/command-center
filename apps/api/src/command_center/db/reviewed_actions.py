@@ -48,6 +48,7 @@ ActionKind = Literal[
     "linear_update",
     "notion_publish",
     "notion_update",
+    "linkedin_post",
 ]
 ActionState = Literal[
     "proposed",
@@ -63,7 +64,14 @@ ActionState = Literal[
 ]
 ReviewDecision = Literal["approved", "rejected", "revoked"]
 ReviewState = Literal["proposed", "approved", "rejected", "revoked"]
-ConnectedContextKind = Literal["calendar_events", "calendar_event", "linear_issue", "notion_page"]
+ConnectedContextKind = Literal[
+    "calendar_events",
+    "calendar_event",
+    "linear_issue",
+    "notion_page",
+    "linkedin_profile",
+    "linkedin_post",
+]
 
 TOOLKIT_FOR_KIND: dict[str, str] = {
     "gmail_send": "gmail",
@@ -73,6 +81,7 @@ TOOLKIT_FOR_KIND: dict[str, str] = {
     "linear_update": "linear",
     "notion_publish": "notion",
     "notion_update": "notion",
+    "linkedin_post": "linkedin",
 }
 TOOL_FOR_KIND: dict[str, str] = {
     "gmail_send": "GMAIL_SEND_EMAIL",
@@ -82,6 +91,7 @@ TOOL_FOR_KIND: dict[str, str] = {
     "linear_update": "LINEAR_UPDATE_ISSUE",
     "notion_publish": "NOTION_CREATE_NOTION_PAGE",
     "notion_update": "NOTION_REPLACE_PAGE_CONTENT",
+    "linkedin_post": "LINKEDIN_CREATE_LINKED_IN_POST",
 }
 ACTION_LABEL_FOR_KIND: dict[str, str] = {
     "gmail_send": "Send Gmail message",
@@ -91,12 +101,14 @@ ACTION_LABEL_FOR_KIND: dict[str, str] = {
     "linear_update": "Update Linear issue",
     "notion_publish": "Publish Notion page",
     "notion_update": "Update Notion page",
+    "linkedin_post": "Publish LinkedIn post",
 }
 TOOLKIT_VERSIONS = {
     "gmail": "20260915_00",
     "googlecalendar": "20260915_00",
     "linear": "20260915_00",
     "notion": "20260707_00",
+    "linkedin": "20260915_00",
 }
 CONDITIONAL_UPDATE_NOTICE = (
     "The provider tool does not expose a conditional revision header. Command Center checks the "
@@ -107,6 +119,8 @@ CONTEXT_TOOLKIT_FOR_KIND: dict[str, str] = {
     "calendar_event": "googlecalendar",
     "linear_issue": "linear",
     "notion_page": "notion",
+    "linkedin_profile": "linkedin",
+    "linkedin_post": "linkedin",
 }
 
 
@@ -148,8 +162,24 @@ class NotionPageQuery(ContextQuery):
     page_id: str = Field(min_length=1, max_length=100)
 
 
+class LinkedInProfileQuery(ContextQuery):
+    """Read the connected member's profile, not arbitrary people search."""
+
+    kind: Literal["linkedin_profile"]
+
+
+class LinkedInPostQuery(ContextQuery):
+    kind: Literal["linkedin_post"]
+    post_id: str = Field(pattern=r"^urn:li:(ugcPost|share):[0-9]+$", max_length=100)
+
+
 ConnectedContextQuery = Annotated[
-    CalendarEventsQuery | CalendarEventQuery | LinearIssueQuery | NotionPageQuery,
+    CalendarEventsQuery
+    | CalendarEventQuery
+    | LinearIssueQuery
+    | NotionPageQuery
+    | LinkedInProfileQuery
+    | LinkedInPostQuery,
     Field(discriminator="kind"),
 ]
 CONNECTED_CONTEXT_QUERY: TypeAdapter[ConnectedContextQuery] = TypeAdapter(ConnectedContextQuery)
@@ -282,6 +312,14 @@ class NotionUpdatePayload(Payload):
     page_id: str = Field(min_length=1, max_length=100)
 
 
+class LinkedInPostPayload(Payload):
+    """Publish as the verified member on the selected account."""
+
+    kind: Literal["linkedin_post"]
+    commentary: str = Field(min_length=1, max_length=3000)
+    visibility: Literal["PUBLIC", "CONNECTIONS"] = "PUBLIC"
+
+
 ActionPayload = Annotated[
     GmailSendPayload
     | CalendarCreatePayload
@@ -289,7 +327,8 @@ ActionPayload = Annotated[
     | LinearCreatePayload
     | LinearUpdatePayload
     | NotionPublishPayload
-    | NotionUpdatePayload,
+    | NotionUpdatePayload
+    | LinkedInPostPayload,
     Field(discriminator="kind"),
 ]
 ACTION_PAYLOAD: TypeAdapter[ActionPayload] = TypeAdapter(ActionPayload)
@@ -308,7 +347,7 @@ class ExternalAccount(OwnedRecord, Base):
     __tablename__ = "external_accounts"
     __table_args__ = (
         CheckConstraint(
-            "toolkit IN ('gmail', 'googlecalendar', 'linear', 'notion')", name="toolkit"
+            "toolkit IN ('gmail', 'googlecalendar', 'linear', 'notion', 'linkedin')", name="toolkit"
         ),
         CheckConstraint(
             "connection_status IN ('ACTIVE', 'INACTIVE', 'EXPIRED', 'REVOKED', 'FAILED')",
@@ -443,7 +482,7 @@ class ReviewedAction(OwnedRecord, Base):
     __table_args__ = (
         CheckConstraint(
             "kind IN ('gmail_send','calendar_create','calendar_update','linear_create',"
-            "'linear_update','notion_publish','notion_update')",
+            "'linear_update','notion_publish','notion_update','linkedin_post')",
             name="kind",
         ),
         CheckConstraint(
@@ -1060,7 +1099,7 @@ class ProviderObservation(Base):
     __table_args__ = (
         CheckConstraint(
             "kind IN ('gmail_search','calendar_events','calendar_event','linear_issue',"
-            "'notion_page')",
+            "'notion_page','linkedin_profile','linkedin_post')",
             name="kind",
         ),
         CheckConstraint("length(request_hash) = 64", name="request_hash"),

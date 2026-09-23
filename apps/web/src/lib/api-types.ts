@@ -2779,7 +2779,7 @@ export interface components {
              */
             account_id: string;
             /** Payload */
-            payload: components["schemas"]["GmailSendPayload"] | components["schemas"]["CalendarCreatePayload"] | components["schemas"]["CalendarUpdatePayload"] | components["schemas"]["LinearCreatePayload"] | components["schemas"]["LinearUpdatePayload"] | components["schemas"]["NotionPublishPayload"] | components["schemas"]["NotionUpdatePayload"];
+            payload: components["schemas"]["GmailSendPayload"] | components["schemas"]["CalendarCreatePayload"] | components["schemas"]["CalendarUpdatePayload"] | components["schemas"]["LinearCreatePayload"] | components["schemas"]["LinearUpdatePayload"] | components["schemas"]["NotionPublishPayload"] | components["schemas"]["NotionUpdatePayload"] | components["schemas"]["LinkedInPostPayload"];
             /** Task Id */
             task_id?: string | null;
             /** Opportunity Id */
@@ -2893,7 +2893,7 @@ export interface components {
             /** Expected Version */
             expected_version: number;
             /** Payload */
-            payload: components["schemas"]["GmailSendPayload"] | components["schemas"]["CalendarCreatePayload"] | components["schemas"]["CalendarUpdatePayload"] | components["schemas"]["LinearCreatePayload"] | components["schemas"]["LinearUpdatePayload"] | components["schemas"]["NotionPublishPayload"] | components["schemas"]["NotionUpdatePayload"];
+            payload: components["schemas"]["GmailSendPayload"] | components["schemas"]["CalendarCreatePayload"] | components["schemas"]["CalendarUpdatePayload"] | components["schemas"]["LinearCreatePayload"] | components["schemas"]["LinearUpdatePayload"] | components["schemas"]["NotionPublishPayload"] | components["schemas"]["NotionUpdatePayload"] | components["schemas"]["LinkedInPostPayload"];
             /** Source Version Id */
             source_version_id?: string | null;
             /** Attachment Version Ids */
@@ -3766,7 +3766,7 @@ export interface components {
              */
             account_id: string;
             /** Query */
-            query: components["schemas"]["CalendarEventsQuery"] | components["schemas"]["CalendarEventQuery"] | components["schemas"]["LinearIssueQuery"] | components["schemas"]["NotionPageQuery"];
+            query: components["schemas"]["CalendarEventsQuery"] | components["schemas"]["CalendarEventQuery"] | components["schemas"]["LinearIssueQuery"] | components["schemas"]["NotionPageQuery"] | components["schemas"]["LinkedInProfileQuery"] | components["schemas"]["LinkedInPostQuery"];
         };
         /** ConnectedContextRead */
         ConnectedContextRead: {
@@ -3784,7 +3784,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "calendar_events" | "calendar_event" | "linear_issue" | "notion_page";
+            kind: "calendar_events" | "calendar_event" | "linear_issue" | "notion_page" | "linkedin_profile" | "linkedin_post";
             /**
              * Observed At
              * Format: date-time
@@ -5109,6 +5109,46 @@ export interface components {
             assignee_id?: string | null;
             /** Label Ids */
             label_ids?: string[] | null;
+        };
+        /**
+         * LinkedInPostPayload
+         * @description Publish as the verified member on the selected account.
+         */
+        LinkedInPostPayload: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linkedin_post";
+            /** Commentary */
+            commentary: string;
+            /**
+             * Visibility
+             * @default PUBLIC
+             * @enum {string}
+             */
+            visibility: "PUBLIC" | "CONNECTIONS";
+        };
+        /** LinkedInPostQuery */
+        LinkedInPostQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linkedin_post";
+            /** Post Id */
+            post_id: string;
+        };
+        /**
+         * LinkedInProfileQuery
+         * @description Read the connected member's profile, not arbitrary people search.
+         */
+        LinkedInProfileQuery: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "linkedin_profile";
         };
         /** MaterialCreate */
         MaterialCreate: {

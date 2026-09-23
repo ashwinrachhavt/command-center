@@ -4,6 +4,7 @@ import {
   Check,
   FileText,
   ListTodo,
+  Users,
   Mail,
   Plug,
   ShieldCheck,
@@ -51,6 +52,16 @@ export const connectedApps = [
       "Connect project context to your work and prepare issue updates.",
     read: "Read linked issues",
     write: "Create or update issues after review",
+  },
+  {
+    toolkit: "linkedin",
+    name: "LinkedIn",
+    category: "Professional network",
+    icon: Users,
+    description:
+      "Bring your profile and selected posts into chat, and prepare posts for review. Messages and connection requests are not supported.",
+    read: "Read your profile and permitted posts",
+    write: "Publish text posts after review",
   },
   {
     toolkit: "notion",

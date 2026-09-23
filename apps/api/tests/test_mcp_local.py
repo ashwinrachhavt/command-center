@@ -340,6 +340,10 @@ def test_progressive_catalog_preserves_grants_and_executes_owned_writes(agent_se
         }
         found = rpc(http, token, "catalog_search", {"query": "create company"})
         assert any(item["name"] == "cc_workspace_create_company" for item in found["items"])
+        linkedin = rpc(http, token, "catalog_search", {"query": "LinkedIn"})
+        linkedin_tools = {item["name"] for item in linkedin["items"]}
+        assert {"connected_context", "propose_connected_action"} <= linkedin_tools
+        assert "linkedin_post" in json.dumps(linkedin)
         saved = rpc(
             http,
             token,

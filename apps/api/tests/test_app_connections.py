@@ -29,16 +29,18 @@ def connection_client(settings, mocker):
     return TestClient(app), settings, actor_id, link, constructor
 
 
-def test_connect_link_uses_current_actor_and_allows_another_account(connection_client):
+@pytest.mark.parametrize("toolkit", ["gmail", "linkedin"])
+def test_connect_link_uses_current_actor_and_allows_another_account(connection_client, toolkit):
     client, settings, actor_id, link, _ = connection_client
-    response = client.post("/api/v1/integrations/composio/connect", json={"toolkit": "gmail"})
+    settings.composio_auth_configs[toolkit] = "ac_synthetic"
+    response = client.post("/api/v1/integrations/composio/connect", json={"toolkit": toolkit})
     assert response.status_code == 200, response.text
     assert response.json() == {"redirect_url": "https://connect.example.test/authorize"}
     link.assert_called_once_with(
         user_id=str(actor_id),
         auth_config_id="ac_synthetic",
         callback_url=settings.web_origin
-        + "/agent-settings?tab=connectors&connected=1&toolkit=gmail",
+        + f"/agent-settings?tab=connectors&connected=1&toolkit={toolkit}",
         allow_multiple=True,
     )
 

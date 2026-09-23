@@ -1,6 +1,7 @@
 """Offline adapter checks for exact Composio schemas and dispatch accounting."""
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -10,6 +11,9 @@ import pytest
 from command_center.db.reviewed_actions import (
     TOOLKIT_VERSIONS,
     CalendarEventsQuery,
+    LinkedInPostPayload,
+    LinkedInPostQuery,
+    LinkedInProfileQuery,
     NotionPageQuery,
 )
 from command_center.integrations.composio_actions import (
@@ -88,6 +92,97 @@ def budget_recorder():
         return handle
 
     return reserve, calls
+
+
+def test_linkedin_oidc_identity_and_basic_profile_use_managed_scopes():
+    response = {
+        "successful": True,
+        "data": {
+            "data": {"sub": "member-123", "name": "Alex Synthetic", "email": "alex@example.test"},
+            "display_name": "Alex Synthetic",
+        },
+    }
+    client, tools = client_with(response, response)
+    reserve, charges = budget_recorder()
+    account = context_account("linkedin")
+    identity = client.verify_identity(
+        account,
+        user_id="owner",
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert identity.identity == {"sub": "member-123"}
+    assert identity.display_name == "Alex Synthetic"
+    result = client.read_context(
+        LinkedInProfileQuery(kind="linkedin_profile"),
+        account=account,
+        user_id="owner",
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert result.context["profile"]["name"] == "Alex Synthetic"
+    assert all(call[0] == "LINKEDIN_WHO_AM_I" for call in tools.calls)
+    assert all(item[2].settled == 1 for item in charges)
+
+
+def test_linkedin_post_read_is_bounded_and_surfaces_missing_permissions():
+    client, tools = client_with(
+        {"successful": True, "data": {"id": "urn:li:share:123", "commentary": "x" * 20_000}},
+        {"successful": False, "error": "Insufficient scope", "data": {}},
+    )
+    reserve, _ = budget_recorder()
+    args = dict(account=context_account("linkedin"), user_id="owner", reserve_budget=reserve)
+    query = LinkedInPostQuery(kind="linkedin_post", post_id="urn:li:share:123")
+    result = client.read_context(query, charge=ChargeContext(uuid4()), **args)
+    assert result.truncated
+    assert len(json.dumps(result.context)) < 13_000
+    with pytest.raises(ProviderFailure):
+        client.read_context(query, charge=ChargeContext(uuid4()), **args)
+    assert tools.calls[0][1]["arguments"] == {"post_id": "urn:li:share:123"}
+
+
+@pytest.mark.parametrize("result_id", ["urn:li:share:123", None])
+def test_linkedin_publish_pins_member_account_audience_and_receipt(result_id):
+    client, tools = client_with({"successful": True, "data": {"id": result_id}})
+    reserve, charges = budget_recorder()
+    payload = {"kind": "linkedin_post", "commentary": "Synthetic post", "visibility": "CONNECTIONS"}
+    receipt = client.execute_write(
+        revision_id=uuid4(),
+        payload=payload,
+        account=replace(context_account("linkedin"), provider_identity={"sub": "member-123"}),
+        user_id="owner",
+        tool_slug="LINKEDIN_CREATE_LINKED_IN_POST",
+        toolkit_version=TOOLKIT_VERSIONS["linkedin"],
+        source_text=None,
+        attachments=[],
+        reserve_budget=reserve,
+        operation_id=uuid4(),
+    )
+    assert tools.calls[0][1]["arguments"] == {
+        "author": "urn:li:person:member-123",
+        "commentary": "Synthetic post",
+        "visibility": "CONNECTIONS",
+        "lifecycleState": "PUBLISHED",
+    }
+    assert tools.calls[0][1]["connected_account_id"] == "ca_linkedin"
+    assert tools.calls[0][1]["version"] == "20260915_00"
+    assert receipt.state == ("succeeded" if result_id else "outcome_unknown")
+    assert receipt.external_id == result_id
+    assert len(charges) == 1
+    assert charges[0][2].settled == 1
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"author": "urn:li:person:someone-else"},
+        {"commentary": "x" * 3001},
+        {"visibility": "CONTAINER"},
+    ],
+)
+def test_linkedin_publication_rejects_spoofed_author_and_invalid_content(extra):
+    with pytest.raises(ValueError):
+        LinkedInPostPayload.model_validate({"kind": "linkedin_post", "commentary": "Hello"} | extra)
 
 
 def test_client_disables_sdk_retries_and_bounds_timeout(monkeypatch):

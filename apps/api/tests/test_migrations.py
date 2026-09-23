@@ -28,6 +28,21 @@ def clear_question_fixtures(engine: Engine) -> None:
         connection.execute(text("DELETE FROM application_materials"))
         connection.execute(text("DELETE FROM application_tracks"))
         connection.execute(text("DELETE FROM application_preparations"))
+        # Normalize only synthetic connector fixtures for older-schema checks.
+        connection.execute(
+            text("UPDATE external_accounts SET toolkit='linear' WHERE toolkit='linkedin'")
+        )
+        connection.execute(
+            text("UPDATE reviewed_actions SET kind='linear_create' WHERE kind='linkedin_post'")
+        )
+        connection.execute(text("ALTER TABLE provider_observations DISABLE TRIGGER immutable_rows"))
+        connection.execute(
+            text(
+                "DELETE FROM provider_observations "
+                "WHERE kind IN ('linkedin_profile','linkedin_post')"
+            )
+        )
+        connection.execute(text("ALTER TABLE provider_observations ENABLE TRIGGER immutable_rows"))
         connection.execute(
             text(
                 "UPDATE profile_facts SET field='answer' WHERE field IN "
@@ -186,6 +201,53 @@ def test_upgrade_downgrade_upgrade_and_no_schema_drift(
     command.upgrade(migration_config, "head")
     assert database_is_ready(engine)
     command.check(migration_config)
+
+
+def test_linkedin_upgrade_preserves_limits_and_immutable_default_rates(engine, migration_config):
+    from command_center.db.spending import SpendingPolicy, SpendingRateCard
+
+    clear_question_fixtures(engine)
+    command.downgrade(migration_config, "0031_chat_context")
+    owners = []
+    with Session(engine) as db, db.begin():
+        for default in (True, False):
+            owner_id = uuid4()
+            db.add(Actor(id=owner_id, kind="human", display_name="Synthetic plan owner"))
+            db.flush()
+            card = SpendingRateCard.create(
+                db,
+                owner_id=owner_id,
+                name="Standard Developer Rates" if default else "Custom rates",
+                source_label="Default Plan" if default else "Synthetic custom plan",
+                rates={"models": [], "tools": [{"slug": "GMAIL_GET_PROFILE", "fixed_micros": 17}]},
+                request_id=uuid4(),
+            )
+            SpendingPolicy.configure(
+                db,
+                owner_id=owner_id,
+                rate_card_id=card.id,
+                monthly_limit_micros=0,
+                default_work_limit_micros=23,
+                active=False,
+                request_id=uuid4(),
+                expected_version=None,
+            )
+            owners.append((owner_id, card.id, default))
+    command.upgrade(migration_config, "head")
+    with Session(engine) as db:
+        for owner_id, original_id, default in owners:
+            policy = db.get(SpendingPolicy, owner_id)
+            assert not policy.active
+            assert policy.monthly_limit_micros == 0
+            assert policy.default_work_limit_micros == 23
+            old = db.get(SpendingRateCard, original_id)
+            assert old.rates["tools"] == [{"slug": "GMAIL_GET_PROFILE", "fixed_micros": 17}]
+            assert (policy.active_rate_card_id != original_id) == default
+            current = db.get(SpendingRateCard, policy.active_rate_card_id)
+            assert current.tool_rate("GMAIL_GET_PROFILE") == 17
+            if default:
+                assert current.tool_rate("LINKEDIN_WHO_AM_I") == 10_000
+                assert current.tool_rate("LINKEDIN_CREATE_LINKED_IN_POST") == 10_000
 
 
 def test_connection_note_downgrade_keeps_the_character_limit_contract(engine, migration_config):

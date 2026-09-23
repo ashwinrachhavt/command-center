@@ -1075,6 +1075,9 @@ DEFAULT_RATES: dict[str, Any] = {
         {"slug": "GOOGLECALENDAR_GET_CURRENT_USER", "fixed_micros": 10_000},
         {"slug": "LINEAR_WHO_AM_I", "fixed_micros": 10_000},
         {"slug": "NOTION_GET_ABOUT_ME", "fixed_micros": 10_000},
+        {"slug": "LINKEDIN_WHO_AM_I", "fixed_micros": 10_000},
+        {"slug": "LINKEDIN_GET_POST_CONTENT", "fixed_micros": 10_000},
+        {"slug": "LINKEDIN_CREATE_LINKED_IN_POST", "fixed_micros": 10_000},
     ],
 }
 
