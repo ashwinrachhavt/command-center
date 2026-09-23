@@ -2,6 +2,8 @@
 
 A personal workspace for opportunities, relationships, tasks, artifacts and research agents. Sidebar sections open as full pages; related body records open alongside your current work; Appearance offers light, dark and system modes with four accents. FastAPI owns the domain and PostgreSQL; Next.js provides the Clerk-authenticated shadcn interface. Deep Agents on LangGraph discover scoped API tools through MCP and run in Celery workers. Firecrawl and SearXNG connect to the existing `local-research` Docker stack.
 
+**Smoke-test release:** `frontend-redesign` includes the completed application and daily-workspace increments through `ed69ac1`. Reload companion `0.4.5` and refresh application pages before testing. See [Engineering](docs/tech/engineering.md) for validation and remaining coverage.
+
 ## Run locally
 
 Prerequisites: Docker Compose, Python 3.12 with `uv`, Node 24, and the existing research network `local-services`.

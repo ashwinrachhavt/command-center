@@ -2,6 +2,8 @@
 
 **Revision:** 2026-09-22-r33. **Status:** connected workspace, Deep Agents conversations, reviewed facts/memory, application assistance, reviewed connected actions, isolated research/PDF jobs and spending/recovery controls implemented locally. The personal work OS revamp is in progress. Shared email drafting and explicit human-only email pulls are implemented locally; dedicated Notes/Library, original/extraction reading, content search and linked tasks are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Hands-on platform/provider QA is deferred to the user; unattended campaigns remain later scope.
 
+**Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
+
 This is the single technical source, absorbing the former Planning Doc's architecture, the additional Notion technical section, agent plan and reference learnings. [Product Spec](../product/product-spec.md) owns behavior and release acceptance. [engineering.md](engineering.md) owns build sequence, file/test contracts and delivery evidence. [Design Spec](../design/design-spec.md) owns the interface. Historical copies are not competing specifications.
 
 ## One-click application companion — 2026-09-22

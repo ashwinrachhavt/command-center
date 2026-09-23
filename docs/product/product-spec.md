@@ -2,6 +2,8 @@
 
 **Revision:** 2026-09-22-r31. **Status:** product contract; implemented scope is distinguished below from the personal work OS revamp and later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
 
+**Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
+
 This is the single source for product behavior and acceptance. [product.md](product.md) owns product direction and scope rationale. [Tech Spec](../tech/tech-spec.md) owns architecture and execution contracts. The former Planning Doc, duplicated requirements, lead-planning notes, and interview material are absorbed here or in Tech Spec; superseded copies are historical only.
 
 ## 1. Outcome and user

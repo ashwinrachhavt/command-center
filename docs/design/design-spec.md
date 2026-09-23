@@ -2,6 +2,8 @@
 
 **Companion specs:** [Product](../product/product-spec.md) · [Tech](../tech/tech-spec.md). **Revision:** 2026-09-22-r25. **State:** full-page section navigation, contextual record inspection and appearance controls implemented locally; broader hardening remains tracked in Engineering. New agent interaction contracts below are documentation, not implemented UI. [Product Spec](../product/product-spec.md) owns product requirements.
 
+**Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
+
 This is the canonical design specification for navigation, page composition, interactions, visual language and accessibility. Product Spec owns user outcomes and scope; Tech Spec owns data, runtime and API contracts; Engineering owns delivery evidence. Do not create competing design requirements in a root DESIGN.md. Requirements below describe the intended experience. [Engineering](../tech/engineering.md#accepted-workspace-hardening) distinguishes accepted fixes from implemented behavior; dated checks live there.
 
 ## Direction and existing components
