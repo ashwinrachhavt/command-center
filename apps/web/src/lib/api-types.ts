@@ -2957,6 +2957,10 @@ export interface components {
             page_title: string;
             /** Page Url */
             page_url: string;
+            /** Continued From Preparation Id */
+            continued_from_preparation_id?: string | null;
+            /** Continuation Mode */
+            continuation_mode?: ("same_page" | "confirmed_page") | null;
             resume: components["schemas"]["ResumeFile"] | null;
             /** Resume Artifact Id */
             resume_artifact_id: string | null;
@@ -5545,6 +5549,11 @@ export interface components {
             resume_version_id?: string | null;
             /** Continue Preparation Id */
             continue_preparation_id?: string | null;
+            /**
+             * Continue On New Page
+             * @default false
+             */
+            continue_on_new_page: boolean;
             job_context?: components["schemas"]["JobContextCreate"] | null;
         };
         /** PreparationGenerationRead */

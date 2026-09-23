@@ -498,14 +498,19 @@ function ApplicationDetail({ id, back }: { id: string; back: () => void }) {
                   <Button
                     key={entry.id}
                     size="sm"
+                    className="max-w-full"
                     variant={
                       activePackage?.id === entry.id ? "secondary" : "outline"
                     }
                     aria-pressed={activePackage?.id === entry.id}
+                    aria-label={`${entry.page_title || "Application page"}, ${dateLabel(entry.created_at)}, version ${entry.version}`}
                     onClick={() => setSelectedPackage(entry)}
                   >
                     <FileText />
-                    {dateLabel(entry.created_at)} · v{entry.version}
+                    <span className="truncate">
+                      {entry.page_title || "Application page"} ·{" "}
+                      {dateLabel(entry.created_at)} · v{entry.version}
+                    </span>
                   </Button>
                 ))}
               </div>
@@ -615,6 +620,14 @@ function SavedPackage({ taskId, item }: { taskId: string; item: Package }) {
           Copy answers
         </Button>
       </div>
+      <p className="mt-2 break-words text-xs text-muted-foreground">
+        {item.page_title || "Application page"}
+        {item.continuation_mode === "confirmed_page"
+          ? " · You confirmed this page belongs to this application."
+          : item.continuation_mode === "same_page"
+            ? " · Updated capture of this page."
+            : ""}
+      </p>
       {item.resume ? (
         <button
           type="button"

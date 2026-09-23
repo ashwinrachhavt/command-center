@@ -1,7 +1,7 @@
 """Owned application tracker; saved packages are evidence of preparation, not submission."""
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -122,6 +122,8 @@ class ApplicationPackageRead(s.Contract):
     created_at: datetime
     page_title: str
     page_url: str
+    continued_from_preparation_id: UUID | None = None
+    continuation_mode: Literal["same_page", "confirmed_page"] | None = None
     resume: ResumeFile | None
     resume_artifact_id: UUID | None
     cover_letter: ResumeFile | None = None
@@ -339,6 +341,10 @@ def packages(
                 ApplicationPreparation.created_at,
                 BrowserSnapshot.title.label("page_title"),
                 BrowserSnapshot.page_url,
+                ArtifactVersion.payload["continued_from_preparation_id"].label(
+                    "continued_from_preparation_id"
+                ),
+                ArtifactVersion.payload["continuation_mode"].label("continuation_mode"),
                 ArtifactVersion.payload["resume"].label("resume"),
                 ArtifactVersion.payload["cover_letter"].label("cover_letter"),
             )

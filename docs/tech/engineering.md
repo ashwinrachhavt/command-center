@@ -1,6 +1,6 @@
 # engineering.md — Delivery and verification
 
-**Parent:** [Tech Spec](tech-spec.md). **Revision:** 2026-09-22-r29. **State:** connected workspace, importer, persistent conversations, application assistance, reviewed actions, scoped connected context, research/PDF jobs and spending/recovery controls are implemented locally. Workspace state, retry and loading remedies are implemented; authenticated provider QA remains deferred to the user. OpenAI, Gemini, Mistral and Cohere are selectable per profile. This file owns delivery work, not an additional specification.
+**Parent:** [Tech Spec](tech-spec.md). **Revision:** 2026-09-22-r30. **State:** connected workspace, importer, persistent conversations, application assistance, reviewed actions, scoped connected context, research/PDF jobs and spending/recovery controls are implemented locally. Workspace state, retry and loading remedies are implemented; authenticated provider QA remains deferred to the user. OpenAI, Gemini, Mistral and Cohere are selectable per profile. This file owns delivery work, not an additional specification.
 
 ## Build objective
 
@@ -18,7 +18,7 @@ The user explicitly set the goal on 2026-09-22 and then expanded it to include e
 - [ ] Frontend revamp from supplied references, appropriate shadcn/AI Elements, full-page section navigation, contextual actions, mobile/keyboard/accessibility checks.
 - [x] Apollo/Hunter contact discovery with explicit imports and source evidence.
 - [x] Company-specific agent enrichment and generated person-linked follow-ups over canonical tasks and saved artifacts.
-- [ ] Application automation and broader Simplify parity: assisted autofill/native AgentBrowser, tracking, saved job descriptions and tailored document generation/editing/export are implemented; keyword scoring, automatic work/education row creation, broader ATS controls, cross-page identity, portal reconciliation and full tenant coverage remain.
+- [ ] Application automation and broader Simplify parity: assisted autofill/native AgentBrowser, tracking, saved job descriptions and tailored document generation/editing/export are implemented; keyword scoring, automatic work/education row creation, broader ATS controls, automatic job identity detection, portal reconciliation and full tenant coverage remain.
 - [x] Smoother streamed responses, stable connections, bounded replay and accessible scrolling (requested during implementation).
 - [ ] Explicitly requested email acquisition and reviewed reply/outreach behavior with accurate source/thread/account context; Gmail remains the inbox.
 
@@ -59,6 +59,12 @@ Validation: full `make check` passes with 359 backend tests, 76 UI unit tests, 3
 Companion 0.4.2 captures existing, explicitly labelled work/education sections and matches each to one approved structured fact revision. Automatic answers require unambiguous entry order and source date precision. Prefilled or edited groups remain unchanged; changed bindings stop application. Native date/month and split month/year controls retain range/step checks. Review controls include the section heading. Older capture retries omit absent new metadata, and revoked fact evidence blocks claiming a prepared fill. No SQL migration or permission changes are required. Automatic row creation, cross-page identity and broader ATS compatibility remain open.
 
 Final non-browser validation passes: 369 backend tests, 76 UI unit tests, 15 offline evaluation contracts, Python lint/format/mypy, frontend lint/typecheck, generated contract/environment checks, extension syntax checks and the Docker production web build. Frontend types now derive BrowserField from the generated FormField contract. A regression directly seeds pre-update capture JSON and verifies retry identity. The existing unused Badge lint warning remains. API/execution/web images built successfully. All six local app services run the exact rebuilt images; API/web health and live career-group/date contracts are verified on unchanged schema0026. Reload the unpacked extension to use0.4.2. Browser testing for this increment is intentionally skipped at the user's request; prior browser results above apply to their respective earlier increments.
+
+### Multi-page application continuation — current pass
+
+Companion0.4.3 now offers Continue this application or Start a new application after a full-URL change. The durable choice precedes preparation/filling and survives reopening or lost replies. Exact same-page repeats retain their one-click path. Confirmed pages share the same task, conversation and original job description while keeping separate answer packages. Actor/device/opportunity/active-task checks remain enforced, and old receipt hashes remain valid. Saved capture history labels each page and the confirmation. Cross-origin continuation is an explicit user choice; automatic job identity detection and portal reconciliation remain open. No migration or new permission is required; Next/Submit remain manual.
+
+Non-browser validation passes: 381 backend tests, 85 UI unit tests, 15 offline evaluation contracts, Python lint/format/mypy, frontend lint/types, generated contract/environment checks and extension syntax. Twelve new backend cases cover continuation boundaries, source/package preservation, history and retry compatibility. Nine jsdom cases run the actual popup state machine through separate-job choices, reopening, lost replies, exact tab/URL checks, legacy requests and keyboard focus. Browser testing remains skipped at the user's request. API/execution/web production builds pass. All six local services run the exact rebuilt images; API/web health and live continuation/history contracts are verified on unchanged schema0026. Reload the unpacked extension to use0.4.3.
 
 ### Connected apps — first slice, implemented locally
 

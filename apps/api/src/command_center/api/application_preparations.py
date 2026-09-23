@@ -39,6 +39,7 @@ class PreparationCreate(s.Contract):
     opportunity_id: UUID | None = None
     resume_version_id: UUID | None = None
     continue_preparation_id: UUID | None = None
+    continue_on_new_page: bool = False
     job_context: JobContextCreate | None = None
 
 
@@ -117,9 +118,14 @@ class PreparationGenerationStatus(s.Contract):
 
 
 def preparation_request_payload(body: s.Contract) -> dict[str, Any]:
-    """Keep pre-cover-letter receipt hashes stable when no new choice is made."""
+    """Keep earlier receipt hashes stable when no additive choice is made."""
     payload = body.model_dump(mode="json")
-    for name in ("cover_letter_version_id", "cover_letter_upload_fields", "attach_cover_letter"):
+    for name in (
+        "cover_letter_version_id",
+        "cover_letter_upload_fields",
+        "attach_cover_letter",
+        "continue_on_new_page",
+    ):
         if not payload.get(name):
             payload.pop(name, None)
     return payload
@@ -256,6 +262,7 @@ def create_preparation(
             use_default_resume="resume_version_id" not in body.model_fields_set,
             request_id=UUID(request.state.request_id),
             continue_preparation_id=body.continue_preparation_id,
+            continue_on_new_page=body.continue_on_new_page,
             job_context=body.job_context.model_dump() if body.job_context else None,
         )
         db.flush()

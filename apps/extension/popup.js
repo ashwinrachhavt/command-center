@@ -20,9 +20,11 @@ element("page-reader").value = stored.pageReader ?? "agent-browser";
 
 function syncAutofillControls() {
   const pending = draft?.autofill && draft.autofill.stage !== "done";
+  const choosing = draft?.autofill?.stage === "choose_application";
   const busy = actionBusy || autofillBusy;
   const manualPending = Boolean(draft?.reviewedCommand || draft?.recapture);
   element("fields").inert = busy || Boolean(pending) || manualPending;
+  element("proposals").inert = busy || Boolean(pending) || manualPending;
   for (const id of [
     "resume",
     "auto-resume",
@@ -44,8 +46,22 @@ function syncAutofillControls() {
       (["generate", "propose"].includes(id) && generationPending());
   element("discard-draft").hidden = !draft;
   element("discard-draft").disabled = busy;
-  element("disconnect").disabled = busy;
+  element("disconnect").disabled = busy || choosing;
+  element("autofill").hidden = choosing;
   element("autofill").disabled = busy || manualPending;
+  const choiceWasHidden = element("application-choice").hidden;
+  element("application-choice").hidden = !choosing;
+  element("continue-application").disabled = busy || !choosing;
+  element("new-application").disabled = busy || !choosing;
+  if (choosing) {
+    const previous = draft.autofill.previousApplication;
+    element("application-choice-context").textContent =
+      `Previous application: ${previous.title} · ${new URL(previous.pageUrl).hostname}`;
+    autofillStatus(
+      "This is a different page. Choose whether it belongs to your previous application before preparing answers.",
+    );
+    if (choiceWasHidden) element("application-choice-title").focus();
+  }
   element("autofill").textContent = autofillBusy
     ? "Autofilling…"
     : pending
@@ -607,15 +623,18 @@ function scheduleGenerationPoll() {
 
 async function pollGeneration() {
   if (!draft?.preparation) return;
+  const currentDraft = draft;
   try {
     const generation = validGeneration(
       await api(`device/preparations/${draft.preparation.id}/generation`),
     );
+    if (draft !== currentDraft) return;
     draft.generation = generation;
     if (generation.state === "completed") {
       const latest = validPreparation(
         await api(`device/preparations/${draft.preparation.id}`),
       );
+      if (draft !== currentDraft) return;
       mergePreparation(latest);
       message("Grounded drafts are ready. Your local edits were kept.");
     } else if (generation.state === "failed") {
@@ -629,6 +648,7 @@ async function pollGeneration() {
     renderGeneration();
     scheduleGenerationPoll();
   } catch (error) {
+    if (draft !== currentDraft) return;
     message(error.message ?? "Generation status is temporarily unavailable.");
     clearTimeout(generationTimer);
     if (draft?.generation?.run_id)
@@ -1052,210 +1072,248 @@ function autofillStatus(text) {
   element("autofill-status").textContent = text;
 }
 
-element("autofill").addEventListener("click", (event) =>
-  action(event.currentTarget, async () => {
-    autofillBusy = true;
-    syncAutofillControls();
-    try {
-      // Keep the exact unfinished operation across popup closure and lost replies.
-      if (!draft?.autofill || draft.autofill.stage === "done") {
-        autofillStatus("Reading this application…");
-        const { tab, snapshot, structure } = await inspectForm(true);
-        clearTimeout(generationTimer);
-        const previousId =
-          draft?.preparation &&
-          (draft.pageUrl ?? draft.autofill?.pageUrl) === tab.url
-            ? draft.preparation.id
-            : null;
-        draft = {
-          snapshot,
+async function autofillTab(operation) {
+  const tab = await activeTab();
+  if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
+    throw new Error(
+      "Return to the captured application tab, or start over on this page.",
+    );
+  return tab;
+}
+
+async function runAutofill() {
+  autofillBusy = true;
+  syncAutofillControls();
+  try {
+    // Keep the exact unfinished operation across popup closure and lost replies.
+    if (!draft?.autofill || draft.autofill.stage === "done") {
+      autofillStatus("Reading this application…");
+      const { tab, snapshot, structure } = await inspectForm(true);
+      clearTimeout(generationTimer);
+      const previousPageUrl = draft?.pageUrl ?? draft?.autofill?.pageUrl;
+      const previousApplication = draft?.preparation
+        ? {
+            id: draft.preparation.id,
+            title: draft.snapshot.title || "Application",
+            pageUrl: previousPageUrl ?? draft.snapshot.page_url,
+          }
+        : null;
+      const choosing = previousApplication && previousPageUrl !== tab.url;
+      draft = {
+        snapshot,
+        pageUrl: tab.url,
+        structure,
+        values: {},
+        touched: {},
+        replacementTouched: {},
+        uploadTouched: {},
+        replaceFields: [],
+        uploadFields: [],
+        coverLetterUploadFields: [],
+        receipts: {},
+        resumeVersionId: resumeChoice ?? null,
+        coverLetterVersionId: coverLetterChoice ?? null,
+        autofill: {
+          stage: choosing ? "choose_application" : "capture",
+          previousId: choosing ? null : (previousApplication?.id ?? null),
+          previousApplication,
+          tabId: tab.id,
           pageUrl: tab.url,
-          structure,
-          values: {},
-          touched: {},
-          replacementTouched: {},
-          uploadTouched: {},
-          replaceFields: [],
-          uploadFields: [],
-          coverLetterUploadFields: [],
-          receipts: {},
           resumeVersionId: resumeChoice ?? null,
           coverLetterVersionId: coverLetterChoice ?? null,
-          autofill: {
-            stage: "capture",
-            previousId,
-            tabId: tab.id,
-            pageUrl: tab.url,
-            resumeVersionId: resumeChoice ?? null,
-            coverLetterVersionId: coverLetterChoice ?? null,
-            attachResume: element("auto-resume").checked,
-            attachCoverLetter: element("auto-cover-letter").checked,
-          },
-        };
-        element("application-title").textContent =
-          snapshot.title || "Application";
-        element("page-location").textContent = new URL(
-          snapshot.page_url,
-        ).hostname;
-        element("page-location").hidden = false;
-        await saveDraft();
-      }
-      const operation = draft.autofill;
-      if (operation.stage === "uncertain")
-        throw new Error(
-          "Check the application page after the uncertain fill. Discard this draft before starting again.",
-        );
-      const tab = await activeTab();
-      if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
-        throw new Error(
-          "Return to the captured application tab, or discard this draft and start again.",
-        );
-      if (operation.stage === "capture") {
-        await api("snapshots", {
-          method: "POST",
-          key: receipt("auto-capture"),
-          body: draft.snapshot,
-        });
-        operation.stage = "prepare";
-        await saveDraft();
-      }
-      if (operation.stage === "prepare") {
-        autofillStatus("Matching your profile to the fields…");
-        const prepared = validPreparation(
-          await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
-            method: "POST",
-            key: receipt("auto-prepare"),
-            body: {
-              opportunity_id: null,
-              resume_version_id: operation.resumeVersionId,
-              cover_letter_version_id: operation.coverLetterVersionId ?? null,
-              continue_preparation_id: operation.previousId,
-              job_context: draft.structure?.job_context ?? null,
-            },
-          }),
-        );
-        mergePreparation(prepared);
-        operation.baseVersionId = prepared.version_id;
-        operation.stage = "authorize";
-        await saveDraft();
-      }
-      if (operation.stage === "authorize") {
-        const prepared = validPreparation(
-          await api(`device/preparations/${draft.preparation.id}/autofill`, {
-            method: "POST",
-            key: receipt("auto-authorize"),
-            body: {
-              expected_version_id: operation.baseVersionId,
-              attach_resume: operation.attachResume,
-              attach_cover_letter: operation.attachCoverLetter ?? false,
-            },
-          }),
-        );
-        operation.prepared = prepared;
-        mergePreparation(prepared);
-        operation.stage = "command";
-        await saveDraft();
-      }
-      element("preparation").hidden = false;
-      if (operation.stage === "command") {
-        const prepared = operation.prepared;
-        const fields = Object.fromEntries(
-          prepared.fields
-            .filter(
-              (field) => field.status === "suggested" && field.value !== null,
-            )
-            .map((field) => [field.field_id, field.value]),
-        );
-        const uploads = Object.fromEntries([
-          ...prepared.upload_fields.map((id) => [
-            id,
-            prepared.resume.version_id,
-          ]),
-          ...(prepared.cover_letter_upload_fields ?? []).map((id) => [
-            id,
-            prepared.cover_letter.version_id,
-          ]),
-        ]);
-        if (!Object.keys(fields).length && !Object.keys(uploads).length) {
-          operation.stage = "done";
-          await saveDraft();
-          autofillStatus(
-            "No approved answers match yet. Complete the questions below, or add approved profile details in your workspace.",
-          );
-          return;
-        }
-        operation.command = validate("PendingCommands", [
-          await api("device/commands", {
-            method: "POST",
-            key: receipt("auto-command"),
-            body: {
-              snapshot_id: draft.snapshot.id,
-              fields,
-              uploads,
-              replace_fields: [],
-              preparation_version_id: prepared.version_id,
-            },
-          }),
-        ])[0];
-        operation.stage = "apply";
-        await saveDraft();
-      }
-      if (operation.stage === "apply") {
-        if (
-          claimedCommands.has(operation.command.id) &&
-          !draft.lastAttempt?.result
-        )
-          throw new Error(
-            "Autofill was already attempted. Check the application page before sharing it again; the previous fill will not replay.",
-          );
-        autofillStatus("Filling available answers and selected documents…");
-        const card = document.createElement("article");
-        card.className = "proposal";
-        element("proposals").replaceChildren(card);
-        const result = await applyCommand(operation.command, tab, card);
-        operation.stage =
-          result.state === "outcome_unknown" ? "uncertain" : "done";
-        await saveDraft();
-        const unanswered = operation.prepared.fields.filter(
-          (field) =>
-            ["needs_input", "unsupported"].includes(field.status) &&
-            !operation.prepared.upload_fields.includes(field.field_id) &&
-            !(operation.prepared.cover_letter_upload_fields ?? []).includes(
-              field.field_id,
-            ),
-        ).length;
-        const outcomes = Object.values(result.field_results);
-        const filled = outcomes.filter((field) =>
-          ["filled", "uploaded"].includes(field.status),
-        ).length;
-        const failed = outcomes.filter(
-          (field) =>
-            !["filled", "uploaded", "preserved"].includes(field.status),
-        ).length;
-        const summary = [`${filled} filled or attached.`];
-        if (failed) summary.push(`${failed} could not be filled.`);
-        if (unanswered)
-          summary.push(
-            `${unanswered} ${unanswered === 1 ? "question needs" : "questions need"} your input.`,
-          );
-        summary.push("Review the page before Next or Submit.");
-        autofillStatus(
-          !["applied", "partial"].includes(result.state)
-            ? result.message
-            : summary.join(" "),
-        );
-      }
-    } catch (error) {
-      autofillStatus(
-        "Autofill needs attention. Your progress is saved; see the message below.",
-      );
-      throw error;
-    } finally {
-      autofillBusy = false;
-      syncAutofillControls();
+          attachResume: element("auto-resume").checked,
+          attachCoverLetter: element("auto-cover-letter").checked,
+        },
+      };
+      element("application-title").textContent =
+        snapshot.title || "Application";
+      element("page-location").textContent = new URL(
+        snapshot.page_url,
+      ).hostname;
+      element("page-location").hidden = false;
+      element("preparation").hidden = true;
+      element("proposals").replaceChildren();
+      await saveDraft();
     }
-  }),
+    const operation = draft.autofill;
+    if (operation.stage === "choose_application") return;
+    if (operation.stage === "uncertain")
+      throw new Error(
+        "Check the application page after the uncertain fill. Discard this draft before starting again.",
+      );
+    await autofillTab(operation);
+    if (operation.stage === "capture") {
+      await api("snapshots", {
+        method: "POST",
+        key: receipt("auto-capture"),
+        body: draft.snapshot,
+      });
+      operation.stage = "prepare";
+      await saveDraft();
+    }
+    if (operation.stage === "prepare") {
+      await autofillTab(operation);
+      autofillStatus("Matching your profile to the fields…");
+      const prepared = validPreparation(
+        await api(`device/snapshots/${draft.snapshot.id}/preparations`, {
+          method: "POST",
+          key: receipt("auto-prepare"),
+          body: {
+            opportunity_id: null,
+            resume_version_id: operation.resumeVersionId,
+            cover_letter_version_id: operation.coverLetterVersionId ?? null,
+            continue_preparation_id: operation.previousId,
+            ...(operation.continueOnNewPage
+              ? { continue_on_new_page: true }
+              : {}),
+            job_context: draft.structure?.job_context ?? null,
+          },
+        }),
+      );
+      mergePreparation(prepared);
+      operation.baseVersionId = prepared.version_id;
+      operation.stage = "authorize";
+      await saveDraft();
+    }
+    if (operation.stage === "authorize") {
+      await autofillTab(operation);
+      const prepared = validPreparation(
+        await api(`device/preparations/${draft.preparation.id}/autofill`, {
+          method: "POST",
+          key: receipt("auto-authorize"),
+          body: {
+            expected_version_id: operation.baseVersionId,
+            attach_resume: operation.attachResume,
+            attach_cover_letter: operation.attachCoverLetter ?? false,
+          },
+        }),
+      );
+      operation.prepared = prepared;
+      mergePreparation(prepared);
+      operation.stage = "command";
+      await saveDraft();
+    }
+    element("preparation").hidden = false;
+    if (operation.stage === "command") {
+      await autofillTab(operation);
+      const prepared = operation.prepared;
+      const fields = Object.fromEntries(
+        prepared.fields
+          .filter(
+            (field) => field.status === "suggested" && field.value !== null,
+          )
+          .map((field) => [field.field_id, field.value]),
+      );
+      const uploads = Object.fromEntries([
+        ...prepared.upload_fields.map((id) => [id, prepared.resume.version_id]),
+        ...(prepared.cover_letter_upload_fields ?? []).map((id) => [
+          id,
+          prepared.cover_letter.version_id,
+        ]),
+      ]);
+      if (!Object.keys(fields).length && !Object.keys(uploads).length) {
+        operation.stage = "done";
+        await saveDraft();
+        autofillStatus(
+          "No approved answers match yet. Complete the questions below, or add approved profile details in your workspace.",
+        );
+        return;
+      }
+      operation.command = validate("PendingCommands", [
+        await api("device/commands", {
+          method: "POST",
+          key: receipt("auto-command"),
+          body: {
+            snapshot_id: draft.snapshot.id,
+            fields,
+            uploads,
+            replace_fields: [],
+            preparation_version_id: prepared.version_id,
+          },
+        }),
+      ])[0];
+      operation.stage = "apply";
+      await saveDraft();
+    }
+    if (operation.stage === "apply") {
+      const tab = await autofillTab(operation);
+      if (
+        claimedCommands.has(operation.command.id) &&
+        !draft.lastAttempt?.result
+      )
+        throw new Error(
+          "Autofill was already attempted. Check the application page before sharing it again; the previous fill will not replay.",
+        );
+      autofillStatus("Filling available answers and selected documents…");
+      const card = document.createElement("article");
+      card.className = "proposal";
+      element("proposals").replaceChildren(card);
+      const result = await applyCommand(operation.command, tab, card);
+      operation.stage =
+        result.state === "outcome_unknown" ? "uncertain" : "done";
+      await saveDraft();
+      const unanswered = operation.prepared.fields.filter(
+        (field) =>
+          ["needs_input", "unsupported"].includes(field.status) &&
+          !operation.prepared.upload_fields.includes(field.field_id) &&
+          !(operation.prepared.cover_letter_upload_fields ?? []).includes(
+            field.field_id,
+          ),
+      ).length;
+      const outcomes = Object.values(result.field_results);
+      const filled = outcomes.filter((field) =>
+        ["filled", "uploaded"].includes(field.status),
+      ).length;
+      const failed = outcomes.filter(
+        (field) => !["filled", "uploaded", "preserved"].includes(field.status),
+      ).length;
+      const summary = [`${filled} filled or attached.`];
+      if (failed) summary.push(`${failed} could not be filled.`);
+      if (unanswered)
+        summary.push(
+          `${unanswered} ${unanswered === 1 ? "question needs" : "questions need"} your input.`,
+        );
+      summary.push("Review the page before Next or Submit.");
+      autofillStatus(
+        !["applied", "partial"].includes(result.state)
+          ? result.message
+          : summary.join(" "),
+      );
+    }
+  } catch (error) {
+    autofillStatus(
+      "Autofill needs attention. Your progress is saved; see the message below.",
+    );
+    throw error;
+  } finally {
+    autofillBusy = false;
+    syncAutofillControls();
+  }
+}
+
+element("autofill").addEventListener("click", (event) =>
+  action(event.currentTarget, runAutofill),
 );
+
+for (const [id, continueApplication] of [
+  ["continue-application", true],
+  ["new-application", false],
+]) {
+  element(id).addEventListener("click", (event) =>
+    action(event.currentTarget, async () => {
+      const operation = draft?.autofill;
+      if (operation?.stage !== "choose_application") return;
+      await autofillTab(operation);
+      operation.previousId = continueApplication
+        ? operation.previousApplication.id
+        : null;
+      operation.continueOnNewPage = continueApplication;
+      operation.stage = "capture";
+      await saveDraft();
+      await runAutofill();
+    }),
+  );
+}
 
 element("resume").addEventListener("change", async (event) => {
   resumeChoice = event.currentTarget.value || null;

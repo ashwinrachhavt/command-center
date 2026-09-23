@@ -417,6 +417,7 @@ class ApplicationPreparation(Base):
         use_default_resume: bool,
         request_id: UUID,
         continue_preparation_id: UUID | None = None,
+        continue_on_new_page: bool = False,
         job_context: dict[str, Any] | None = None,
         cover_letter_version_id: UUID | None = None,
     ) -> "ApplicationPreparation":
@@ -426,6 +427,8 @@ class ApplicationPreparation(Base):
         if snapshot.owner_id != owner_id:
             raise RecordNotFound("Form snapshot not found")
         cls.check_snapshot(session, snapshot)
+        if continue_on_new_page and continue_preparation_id is None:
+            raise RecordConflict("Choose an application before confirming a new page")
         previous = session.get(cls, continue_preparation_id) if continue_preparation_id else None
         previous_snapshot = session.get(BrowserSnapshot, previous.snapshot_id) if previous else None
         if continue_preparation_id and (
@@ -435,8 +438,12 @@ class ApplicationPreparation(Base):
             or previous_snapshot.device_id != snapshot.device_id
         ):
             raise RecordNotFound("Application preparation not found")
-        if previous_snapshot and previous_snapshot.page_url != snapshot.page_url:
-            raise RecordConflict("Continue only the same application page")
+        if (
+            previous_snapshot
+            and previous_snapshot.page_url != snapshot.page_url
+            and not continue_on_new_page
+        ):
+            raise RecordConflict("Confirm that this new page belongs to the same application")
         if previous:
             if opportunity_id is not None and opportunity_id != previous.opportunity_id:
                 raise RecordConflict("Keep the same opportunity when continuing an application")
@@ -513,6 +520,15 @@ class ApplicationPreparation(Base):
             "upload_fields": [],
             "fields": initial_answers(snapshot.fields, facts, opportunity_id),
         }
+        continuation = (
+            {
+                "continued_from_preparation_id": str(previous.id),
+                "continuation_mode": "confirmed_page" if continue_on_new_page else "same_page",
+            }
+            if previous
+            else {}
+        )
+        payload.update(continuation)
         preparation.append_package(
             payload, version_id=uuid5(record_id, "version:1"), request_id=request_id
         )
@@ -538,6 +554,7 @@ class ApplicationPreparation(Base):
             record_id,
             snapshot_id=str(snapshot.id),
             task_id=str(task.id),
+            **continuation,
         )
         return preparation
 

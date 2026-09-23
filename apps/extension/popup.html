@@ -115,6 +115,29 @@
           Autofill this page <span aria-hidden="true">→</span>
         </button>
         <p id="autofill-status" role="status" aria-live="polite"></p>
+        <section
+          id="application-choice"
+          aria-labelledby="application-choice-title"
+          aria-describedby="application-choice-context application-choice-explanation"
+          hidden
+        >
+          <div class="section-heading">
+            <h2 id="application-choice-title" tabindex="-1">
+              Is this the same application?
+            </h2>
+          </div>
+          <p id="application-choice-context"></p>
+          <p id="application-choice-explanation">
+            Continue to keep the same application task, history and job context,
+            or start a separate application.
+          </p>
+          <button id="continue-application" type="button">
+            Continue this application
+          </button>
+          <button id="new-application" type="button" class="secondary">
+            Start a new application
+          </button>
+        </section>
         <button id="discard-draft" type="button" class="text-button" hidden>
           Start over on this page
         </button>
