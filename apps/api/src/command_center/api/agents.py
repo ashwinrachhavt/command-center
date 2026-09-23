@@ -333,7 +333,11 @@ def connect_composio(
         connection = client.connected_accounts.link(
             user_id=str(identity.id),
             auth_config_id=config_id,
-            callback_url=settings.web_origin + "/connections?connected=1",
+            callback_url=(
+                settings.web_origin
+                + "/agent-settings?tab=connectors&connected=1&toolkit="
+                + body.toolkit
+            ),
             allow_multiple=True,
         )
         redirect_url = str(connection.redirect_url)

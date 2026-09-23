@@ -33,7 +33,10 @@ const integrations = {
   composio_toolkits: ["gmail", "googlecalendar", "linear", "notion"],
 };
 
-beforeEach(() => window.history.replaceState(null, "", "/connections"));
+beforeEach(() => {
+  window.history.replaceState(null, "", "/connections");
+  sessionStorage.clear();
+});
 
 const account: Schema["AccountRead"] = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -216,31 +219,128 @@ it("explains missing configuration without offering an unusable connect action",
   expect(screen.getByText("CC_COMPOSIO_AUTH_CONFIGS")).toBeVisible();
 });
 
-it("requires explicit verification on OAuth return and clears the callback after refresh", async () => {
-  window.history.replaceState(null, "", "/connections?connected=1");
+it("automatically verifies an OAuth return and clears provider parameters", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/agent-settings?tab=connectors&connected=1&status=success&connected_account_id=ca_synthetic&toolkit=gmail",
+  );
   const fetch = vi
     .spyOn(global, "fetch")
     .mockImplementation((input) =>
       Promise.resolve(
         Response.json(
-          String(input).endsWith("/integrations") ? integrations : [account],
+          String(input).endsWith("/integrations")
+            ? integrations
+            : String(input).endsWith("/sync")
+              ? [account]
+              : [],
         ),
       ),
     );
   mount();
   await screen.findByText("Work Gmail");
-  expect(screen.getByText("Finish connecting your app")).toBeVisible();
-  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(
-    true,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Refresh accounts" }));
-  await waitFor(() => expect(window.location.search).toBe(""));
+  await waitFor(() => expect(window.location.search).toBe("?tab=connectors"));
   expect(
-    screen.queryByText("Finish connecting your app"),
-  ).not.toBeInTheDocument();
+    within(screen.getByRole("region", { name: "Gmail" })).getByText(
+      "Connected",
+    ),
+  ).toBeVisible();
+  expect(
+    sessionStorage.getItem("command-center:pending-app-connection"),
+  ).toBeNull();
   const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
   expect(writes).toHaveLength(1);
   expect(String(writes[0][0])).toMatch(/accounts\/sync$/);
+});
+
+it("verifies a pending connection when returning without the provider callback", async () => {
+  const key = crypto.randomUUID();
+  sessionStorage.setItem(
+    "command-center:pending-app-connection",
+    JSON.stringify({
+      expiresAt: Date.now() + 60_000,
+      refreshKey: key,
+    }),
+  );
+  const fetch = vi
+    .spyOn(global, "fetch")
+    .mockImplementation((input) =>
+      Promise.resolve(
+        Response.json(
+          String(input).endsWith("/integrations")
+            ? integrations
+            : String(input).endsWith("/sync")
+              ? [account]
+              : [],
+        ),
+      ),
+    );
+  mount();
+  await screen.findByText("Work Gmail");
+  fireEvent.focus(window);
+  fireEvent(window, new Event("pageshow"));
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
+  expect(writes).toHaveLength(1);
+  expect(idempotencyKey(writes[0])).toBe(key);
+});
+
+it("keeps an unfinished automatic verification key across a page reload", async () => {
+  window.history.replaceState(null, "", "/connections?connected=1");
+  let attempts = 0;
+  const fetch = vi.spyOn(global, "fetch").mockImplementation((input) => {
+    const path = String(input);
+    if (path.endsWith("/integrations"))
+      return Promise.resolve(Response.json(integrations));
+    if (path.endsWith("/sync")) {
+      attempts++;
+      return Promise.resolve(
+        attempts === 1
+          ? Response.json(
+              {
+                detail: {
+                  code: "connected_request_outcome_unknown",
+                  message: "Verification outcome unknown",
+                },
+              },
+              { status: 409 },
+            )
+          : Response.json([account]),
+      );
+    }
+    return Promise.resolve(Response.json([]));
+  });
+  const first = mount();
+  await screen.findByRole("button", { name: "Retry the same refresh" });
+  first.unmount();
+  mount();
+  await screen.findByText("Work Gmail");
+  const writes = fetch.mock.calls.filter(([, init]) => init?.method === "POST");
+  expect(writes).toHaveLength(2);
+  expect(idempotencyKey(writes[1])).toBe(idempotencyKey(writes[0]));
+});
+
+it("shows cancelled authorization without automatically verifying accounts", async () => {
+  window.history.replaceState(
+    null,
+    "",
+    "/connections?connected=1&status=failed",
+  );
+  const fetch = vi
+    .spyOn(global, "fetch")
+    .mockImplementation((input) =>
+      Promise.resolve(
+        Response.json(
+          String(input).endsWith("/integrations") ? integrations : [],
+        ),
+      ),
+    );
+  mount();
+  expect(await screen.findByText("Connection wasn’t completed")).toBeVisible();
+  await screen.findByRole("region", { name: "Gmail" });
+  expect(fetch.mock.calls.every(([, init]) => init?.method === "GET")).toBe(
+    true,
+  );
 });
 
 it("keeps an invalid OAuth redirect on the page with a recoverable error", async () => {

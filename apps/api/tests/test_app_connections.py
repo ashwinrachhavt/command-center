@@ -37,7 +37,8 @@ def test_connect_link_uses_current_actor_and_allows_another_account(connection_c
     link.assert_called_once_with(
         user_id=str(actor_id),
         auth_config_id="ac_synthetic",
-        callback_url=settings.web_origin + "/connections?connected=1",
+        callback_url=settings.web_origin
+        + "/agent-settings?tab=connectors&connected=1&toolkit=gmail",
         allow_multiple=True,
     )
 

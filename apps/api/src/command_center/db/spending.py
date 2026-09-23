@@ -611,6 +611,11 @@ class SpendingReservation(Base):
                 != 1
             ):
                 raise ValueError("A connected operation requires one work scope")
+            # Connecting an app may be a new workspace's first provider action.
+            # Provision the same defaults as chat, preserving existing policies.
+            session.scalar(select(Actor).where(Actor.id == owner_id).with_for_update())
+            if session.get(SpendingPolicy, owner_id) is None:
+                ensure_default_spending_policy(session, owner_id)
             period, work, card = _current_scope(
                 session,
                 owner_id=owner_id,
@@ -1063,6 +1068,13 @@ DEFAULT_RATES: dict[str, Any] = {
     ],
     "tools": [
         {"slug": "gmail_search", "fixed_micros": 0},
+        # Conservative local estimates for account verification, not provider
+        # invoice prices. Custom rate cards remain authoritative when configured.
+        {"slug": "COMPOSIO_CONNECTED_ACCOUNTS_LIST", "fixed_micros": 10_000},
+        {"slug": "GMAIL_GET_PROFILE", "fixed_micros": 10_000},
+        {"slug": "GOOGLECALENDAR_GET_CURRENT_USER", "fixed_micros": 10_000},
+        {"slug": "LINEAR_WHO_AM_I", "fixed_micros": 10_000},
+        {"slug": "NOTION_GET_ABOUT_ME", "fixed_micros": 10_000},
     ],
 }
 

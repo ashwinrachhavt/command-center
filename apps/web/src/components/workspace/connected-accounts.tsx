@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, Plug, RefreshCw } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -28,10 +28,54 @@ import {
   type ConnectedApp,
 } from "./connected-app-card";
 
+const pendingConnectionKey = "command-center:pending-app-connection";
+type PendingConnection = { expiresAt: number; refreshKey: string };
+
+function pendingConnection(): PendingConnection | null {
+  try {
+    const value = JSON.parse(
+      sessionStorage.getItem(pendingConnectionKey) ?? "null",
+    );
+    if (
+      value &&
+      typeof value.refreshKey === "string" &&
+      typeof value.expiresAt === "number" &&
+      value.expiresAt > Date.now()
+    )
+      return value;
+  } catch {
+    // A blocked or expired browser store must not prevent an explicit refresh.
+  }
+  return null;
+}
+
+function rememberConnection() {
+  const pending = {
+    expiresAt: Date.now() + 30 * 60 * 1000,
+    refreshKey: crypto.randomUUID(),
+  };
+  try {
+    sessionStorage.setItem(pendingConnectionKey, JSON.stringify(pending));
+  } catch {
+    // The provider callback can still trigger verification without storage.
+  }
+}
+
+function forgetConnection() {
+  try {
+    sessionStorage.removeItem(pendingConnectionKey);
+  } catch {
+    // Storage may be unavailable in a restricted browser context.
+  }
+}
+
 export function ConnectedAccounts() {
   const client = useQueryClient();
   const searchParams = useSearchParams();
   const returnedFromProvider = searchParams.get("connected") === "1";
+  const connectionFailed =
+    returnedFromProvider && searchParams.get("status") === "failed";
+  const automaticRefreshStarted = useRef(false);
   const [setupApp, setSetupApp] = useState<ConnectedApp | null>(null);
   const setupTrigger = useRef<HTMLElement | null>(null);
   const integrations = useQuery({
@@ -49,19 +93,30 @@ export function ConnectedAccounts() {
       const target = "integrations/composio/accounts/sync";
       const body = {};
       const request = intents.forRequest("refresh", "POST", target, body);
-      return api(target, { method: "POST", body, key: request.key });
+      return api<Schema["AccountRead"][]>(target, {
+        method: "POST",
+        body,
+        key: pendingConnection()?.refreshKey ?? request.key,
+      });
     },
-    onSuccess: () => {
+    onSuccess: (rows) => {
       intents.confirmRequest(
         "refresh",
         "POST",
         "integrations/composio/accounts/sync",
         {},
       );
-      void client.invalidateQueries({ queryKey: ["connected-accounts"] });
+      forgetConnection();
+      client.setQueryData(["connected-accounts"], rows);
       if (returnedFromProvider) {
         const url = new URL(window.location.href);
-        url.searchParams.delete("connected");
+        for (const key of [
+          "connected",
+          "status",
+          "connected_account_id",
+          "toolkit",
+        ])
+          url.searchParams.delete(key);
         window.history.replaceState(
           null,
           "",
@@ -104,6 +159,7 @@ export function ConnectedAccounts() {
   const chooseAccount = choose.variables;
   const startFreshRefresh = () => {
     intents.reset("refresh");
+    if (pendingConnection()) rememberConnection();
     refresh.reset();
     refresh.mutate();
   };
@@ -136,7 +192,10 @@ export function ConnectedAccounts() {
         );
       return url.href;
     },
-    onSuccess: (url) => window.location.assign(url),
+    onSuccess: (url) => {
+      rememberConnection();
+      window.location.assign(url);
+    },
   });
   const canRefresh = Boolean(
     integrations.data?.composio_configured &&
@@ -144,6 +203,32 @@ export function ConnectedAccounts() {
       connectedApps.some((app) => app.toolkit === toolkit),
     ),
   );
+  const { mutate: refreshAccounts } = refresh;
+  useEffect(() => {
+    if (connectionFailed) {
+      forgetConnection();
+      return;
+    }
+    const verifyReturn = () => {
+      if (
+        !canRefresh ||
+        automaticRefreshStarted.current ||
+        document.visibilityState === "hidden" ||
+        (!returnedFromProvider && !pendingConnection())
+      )
+        return;
+      automaticRefreshStarted.current = true;
+      if (!pendingConnection()) rememberConnection();
+      refreshAccounts();
+    };
+    verifyReturn();
+    window.addEventListener("pageshow", verifyReturn);
+    window.addEventListener("focus", verifyReturn);
+    return () => {
+      window.removeEventListener("pageshow", verifyReturn);
+      window.removeEventListener("focus", verifyReturn);
+    };
+  }, [canRefresh, connectionFailed, refreshAccounts, returnedFromProvider]);
   return (
     <>
       <PageHeading
@@ -166,20 +251,31 @@ export function ConnectedAccounts() {
       />
       <div className="mx-5 mb-10 flex max-w-5xl flex-col gap-6 md:mx-9">
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          Connect an account, then refresh to verify it. Gmail is only read when
-          you explicitly ask to pull email. External changes still need your
-          review.
+          Connect an account and we’ll verify it when you return. Gmail is only
+          read when you explicitly ask to pull email. External changes still
+          need your review.
         </p>
-        {returnedFromProvider && !refresh.isSuccess && (
-          <Alert>
-            <Plug />
-            <AlertTitle>Finish connecting your app</AlertTitle>
+        {connectionFailed ? (
+          <Alert variant="destructive">
+            <Info />
+            <AlertTitle>Connection wasn’t completed</AlertTitle>
             <AlertDescription>
-              Refresh accounts to check whether the connection completed and
-              verify its identity. This checks accounts; it does not pull your
-              email.
+              Choose Connect to try again and finish authorization in the app.
             </AlertDescription>
           </Alert>
+        ) : (
+          (returnedFromProvider || refresh.isPending) &&
+          !refresh.isSuccess &&
+          !refresh.error && (
+            <Alert>
+              <Plug />
+              <AlertTitle>Verifying your connection…</AlertTitle>
+              <AlertDescription>
+                Checking the connected account and saving it to your workspace.
+                This does not pull your email.
+              </AlertDescription>
+            </Alert>
+          )
         )}
         {integrations.error && (
           <ErrorState
