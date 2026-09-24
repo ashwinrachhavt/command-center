@@ -3,7 +3,9 @@ import { expect, test } from "@playwright/test";
 test("a ready Gemini profile runs without OpenAI", async ({ page }) => {
   await page.goto("/agents");
 
-  await expect(page.getByText("Gemini · Synthetic preview")).toBeVisible();
+  const picker = page.getByRole("button", { name: "Switch AI model" });
+  await expect(picker).toHaveText("Synthetic preview");
+  await expect(picker).toHaveAttribute("title", "Gemini · Synthetic preview");
   await page
     .getByRole("textbox", { name: "Message your agent" })
     .fill("Run this synthetic Gemini request.");
