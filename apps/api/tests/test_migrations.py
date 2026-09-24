@@ -54,6 +54,16 @@ def clear_question_fixtures(engine: Engine) -> None:
         connection.execute(text("DELETE FROM record_work"))
         connection.execute(text("DELETE FROM contact_discovery_evidence"))
         connection.execute(text("DELETE FROM follow_ups"))
+        # Clear only synthetic timing metadata so older migration guards are reachable.
+        connection.execute(
+            text("ALTER TABLE reviewed_action_revisions DISABLE TRIGGER immutable_rows")
+        )
+        connection.execute(
+            text("UPDATE reviewed_action_revisions SET delivery=NULL, scheduled_for=NULL")
+        )
+        connection.execute(
+            text("ALTER TABLE reviewed_action_revisions ENABLE TRIGGER immutable_rows")
+        )
         connection.execute(text("DELETE FROM writing_drafts"))
         # This function operates only on the dedicated synthetic test database.
         connection.execute(text("ALTER TABLE contact_observations DISABLE TRIGGER immutable_rows"))

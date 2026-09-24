@@ -6,11 +6,28 @@ export async function followUpFixture(url: URL, init?: RequestInit) {
   const route = url.pathname.replace("/api/backend/", "");
   const list = route.match(/^contacts\/([^/]+)\/follow-ups$/);
   const detail = route.match(/^follow-ups\/([^/]+)$/);
-  if (!list && !detail) return null;
+  const source = route.match(/^documents\/versions\/([^/]+)\/text$/);
+  if (!list && !detail && !source) return null;
   const store: Record<string, Saved> = JSON.parse(
     localStorage.getItem(storageKey) ?? "{}",
   );
   const method = init?.method ?? "GET";
+  if (source) {
+    const saved = Object.values(store).find(
+      (item) => item.version.id === source[1],
+    );
+    if (!saved) return null;
+    const text = String(saved.version.payload?.text ?? "");
+    return Response.json({
+      artifact_id: saved.artifact.id,
+      version_id: source[1],
+      title: saved.artifact.title,
+      text,
+      offset: 0,
+      next_offset: null,
+      total_chars: text.length,
+    });
+  }
   if (method === "GET") {
     if (detail)
       return store[detail[1]]

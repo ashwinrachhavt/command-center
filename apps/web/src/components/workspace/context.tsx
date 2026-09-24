@@ -51,7 +51,9 @@ const Context = createContext<{
   open: (
     resource: Resource,
     id?: string,
-    options?: { tab: "content"; versionId?: string } | { tab: "conversation" },
+    options?:
+      | { tab: "content"; versionId?: string }
+      | { tab: "conversation" | "follow-ups" },
   ) => void;
   close: () => void;
 } | null>(null);
@@ -85,6 +87,13 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
       )
         return false;
       if (tab === undefined && versionId === undefined) return true;
+      if (
+        resource === "contacts" &&
+        id &&
+        tab === "follow-ups" &&
+        versionId === undefined
+      )
+        return true;
       if (
         tab === "conversation" &&
         versionId === undefined &&
@@ -127,10 +136,12 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
   const open = (
     resource: Resource,
     id?: string,
-    options?: { tab: "content"; versionId?: string } | { tab: "conversation" },
+    options?:
+      | { tab: "content"; versionId?: string }
+      | { tab: "conversation" | "follow-ups" },
   ) => {
     const frame = id
-      ? `${resource}:${id}${options?.tab === "content" ? `:content${options.versionId ? `:${options.versionId}` : ""}` : options?.tab === "conversation" ? ":conversation" : ""}`
+      ? `${resource}:${id}${options?.tab === "content" ? `:content${options.versionId ? `:${options.versionId}` : ""}` : options?.tab === "conversation" ? ":conversation" : options?.tab === "follow-ups" && resource === "contacts" ? ":follow-ups" : ""}`
       : resource;
     if (frames.at(-1) === frame) return;
     triggers.current[frames.length] = document.activeElement as HTMLElement;
@@ -242,7 +253,9 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                         onClose={back}
                         compact
                         initialTab={
-                          tab === "content" || tab === "conversation"
+                          tab === "content" ||
+                          tab === "conversation" ||
+                          (tab === "follow-ups" && resource === "contacts")
                             ? tab
                             : undefined
                         }

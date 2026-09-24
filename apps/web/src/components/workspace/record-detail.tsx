@@ -678,7 +678,7 @@ export type RecordDetailProps = {
   id: string;
   onClose: () => void;
   compact?: boolean;
-  initialTab?: "content" | "conversation";
+  initialTab?: "content" | "conversation" | "follow-ups";
   pinnedVersionId?: string;
 };
 
@@ -899,7 +899,7 @@ export function RecordDetail({
             <TabsList className="h-12 min-w-max bg-transparent p-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               {resource === "contacts" && (
-                <TabsTrigger value="follow-ups">Follow-ups</TabsTrigger>
+                <TabsTrigger value="follow-ups">Email & follow-ups</TabsTrigger>
               )}
               {resource === "artifacts" && (
                 <TabsTrigger value="content">Content & versions</TabsTrigger>

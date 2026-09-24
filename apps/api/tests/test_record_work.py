@@ -75,7 +75,8 @@ def test_requested_follow_up_is_one_task_and_one_scoped_saved_draft(work_client,
         post(work_client, route, {"instructions": "Be concise", "channel": "email"}, key).json()
         == work
     )
-    assert post(work_client, route, {}).json()["task_id"] == work["task_id"]
+    assert post(work_client, route, {"channel": "email"}).json()["task_id"] == work["task_id"]
+    assert post(work_client, route, {"channel": "linkedin"}).status_code == 409
     assert work_client.get(f"/api/v1/{route}").json()[0] == work
     token = claim(work_client, engine, settings, work)
     context = work_client.get(
@@ -514,6 +515,24 @@ def test_researched_notes_reject_unbacked_claims_and_excess_length(
     assert response.status_code == 422, response.text
     with Session(engine) as db:
         assert db.get(Task, UUID(work["task_id"])).state != "done"
+
+
+def test_email_work_reuses_dated_saved_research(work_client, engine, researched_contact):
+    person, work, body, token = researched_contact
+    saved = post(work_client, f"tasks/{work['task_id']}/record-work/output", body, token=token)
+    assert saved.status_code == 200, saved.text
+    with Session(engine) as db, db.begin():
+        db.get(AgentRun, UUID(work["run_id"])).finish("completed")
+    work_client.app.dependency_overrides[authenticate] = lambda: Identity(
+        work_client.actor_id, "synthetic"
+    )
+    email = post(work_client, f"record-work/contacts/{person['id']}", {"channel": "email"})
+    assert email.status_code == 201, email.text
+    context = work_client.get(f"/api/v1/tasks/{email.json()['task_id']}/record-work/context").json()
+    assert context["saved_research"]["company"] == "Example Labs"
+    assert context["saved_research"]["saved_at"]
+    assert context["saved_research"]["source_version_ids"] == body["source_version_ids"]
+    assert "not treat it as a fresh" in context["saved_research"]["meaning"]
 
 
 def test_uncertain_identity_is_visible_without_inventing_current_employment(

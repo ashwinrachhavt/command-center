@@ -128,6 +128,7 @@ class RecordWork(Base):
             if (
                 research_requested != active.research_requested
                 or connection_note != active.connection_note
+                or channel != active.channel
             ):
                 raise RecordConflict(
                     "Existing contact work is still running; finish it before changing its scope"
@@ -224,6 +225,18 @@ class RecordWork(Base):
                 "research their company. Use at most one targeted search and one public page "
                 "capture only if identity or a necessary detail is missing. Omit uncertain claims "
                 "rather than expanding research. No research report, subject, signature or send."
+            )
+        if resource == "contacts" and channel == "email":
+            prompt += (
+                "\nPrepare an email with a useful subject and one clear ask. Read email_history "
+                "and saved_research in record_work_context first. A succeeded provider receipt "
+                "proves sending, never a response or current inbox silence. If another email "
+                "is queued or running, surface that fact and avoid a duplicate ask. Reuse "
+                "relevant dated research; when research was requested, use at most two targeted "
+                "searches and two captured primary pages to resolve missing identity or a "
+                "specific useful hook. Stop once that is supported. Cite exact saved sources, "
+                "flag stale or conflicting identity, and omit unsupported personal claims. "
+                "Save an editable draft for individual review; never approve or send it."
             )
         conversation.receive(
             content=prompt,
@@ -474,7 +487,46 @@ class RecordWork(Base):
                 }
                 for version in previous
             ]
-            if self.connection_note:
+            if self.channel == "email" and target.email:
+                from command_center.db.reviewed_actions import (
+                    ActionAttempt,
+                    ReviewedAction,
+                    ReviewedActionRevision,
+                )
+
+                history = []
+                for action in db.scalars(
+                    ReviewedAction.emails_to(self.owner_id, target.email)
+                    .order_by(ReviewedAction.updated_at.desc())
+                    .limit(3)
+                ):
+                    revision = db.get(ReviewedActionRevision, action.current_revision_id)
+                    attempt = db.scalar(
+                        select(ActionAttempt).where(
+                            ActionAttempt.revision_id == action.current_revision_id
+                        )
+                    )
+                    if revision:
+                        history.append(
+                            {
+                                "action_id": str(action.id),
+                                "state": action.state,
+                                "subject": revision.payload.get("subject"),
+                                "body": str(revision.payload.get("body", ""))[:1500],
+                                "scheduled_for": revision.scheduled_for.isoformat()
+                                if revision.scheduled_for
+                                else None,
+                                "sent_at": attempt.completed_at.isoformat()
+                                if attempt and attempt.state == "succeeded" and attempt.completed_at
+                                else None,
+                            }
+                        )
+                result["email_history"] = history
+                result["email_history_policy"] = (
+                    "Local reviewed actions only. Succeeded receipts prove a send, not a reply "
+                    "or current inbox silence. Queued/running messages may still send."
+                )
+            if self.connection_note or self.channel == "email":
                 saved_research = db.execute(
                     select(ArtifactVersion.payload, ArtifactVersion.created_at)
                     .join(RecordWork, RecordWork.output_version_id == ArtifactVersion.id)

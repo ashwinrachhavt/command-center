@@ -91,10 +91,7 @@ def dispatch() -> int:
             )
             pending_actions = list(
                 db.scalars(
-                    select(ReviewedAction.id)
-                    .where(ReviewedAction.state == "queued")
-                    .order_by(ReviewedAction.created_at)
-                    .limit(20)
+                    ReviewedAction.dispatchable().with_only_columns(ReviewedAction.id).limit(20)
                 )
             )
             pending_research = list(

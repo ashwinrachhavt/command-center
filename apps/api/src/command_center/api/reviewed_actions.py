@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, EmailStr, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -25,10 +25,13 @@ from command_center.db.idempotency import IdempotencyConflict, RequestReceipt
 from command_center.db.reviewed_actions import (
     CONDITIONAL_UPDATE_NOTICE,
     ActionAttempt,
+    ActionKind,
     ActionPayload,
+    ActionState,
     ConnectedContextKind,
     ConnectedContextQuery,
     ConnectedRequest,
+    EmailDelivery,
     ExternalAccount,
     ProviderObservation,
     ReviewDecision,
@@ -109,6 +112,7 @@ class ActionFields(s.Contract):
     source_version_id: UUID | None = None
     attachment_version_ids: list[UUID] = Field(default_factory=list, max_length=10)
     expires_at: AwareDatetime | None = None
+    delivery: EmailDelivery | None = None
     reason: str = Field(min_length=1, max_length=2000)
 
     @model_validator(mode="after")
@@ -128,6 +132,7 @@ class ActionVersionCreate(s.Contract):
     source_version_id: UUID | None = None
     attachment_version_ids: list[UUID] = Field(default_factory=list, max_length=10)
     expires_at: AwareDatetime | None = None
+    delivery: EmailDelivery | None = None
     reason: str = Field(min_length=1, max_length=2000)
 
 
@@ -159,6 +164,8 @@ class ActionRevisionRead(s.ResponseContract):
     expected_remote_revision: str | None
     observed_target: dict[str, Any] | None
     expires_at: datetime | None
+    delivery: EmailDelivery | None
+    scheduled_for: datetime | None
     review_state: str
     reason: str
     created_at: datetime
@@ -332,6 +339,8 @@ def _revision_read(db: Database, revision: ReviewedActionRevision) -> ActionRevi
         expected_remote_revision=revision.expected_remote_revision,
         observed_target=revision.observed_target,
         expires_at=revision.expires_at,
+        delivery=EmailDelivery.model_validate(revision.delivery) if revision.delivery else None,
+        scheduled_for=revision.scheduled_for,
         review_state=revision.review_state(db),
         reason=revision.reason,
         created_at=revision.created_at,
@@ -1087,6 +1096,7 @@ def create_action(
             observed_target=snapshot,
             source_run_id=identity.run_id,
             expires_at=body.expires_at,
+            delivery=body.delivery,
             reason=body.reason,
             request_id=UUID(request.state.request_id),
         )
@@ -1116,15 +1126,32 @@ def create_action(
 
 @router.get("/reviewed-actions", response_model=s.Page[ActionRead])
 def list_actions(
-    identity: CurrentIdentity, db: Database, limit: Limit = 50, offset: Offset = 0
+    identity: CurrentIdentity,
+    db: Database,
+    limit: Limit = 50,
+    offset: Offset = 0,
+    kind: ActionKind | None = None,
+    state: ActionState | None = None,
+    recipient: EmailStr | None = None,
+    account_id: UUID | None = None,
 ) -> dict[str, Any]:
     _human(identity)
-    where = (ReviewedAction.owner_id == identity.id, ReviewedAction.archived_at.is_(None))
-    total = db.scalar(select(func.count()).select_from(ReviewedAction).where(*where)) or 0
+    query = (
+        ReviewedAction.emails_to(identity.id, str(recipient))
+        if recipient
+        else select(ReviewedAction).where(
+            ReviewedAction.owner_id == identity.id, ReviewedAction.archived_at.is_(None)
+        )
+    )
+    if kind is not None:
+        query = query.where(ReviewedAction.kind == kind)
+    if state is not None:
+        query = query.where(ReviewedAction.state == state)
+    if account_id is not None:
+        query = query.where(ReviewedAction.account_id == account_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = db.scalars(
-        select(ReviewedAction)
-        .where(*where)
-        .order_by(ReviewedAction.updated_at.desc(), ReviewedAction.id)
+        query.order_by(ReviewedAction.updated_at.desc(), ReviewedAction.id)
         .limit(limit)
         .offset(offset)
     ).all()
@@ -1254,6 +1281,7 @@ def revise_action(
             observed_target=snapshot,
             source_run_id=identity.run_id,
             expires_at=body.expires_at,
+            delivery=body.delivery,
             reason=body.reason,
             request_id=UUID(request.state.request_id),
         )
