@@ -306,7 +306,9 @@ it("shows an initial profile failure and retries only that query", async () => {
   });
   expect(await screen.findByText("Profiles unavailable")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByText(/openai · synthetic-model/i)).toBeVisible();
+  expect(
+    await screen.findByRole("button", { name: "Switch AI model" }),
+  ).toHaveTextContent("synthetic-model");
 });
 
 it("selects a custom model without submitting the surrounding form", async () => {

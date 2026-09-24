@@ -670,17 +670,6 @@ export function Agents() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              {profile && (
-                <ModelSwitcher
-                  disabled={!!run && activeRunStates.has(run.state)}
-                  provider={activeProvider}
-                  model={activeModel}
-                  onSelect={(p, m) => {
-                    setCustomProvider(p);
-                    setCustomModel(m);
-                  }}
-                />
-              )}
               <span className="text-[10px] text-muted-foreground">
                 {profile ? `· ${profile.tools.length} scoped tools` : ""}
               </span>
@@ -694,7 +683,7 @@ export function Agents() {
                 </Badge>
               ))}
             </div>
-            <div className="relative">
+            <div className="rounded-2xl border border-input bg-muted/20 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
               <Textarea
                 aria-label="Message your agent"
                 placeholder={
@@ -708,17 +697,34 @@ export function Agents() {
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={submitChatOnEnter}
                 rows={2}
-                className="max-h-40 min-h-20 resize-none overflow-y-auto bg-background pr-14"
+                className="max-h-40 min-h-20 resize-none overflow-y-auto rounded-t-2xl border-0 bg-transparent px-4 pt-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
               />
-              <Button
-                aria-label="Run agent"
-                size="icon"
-                type="submit"
-                className="absolute right-3 bottom-3"
-                disabled={!canSend}
+              <div
+                role="group"
+                aria-label="Message actions"
+                className="flex min-w-0 items-center justify-end gap-2 px-3 pb-3"
               >
-                {send.isPending ? <Spinner /> : <ArrowUp />}
-              </Button>
+                {profile && (
+                  <ModelSwitcher
+                    disabled={!!run && activeRunStates.has(run.state)}
+                    provider={activeProvider}
+                    model={activeModel}
+                    onSelect={(p, m) => {
+                      setCustomProvider(p);
+                      setCustomModel(m);
+                    }}
+                  />
+                )}
+                <Button
+                  aria-label="Run agent"
+                  size="icon"
+                  type="submit"
+                  className="size-9 shrink-0 rounded-full"
+                  disabled={!canSend}
+                >
+                  {send.isPending ? <Spinner /> : <ArrowUp />}
+                </Button>
+              </div>
             </div>
             <div className="mt-2 hidden flex-wrap justify-between gap-2 text-[10px] text-muted-foreground md:flex">
               <span>

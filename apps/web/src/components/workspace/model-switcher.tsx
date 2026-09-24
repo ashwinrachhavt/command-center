@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -47,6 +47,8 @@ export function ModelSwitcher({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const [activeTab, setActiveTab] = useState<ModelProvider>(provider);
   const [search, setSearch] = useState("");
   const [customModel, setCustomModel] = useState("");
@@ -85,30 +87,42 @@ export function ModelSwitcher({
     >
       <PopoverTrigger asChild>
         <Button
+          ref={trigger}
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           disabled={disabled}
-          className="h-8 max-w-full gap-1.5 border-border bg-background/50 px-2.5 text-xs font-normal hover:bg-muted"
+          className="h-9 min-w-0 max-w-full shrink gap-1.5 rounded-full px-3 text-xs font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label="Switch AI model"
+          title={`${PROVIDER_NAMES[provider]} · ${model}`}
         >
-          <Cpu className="size-3.5 shrink-0 text-primary" />
-          <span className="truncate font-medium text-foreground">
-            <span className="text-muted-foreground">Model:</span>{" "}
-            {PROVIDER_NAMES[provider]} · {model}
-          </span>
+          <Cpu className="size-3.5 shrink-0" />
+          <span className="truncate">{model}</span>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="start"
-        className="w-96 max-w-[calc(100vw-2rem)] p-0"
-        sideOffset={6}
+        align="end"
+        side="top"
+        className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl p-0 shadow-xl"
+        sideOffset={10}
+        onEscapeKeyDown={() => {
+          restoreFocus.current = true;
+        }}
+        onCloseAutoFocus={(event) => {
+          // Refresh temporarily disables its button, which can move focus outside
+          // the menu. Escape must still return to the picker in that case.
+          if (restoreFocus.current) {
+            event.preventDefault();
+            trigger.current?.focus();
+            restoreFocus.current = false;
+          }
+        }}
       >
         <div className="border-b border-border p-3">
           <h3 className="text-sm font-semibold">Choose a model</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Models from your configured API keys. Default spend limits apply.
+            Choose the model for your next message.
           </p>
         </div>
         <Tabs
