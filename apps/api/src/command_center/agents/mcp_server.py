@@ -77,7 +77,9 @@ class AgentMCP:
                 api_token = issue_run_token(
                     request.app.state.settings, run_id, run.lease_id, role=role
                 )
-        registry = ToolRegistry(request.app.state.settings, profile, actor_id, run_id, api_token)
+        registry = ToolRegistry(
+            request.app.state.settings, profile, actor_id, run_id, api_token, local=local
+        )
         add_api_tools(registry, self.openapi, local=local)
         add_catalog_tools(registry, self.openapi, local=local)
         return registry, local, request.headers.get("x-tool-call-id", "")[:201]

@@ -204,7 +204,7 @@ def add_catalog_tools(registry: ToolRegistry, openapi: dict[str, Any], *, local:
     )
     profile = registry.profile.model_copy(update={"tools": grants})
     catalog = ToolRegistry(
-        registry.settings, profile, registry.actor_id, registry.run_id, registry.token
+        registry.settings, profile, registry.actor_id, registry.run_id, registry.token, local=local
     )
     add_api_tools(catalog, openapi, local=local)
 
