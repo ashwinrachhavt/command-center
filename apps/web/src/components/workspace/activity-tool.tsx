@@ -55,6 +55,7 @@ export function ActivityTool({
   output,
   errorText,
   role,
+  summary,
   title: displayTitle,
 }: {
   name: string;
@@ -63,6 +64,7 @@ export function ActivityTool({
   output?: unknown;
   errorText?: string;
   role?: string;
+  summary?: string;
   title?: string;
 }) {
   const [expanded, setExpanded] = useState<{ state: string; open: boolean }>();
@@ -72,7 +74,8 @@ export function ActivityTool({
   const open = expanded?.state === state ? expanded.open : failed;
   const title = displayTitle ?? activityToolLabel(name, input);
   const status = failed ? "Error" : pending ? "Running" : "Completed";
-  const specialist = role && role !== "lead" && role !== "assistant" ? label(role) : undefined;
+  const specialist =
+    role && role !== "lead" && role !== "assistant" ? label(role) : undefined;
   const Icon = failed ? XCircle : pending ? LoaderCircle : Check;
   return (
     <Tool
@@ -111,6 +114,9 @@ export function ActivityTool({
           <Wrench className="size-3" />
           {name} · {status}
         </p>
+        {summary ? (
+          <p className="text-sm whitespace-pre-wrap">{summary}</p>
+        ) : null}
         {input !== undefined ? <ToolInput input={input} /> : null}
         {output !== undefined || errorText ? (
           <ToolOutput output={output} errorText={errorText} />

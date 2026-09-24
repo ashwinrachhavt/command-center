@@ -127,6 +127,10 @@ export function RunActivity({
       errorText:
         step.state === "output-error" ? (step.output ?? undefined) : undefined,
       role: step.specialist ?? step.role,
+      summary:
+        step.name === "catalog_execute"
+          ? undefined
+          : (step.summary ?? undefined),
       title:
         step.name === "catalog_execute" && step.summary
           ? activityToolLabel(step.name, { tool_name: step.summary })

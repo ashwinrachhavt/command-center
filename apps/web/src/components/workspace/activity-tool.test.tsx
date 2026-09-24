@@ -20,12 +20,21 @@ it("collapses a running tool on completion and opens an error for recovery", () 
       name="document_read"
       state="output-available"
       output="Saved text"
+      summary="Read the pinned interview brief."
     />,
   );
   expect(
     screen.getByRole("button", { name: "Reading document Completed" }),
   ).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByText("Saved text")).not.toBeInTheDocument();
+  expect(
+    screen.queryByText("Read the pinned interview brief."),
+  ).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Reading document Completed" }),
+  );
+  expect(screen.getByText("Read the pinned interview brief.")).toBeVisible();
+  expect(screen.getByText("Saved text")).toBeVisible();
   rerender(
     <ActivityTool
       name="document_read"
