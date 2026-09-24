@@ -243,6 +243,27 @@ class AgentRun(OwnedRecord, Base):
                 .limit(1)
             )
 
+        if state in {"failed", "cancelled"} and self.checkpoint.get("tools"):
+            from command_center.agents.progress import partial_reply
+
+            self.checkpoint = {
+                **self.checkpoint,
+                "tools": [
+                    {
+                        **step,
+                        "state": "output-error",
+                        "output": (
+                            "Operation interrupted; completion is not confirmed. "
+                            "Check saved records before retrying."
+                        ),
+                    }
+                    if step.get("state") == "input-available"
+                    else step
+                    for step in self.checkpoint["tools"]
+                ],
+            }
+            if not output:
+                output = partial_reply(self.checkpoint, error_code or state)
         self.state, self.output, self.error_code = state, output, error_code
         self.completed_at, self.lease_id, self.lease_expires_at = utc_now(), None, None
         if session:
@@ -264,13 +285,15 @@ class AgentRun(OwnedRecord, Base):
             if self.session_id is not None:
                 session.flush([self])
                 assert conversation is not None
-                if state == "completed" and output and output.strip():
+                if output and output.strip():
                     conversation.append_assistant(
                         run_id=self.id,
                         profile=self.profile,
                         content=output,
                         request_id=self.id,
-                        answer_cache=self.checkpoint.get("answer_cache"),
+                        answer_cache=self.checkpoint.get("answer_cache")
+                        if state == "completed"
+                        else None,
                     )
                 if state == "completed" and not self.checkpoint.get("answer_cache"):
                     entry = conversation.cache_candidate(self)

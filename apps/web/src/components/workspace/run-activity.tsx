@@ -114,7 +114,10 @@ export function RunActivity({
       showOutput &&
       !run.output);
 
-  const liveToolIds = new Set(stream.tools.map((tool) => tool.id));
+  const liveToolIds = new Set(
+    active ? stream.tools.map((tool) => tool.id) : [],
+  );
+  const savedToolIds = new Set(steps.data?.map((step) => step.id));
   const savedSteps = steps.data?.filter((step) => !liveToolIds.has(step.id));
 
   const tools = [
@@ -136,7 +139,17 @@ export function RunActivity({
           ? activityToolLabel(step.name, { tool_name: step.summary })
           : undefined,
     })),
-    ...stream.tools,
+    ...stream.tools
+      .filter((tool) => active || !savedToolIds.has(tool.id))
+      .map((tool) =>
+        !active && tool.state === "input-available"
+          ? {
+              ...tool,
+              state: "output-error" as const,
+              errorText: "Operation interrupted; completion is not confirmed.",
+            }
+          : tool,
+      ),
   ];
   const currentTool = [...tools]
     .reverse()

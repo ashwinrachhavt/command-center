@@ -251,7 +251,13 @@ function mount(
       <Agents />
     </QueryClientProvider>,
   );
-  return { client, ...view };
+  return {
+    client,
+    setRun: (value: Run) => {
+      currentRun = value;
+    },
+    ...view,
+  };
 }
 const writePrompt = (text: string) =>
   fireEvent.change(
@@ -429,11 +435,11 @@ it("deduplicates replayed tool calls against saved steps and pins an active mode
         `event: agent_event\ndata: ${JSON.stringify({ ...event, sequence: index + 1, run_id: run.id, role: "assistant", created_at: base.created_at })}\n\n`,
     )
     .join("");
-  const { client } = mount({
+  const { client, setRun } = mount({
     initialRun: { ...run, state: "running", output: null },
     messages: [savedMessage(1, "Research safely")],
     events,
-    steps: [
+    steps: Array.from({ length: 3 }, () =>
       Response.json([
         {
           id: "tool-1",
@@ -443,7 +449,7 @@ it("deduplicates replayed tool calls against saved steps and pins an active mode
           output: "Saved result",
         } satisfies Partial<RunStep>,
       ]),
-    ],
+    ),
   });
   expect(
     await screen.findByRole("button", { name: "Switch AI model" }),
@@ -458,6 +464,7 @@ it("deduplicates replayed tool calls against saved steps and pins an active mode
   fireEvent.click(screen.getByRole("button", { name: /Search/ }));
   expect(await screen.findByText("Live result")).toBeVisible();
   expect(screen.queryByText("Saved result")).not.toBeInTheDocument();
+  setRun(run);
   act(() =>
     client.setQueryData(["agent-session-runs", session.id, 1], page([run])),
   );
@@ -476,6 +483,13 @@ it("deduplicates replayed tool calls against saved steps and pins an active mode
     screen.getByRole("button", { name: "Show activity details" }),
   );
   expect(screen.getAllByRole("button", { name: /Search/ })).toHaveLength(1);
+  const savedStep = screen.getByRole("button", { name: /Search/ });
+  if (savedStep.getAttribute("aria-expanded") === "false")
+    fireEvent.click(savedStep);
+  expect(await screen.findByText("Saved result")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.queryByText("Live result")).not.toBeInTheDocument(),
+  );
 });
 
 it("shows waiting questions, answers and cancellation without falsely claiming cancellation", async () => {

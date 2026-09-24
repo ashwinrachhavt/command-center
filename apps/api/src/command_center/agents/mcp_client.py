@@ -1,4 +1,6 @@
+import asyncio
 import json
+from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import Any, cast
 
@@ -36,6 +38,20 @@ class MCPTools:
             tool_interceptors=[call_identity],
         )
         return cls(await client.get_tools(), identity)
+
+    @classmethod
+    async def connect_many(
+        cls, url: str, tokens: Mapping[str | None, str], *, concurrency: int
+    ) -> dict[str | None, "MCPTools"]:
+        capacity = asyncio.Semaphore(concurrency)
+
+        async def connect(token: str) -> "MCPTools":
+            async with capacity:
+                return await cls.connect(url, token)
+
+        async with asyncio.TaskGroup() as group:
+            tasks = {role: group.create_task(connect(token)) for role, token in tokens.items()}
+        return {role: task.result() for role, task in tasks.items()}
 
     async def aexecute(self, name: str, arguments: dict[str, Any], call_id: str) -> str:
         if name not in self.tools:

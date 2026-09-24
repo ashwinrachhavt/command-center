@@ -15,6 +15,7 @@ skills = ["opportunity-work"]
 max_steps = 16
 max_output_tokens = 2500
 max_tool_calls = 48
+tool_call_limits = { research_search = 6, capture_research_source = 4 }
 max_parallel_tools = 4
 directive = "lead"
 
@@ -27,6 +28,7 @@ tools = ["workspace_summary", "record_work_context", "save_record_work", "resear
 skills = ["research"]
 max_steps = 12
 max_output_tokens = 2500
+tool_call_limits = { research_search = 6, capture_research_source = 4 }
 directive = "research"
 
 [profiles.writer]

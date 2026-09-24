@@ -321,6 +321,7 @@ async def run_graph(
                             ready, _ = await asyncio.wait({reading}, timeout=0.08)
                             if not ready:
                                 await flush_pending()
+                                await control.report_progress()
                         try:
                             yield reading.result()
                         except StopAsyncIteration:
