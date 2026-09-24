@@ -8,7 +8,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from command_center.db.models import Actor, AuditEvent
+from command_center.db.models import Actor, AuditEvent, Task
 from command_center.db.reviewed_actions import ExternalAccount, ProviderObservation
 from command_center.db.session import database_is_ready
 
@@ -17,6 +17,15 @@ def clear_question_fixtures(engine: Engine) -> None:
     """The shared synthetic suite may leave durable waiting runs before round-trip tests."""
     with engine.begin() as connection:
         # Only synthetic state is normalized for the full schema round-trip.
+        tables = set(inspect(connection).get_table_names())
+        if "document_decisions" in tables:
+            connection.execute(
+                text("DELETE FROM spending_reservations WHERE document_decision_id IS NOT NULL")
+            )
+        if "spaces" in tables:
+            connection.execute(text("DELETE FROM space_links"))
+            connection.execute(text("DELETE FROM spaces"))
+        connection.execute(text("UPDATE tasks SET state='open' WHERE state='waiting'"))
         columns = {
             table: {column["name"] for column in inspect(connection).get_columns(table)}
             for table in ("agent_sessions", "agent_messages")
@@ -54,6 +63,16 @@ def clear_question_fixtures(engine: Engine) -> None:
         connection.execute(text("DELETE FROM record_work"))
         connection.execute(text("DELETE FROM contact_discovery_evidence"))
         connection.execute(text("DELETE FROM follow_ups"))
+        # Clear only synthetic timing metadata so older migration guards are reachable.
+        connection.execute(
+            text("ALTER TABLE reviewed_action_revisions DISABLE TRIGGER immutable_rows")
+        )
+        connection.execute(
+            text("UPDATE reviewed_action_revisions SET delivery=NULL, scheduled_for=NULL")
+        )
+        connection.execute(
+            text("ALTER TABLE reviewed_action_revisions ENABLE TRIGGER immutable_rows")
+        )
         connection.execute(text("DELETE FROM writing_drafts"))
         # This function operates only on the dedicated synthetic test database.
         connection.execute(text("ALTER TABLE contact_observations DISABLE TRIGGER immutable_rows"))
@@ -187,6 +206,30 @@ def test_connected_context_downgrade_refuses_to_delete_provenance(
                 text("DELETE FROM external_accounts WHERE id = :id"), {"id": account_id}
             )
             connection.execute(text("DELETE FROM actors WHERE id = :id"), {"id": actor_id})
+
+
+def test_waiting_task_downgrade_preserves_explicit_state(engine, migration_config):
+    clear_question_fixtures(engine)
+    with Session(engine) as db, db.begin():
+        actor = Actor(kind="human", display_name="Synthetic waiting migration owner")
+        db.add(actor)
+        db.flush()
+        task = Task(owner_id=actor.id, title="Synthetic external dependency", state="waiting")
+        db.add(task)
+        db.flush()
+        task_id, actor_id = task.id, actor.id
+    try:
+        with pytest.raises(RuntimeError, match="Resolve waiting tasks"):
+            command.downgrade(migration_config, "0036_email_delivery")
+        with Session(engine) as db:
+            assert db.get(Task, task_id).state == "waiting"
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM tasks WHERE id=:id"), {"id": task_id})
+            connection.execute(text("DELETE FROM actors WHERE id=:id"), {"id": actor_id})
+    command.downgrade(migration_config, "0036_email_delivery")
+    command.upgrade(migration_config, "head")
+    command.check(migration_config)
 
 
 def test_upgrade_downgrade_upgrade_and_no_schema_drift(

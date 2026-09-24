@@ -75,7 +75,7 @@ test("an agent-generated contact draft is saved, editable and recoverable withou
       ),
     ),
   ).toHaveLength(0);
-  await page.getByRole("button", { name: "Draft with agent" }).click();
+  await page.getByRole("button", { name: "Research & draft email" }).click();
   await expect(
     page
       .getByRole("region", { name: "Agent follow-up drafting" })
@@ -168,13 +168,13 @@ test("an interrupted start keeps the same request across reload and does not que
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/contacts?record=contact-1&work_fail_start=1");
   await page.getByRole("button", { name: "Follow up", exact: true }).click();
-  await page.getByRole("button", { name: "Draft with agent" }).click();
+  await page.getByRole("button", { name: "Research & draft email" }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Synthetic response interrupted",
   );
   await page.reload();
   await page.getByRole("button", { name: "Follow up", exact: true }).click();
-  await page.getByRole("button", { name: "Draft with agent" }).click();
+  await page.getByRole("button", { name: "Research & draft email" }).click();
   await page.getByRole("button", { name: "Review generated draft" }).click();
   const requests = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("synthetic-record-work-requests") ?? "[]"),

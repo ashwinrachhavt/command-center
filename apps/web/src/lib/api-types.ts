@@ -478,6 +478,265 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/spaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Spaces */
+        get: operations["list_spaces_api_v1_spaces_get"];
+        put?: never;
+        /** Create Space */
+        post: operations["create_space_api_v1_spaces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Space */
+        get: operations["get_space_api_v1_spaces__space_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Space */
+        patch: operations["update_space_api_v1_spaces__space_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Space */
+        post: operations["archive_space_api_v1_spaces__space_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Space */
+        post: operations["restore_space_api_v1_spaces__space_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link Space Record */
+        post: operations["link_space_record_api_v1_spaces__space_id__links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}/links/{link_id}/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlink Space Record */
+        post: operations["unlink_space_record_api_v1_spaces__space_id__links__link_id__unlink_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spaces/{space_id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Space Task */
+        post: operations["create_space_task_api_v1_spaces__space_id__tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Document Policy */
+        get: operations["get_document_policy_api_v1_documents_policy_get"];
+        /** Update Document Policy */
+        put: operations["update_document_policy_api_v1_documents_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{artifact_id}/classification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Classification */
+        get: operations["get_classification_api_v1_documents__artifact_id__classification_get"];
+        put?: never;
+        /** Request Classification */
+        post: operations["request_classification_api_v1_documents__artifact_id__classification_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/decisions/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect Decision */
+        get: operations["inspect_decision_api_v1_documents_decisions__decision_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{artifact_id}/classification/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision History */
+        get: operations["decision_history_api_v1_documents__artifact_id__classification_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{artifact_id}/classification/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review History */
+        get: operations["review_history_api_v1_documents__artifact_id__classification_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/{artifact_id}/classification/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Classification */
+        post: operations["review_classification_api_v1_documents__artifact_id__classification_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/renames/{rename_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Rename */
+        post: operations["apply_rename_api_v1_documents_renames__rename_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/documents/renames/{rename_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Rename */
+        post: operations["cancel_rename_api_v1_documents_renames__rename_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/document-types": {
         parameters: {
             query?: never;
@@ -2790,6 +3049,7 @@ export interface components {
             attachment_version_ids?: string[];
             /** Expires At */
             expires_at?: string | null;
+            delivery?: components["schemas"]["EmailDelivery"] | null;
             /** Reason */
             reason: string;
         };
@@ -2878,6 +3138,9 @@ export interface components {
             } | null;
             /** Expires At */
             expires_at: string | null;
+            delivery: components["schemas"]["EmailDelivery"] | null;
+            /** Scheduled For */
+            scheduled_for: string | null;
             /** Review State */
             review_state: string;
             /** Reason */
@@ -2900,6 +3163,7 @@ export interface components {
             attachment_version_ids?: string[];
             /** Expires At */
             expires_at?: string | null;
+            delivery?: components["schemas"]["EmailDelivery"] | null;
             /** Reason */
             reason: string;
         };
@@ -4011,6 +4275,8 @@ export interface components {
             upcoming: number;
             /** Unscheduled */
             unscheduled: number;
+            /** Waiting */
+            waiting: number;
             /** Snoozed */
             snoozed: number;
         };
@@ -4052,7 +4318,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "open" | "in_progress" | "snoozed" | "done" | "cancelled";
+            state: "open" | "in_progress" | "waiting" | "snoozed" | "done" | "cancelled";
             /** Completed At */
             completed_at: string | null;
             /**
@@ -4155,6 +4421,230 @@ export interface components {
             /** Cached */
             cached: boolean;
         };
+        /** DocumentAnalysisContext */
+        DocumentAnalysisContext: {
+            /** Research Query */
+            research_query?: string | null;
+            /** Claim */
+            claim?: string | null;
+            /** Agent Request */
+            agent_request?: string | null;
+            /** Policy */
+            policy?: string | null;
+            /** Proposed Action */
+            proposed_action?: string | null;
+        };
+        /** DocumentClassificationRead */
+        DocumentClassificationRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Accepted Type Id
+             * Format: uuid
+             */
+            accepted_type_id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /** Source Version Id */
+            source_version_id: string | null;
+            /** Extraction Version Id */
+            extraction_version_id: string | null;
+            policy: components["schemas"]["DocumentPolicyRead"];
+            latest_decision: components["schemas"]["DocumentDecisionRead"] | null;
+            pending_rename: components["schemas"]["DocumentRenameRead"] | null;
+        };
+        /** DocumentClassificationRequest */
+        DocumentClassificationRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+            /**
+             * Extraction Version Id
+             * Format: uuid
+             */
+            extraction_version_id: string;
+            /** External Processing Ack */
+            external_processing_ack: boolean;
+            analysis_context?: components["schemas"]["DocumentAnalysisContext"] | null;
+        };
+        /** DocumentClassificationReviewCreate */
+        DocumentClassificationReviewCreate: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+            /**
+             * Extraction Version Id
+             * Format: uuid
+             */
+            extraction_version_id: string;
+            /** Decision Id */
+            decision_id?: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accept" | "retain" | "request_better_file";
+            /** Document Type Id */
+            document_type_id?: string | null;
+            /** Reason */
+            reason: string;
+        };
+        /** DocumentClassificationReviewRead */
+        DocumentClassificationReviewRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /** Decision Id */
+            decision_id: string | null;
+            /**
+             * Reviewer Id
+             * Format: uuid
+             */
+            reviewer_id: string;
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+            /**
+             * Extraction Version Id
+             * Format: uuid
+             */
+            extraction_version_id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accept" | "retain" | "request_better_file";
+            /**
+             * Accepted Type Id
+             * Format: uuid
+             */
+            accepted_type_id: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** DocumentDecisionRead */
+        DocumentDecisionRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+            /**
+             * Extraction Version Id
+             * Format: uuid
+             */
+            extraction_version_id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "proposed" | "needs_review" | "unavailable" | "cancelled" | "superseded";
+            /** Proposed Type Id */
+            proposed_type_id: string | null;
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Provider */
+            provider: string;
+            /** Requested Model */
+            requested_model: string;
+            /** Returned Model */
+            returned_model: string | null;
+            /** Resolved Model */
+            resolved_model: string | null;
+            /** Question Version */
+            question_version: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Catalog Snapshot */
+            catalog_snapshot: {
+                [key: string]: string;
+            }[];
+            /** State Hash */
+            state_hash: string;
+            /** Question Hash */
+            question_hash: string;
+            /** Input Manifest */
+            input_manifest: {
+                [key: string]: unknown;
+            };
+            /** Questions */
+            questions: {
+                [key: string]: unknown;
+            };
+            /** Answers */
+            answers: {
+                [key: string]: unknown;
+            } | null;
+            /** Usage */
+            usage: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Cost Status
+             * @enum {string}
+             */
+            cost_status: "not_started" | "reserved" | "settled" | "unknown";
+            /** Provenance */
+            provenance: ("live" | "mocked" | "simulation" | "recorded_fixture") | null;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Excerpt
+             * @default
+             */
+            excerpt: string;
+        };
         /** DocumentImportRead */
         DocumentImportRead: {
             /**
@@ -4201,6 +4691,108 @@ export interface components {
             created_at: string;
             /** Row Version */
             row_version: number;
+        };
+        /** DocumentPolicyRead */
+        DocumentPolicyRead: {
+            /** Revision */
+            revision: number;
+            /**
+             * Classification Mode
+             * @enum {string}
+             */
+            classification_mode: "off" | "after_extraction";
+            /** Catalog Ids */
+            catalog_ids: string[];
+            /**
+             * Rename Mode
+             * @enum {string}
+             */
+            rename_mode: "off" | "task";
+            /** Rename Template */
+            rename_template: string;
+            /** Timezone */
+            timezone: string;
+            /** Provider */
+            provider: string;
+            /** Provider Ready */
+            provider_ready: boolean;
+        };
+        /** DocumentPolicyUpdate */
+        DocumentPolicyUpdate: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Classification Mode
+             * @enum {string}
+             */
+            classification_mode: "off" | "after_extraction";
+            /** Catalog Ids */
+            catalog_ids: string[];
+            /**
+             * Rename Mode
+             * @enum {string}
+             */
+            rename_mode: "off" | "task";
+            /** Rename Template */
+            rename_template: string;
+            /** Timezone */
+            timezone: string;
+            /**
+             * External Processing Ack
+             * @default false
+             */
+            external_processing_ack: boolean;
+        };
+        /** DocumentRenameRead */
+        DocumentRenameRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Review Id
+             * Format: uuid
+             */
+            review_id: string;
+            /** Policy Revision */
+            policy_revision: number;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** Before Title */
+            before_title: string;
+            /** After Title */
+            after_title: string | null;
+            /** Template */
+            template: string;
+            /** Render Inputs */
+            render_inputs: {
+                [key: string]: string;
+            };
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "needs_correction" | "applied" | "cancelled" | "superseded";
+            /** Error */
+            error: string | null;
+            /** Row Version */
+            row_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** DocumentTextRead */
         DocumentTextRead: {
@@ -4253,6 +4845,23 @@ export interface components {
             data: {
                 [key: string]: components["schemas"]["JsonValue"];
             };
+        };
+        /**
+         * EmailDelivery
+         * @description One reviewed email, at an instant or after a confirmed previous send.
+         */
+        EmailDelivery: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "at" | "after_send";
+            /** Send At */
+            send_at?: string | null;
+            /** After Action Id */
+            after_action_id?: string | null;
+            /** Delay Days */
+            delay_days?: number | null;
         };
         /** ExecutionRevision */
         ExecutionRevision: {
@@ -5728,6 +6337,28 @@ export interface components {
             /** Offset */
             offset: number;
         };
+        /** Page[DocumentClassificationReviewRead] */
+        Page_DocumentClassificationReviewRead_: {
+            /** Items */
+            items: components["schemas"]["DocumentClassificationReviewRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** Page[DocumentDecisionRead] */
+        Page_DocumentDecisionRead_: {
+            /** Items */
+            items: components["schemas"]["DocumentDecisionRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
         /** Page[DocumentImportRead] */
         Page_DocumentImportRead_: {
             /** Items */
@@ -5886,6 +6517,17 @@ export interface components {
         Page_SessionRead_: {
             /** Items */
             items: components["schemas"]["SessionRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** Page[SpaceRead] */
+        Page_SpaceRead_: {
+            /** Items */
+            items: components["schemas"]["SpaceRead"][];
             /** Total */
             total: number;
             /** Limit */
@@ -6991,6 +7633,133 @@ export interface components {
             /** Fields */
             fields: components["schemas"]["FormField"][];
         };
+        /** SpaceCreate */
+        SpaceCreate: {
+            /** Title */
+            title: string;
+            /** Purpose */
+            purpose?: string | null;
+        };
+        /** SpaceDetail */
+        SpaceDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Purpose */
+            purpose: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "archived";
+            /** Row Version */
+            row_version: number;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Links */
+            links: components["schemas"]["SpaceLinkRead"][];
+        };
+        /** SpaceLinkCreate */
+        SpaceLinkCreate: {
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "task" | "artifact" | "contact" | "company" | "opportunity";
+            /**
+             * Record Id
+             * Format: uuid
+             */
+            record_id: string;
+        };
+        /** SpaceLinkRead */
+        SpaceLinkRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Record Type
+             * @enum {string}
+             */
+            record_type: "task" | "artifact" | "contact" | "company" | "opportunity";
+            /**
+             * Record Id
+             * Format: uuid
+             */
+            record_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Record */
+            record: {
+                [key: string]: unknown;
+            };
+        };
+        /** SpaceRead */
+        SpaceRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Purpose */
+            purpose: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "archived";
+            /** Row Version */
+            row_version: number;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SpaceTaskRead */
+        SpaceTaskRead: {
+            space: components["schemas"]["SpaceDetail"];
+            task: components["schemas"]["TaskRead"];
+        };
+        /** SpaceUpdate */
+        SpaceUpdate: {
+            /** Expected Version */
+            expected_version: number;
+            /** Title */
+            title?: string | null;
+            /** Purpose */
+            purpose?: string | null;
+        };
         /** SpendingCatalog */
         SpendingCatalog: {
             /** Models */
@@ -7130,7 +7899,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "open" | "in_progress" | "snoozed" | "done" | "cancelled";
+            state: "open" | "in_progress" | "waiting" | "snoozed" | "done" | "cancelled";
             /** Completed At */
             completed_at: string | null;
         };
@@ -7143,7 +7912,7 @@ export interface components {
             /** Opportunity Id */
             opportunity_id?: string | null;
             /** State */
-            state?: ("open" | "in_progress" | "snoozed" | "done" | "cancelled") | null;
+            state?: ("open" | "in_progress" | "waiting" | "snoozed" | "done" | "cancelled") | null;
             /** Priority */
             priority?: number | null;
             /** Rationale */
@@ -8492,7 +9261,7 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 opportunity_id?: string | null;
-                state?: ("open" | "in_progress" | "snoozed" | "done" | "cancelled") | null;
+                state?: ("open" | "in_progress" | "waiting" | "snoozed" | "done" | "cancelled") | null;
             };
             header?: never;
             path?: never;
@@ -8659,7 +9428,7 @@ export interface operations {
     tasks_api_v1_dashboard_tasks_get: {
         parameters: {
             query?: {
-                view?: "today" | "upcoming" | "unscheduled" | "snoozed";
+                view?: "today" | "upcoming" | "unscheduled" | "waiting" | "snoozed";
                 timezone?: string;
                 limit?: number;
                 offset?: number;
@@ -8677,6 +9446,664 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DailyTasksRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_spaces_api_v1_spaces_get: {
+        parameters: {
+            query?: {
+                state?: "active" | "archived" | "all";
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SpaceRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_space_api_v1_spaces_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpaceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_space_api_v1_spaces__space_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_space_api_v1_spaces__space_id__patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpaceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_space_api_v1_spaces__space_id__archive_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_space_api_v1_spaces__space_id__restore_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_space_record_api_v1_spaces__space_id__links_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpaceLinkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlink_space_record_api_v1_spaces__space_id__links__link_id__unlink_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_space_task_api_v1_spaces__space_id__tasks_post: {
+        parameters: {
+            query: {
+                expected_version: number;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                space_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpaceTaskRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_document_policy_api_v1_documents_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPolicyRead"];
+                };
+            };
+        };
+    };
+    update_document_policy_api_v1_documents_policy_put: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentPolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentPolicyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_classification_api_v1_documents__artifact_id__classification_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentClassificationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_classification_api_v1_documents__artifact_id__classification_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentClassificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDecisionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inspect_decision_api_v1_documents_decisions__decision_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDecisionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decision_history_api_v1_documents__artifact_id__classification_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DocumentDecisionRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_history_api_v1_documents__artifact_id__classification_reviews_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DocumentClassificationReviewRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_classification_api_v1_documents__artifact_id__classification_review_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentClassificationReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentClassificationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_rename_api_v1_documents_renames__rename_id__apply_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                rename_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentRenameRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_rename_api_v1_documents_renames__rename_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                rename_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentRenameRead"];
                 };
             };
             /** @description Validation Error */
@@ -12801,6 +14228,10 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                kind?: ("gmail_send" | "calendar_create" | "calendar_update" | "linear_create" | "linear_update" | "notion_publish" | "notion_update" | "linkedin_post") | null;
+                state?: ("proposed" | "queued" | "running" | "succeeded" | "failed" | "outcome_unknown" | "partial" | "conflicted" | "rejected" | "revoked") | null;
+                recipient?: string | null;
+                account_id?: string | null;
             };
             header?: never;
             path?: never;

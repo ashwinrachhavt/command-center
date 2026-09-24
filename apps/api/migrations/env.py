@@ -14,6 +14,7 @@ from command_center.db import (  # noqa: F401
     conversations,
     correspondence,
     crm,
+    document_decisions,
     document_imports,
     evidence,
     idempotency,
@@ -25,6 +26,7 @@ from command_center.db import (  # noqa: F401
     record_work,
     research_executions,
     reviewed_actions,
+    spaces,
     spending,
     writing,
 )

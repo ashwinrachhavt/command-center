@@ -10,16 +10,28 @@ async function compose(page: Page) {
 test("restores an earlier working copy without proposing or approving an action", async ({
   page,
 }) => {
+  const startedAt = new Date("2026-09-24T12:00:00Z");
+  await page.clock.setFixedTime(startedAt);
   const message = await compose(page);
+  // Account selection already saves an initial copy. Recovery retains later
+  // writing at five-minute intervals, rather than after every autosave.
+  await page.clock.setFixedTime(startedAt.getTime() + 5 * 60_000);
   await message.fill("First useful idea");
   await expect(page.getByTestId("draft-status")).toContainText("Draft saved");
+  await page.getByText("Earlier drafts", { exact: true }).click();
+  const savedCopy = page.getByRole("button", { name: /copy \d+$/ }).first();
+  await savedCopy.click();
+  await expect(page.locator("pre")).toContainText("First useful idea");
+  const savedCopyName = await savedCopy.innerText();
+  await page.getByText("Earlier drafts", { exact: true }).click();
   await message.fill("A different direction");
   await expect(page.getByTestId("draft-status")).toContainText("Draft saved");
   await page.reload();
   await page.getByRole("button", { name: /New proposal/ }).click();
   await expect(message).toContainText("A different direction");
   await page.getByText("Earlier drafts", { exact: true }).click();
-  await page.getByRole("button", { name: /copy 1$/ }).click();
+  await page.getByRole("button", { name: savedCopyName, exact: true }).click();
+  await expect(page.locator("pre")).toContainText("First useful idea");
   await page.getByRole("button", { name: "Restore this draft" }).click();
   await expect(message).toContainText("First useful idea");
   await expect(page.getByTestId("draft-status")).toContainText("Draft saved");
@@ -67,7 +79,25 @@ test("writes formatted email, recovers after reload and creates only a deliberat
   await page
     .getByRole("button", { name: "Save proposal", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const review = page.getByRole("dialog");
+  await expect(
+    review.getByRole("heading", { name: "Send an email", exact: true }),
+  ).toBeVisible();
+  await expect(review).toContainText("Review version 1 for Synthetic outreach");
+  await expect(review).toContainText("synthetic@example.test");
+  await expect(review).toContainText("A useful follow-up");
+  await expect(
+    review.frameLocator('iframe[title="Saved email preview"]').locator("body"),
+  ).toHaveText("Hello from my workspace with a clear next step");
+  await expect(
+    review.frameLocator('iframe[title="Saved email preview"]').locator("strong"),
+  ).toHaveText(" with a clear next step");
+  await expect(
+    review.getByRole("checkbox", { name: /I reviewed this account/ }),
+  ).not.toBeChecked();
+  await expect(
+    review.getByRole("button", { name: "Approve & send", exact: true }),
+  ).toBeDisabled();
   requests = await page.evaluate(async () =>
     (await fetch("/api/backend/test/workflow-requests")).json(),
   );

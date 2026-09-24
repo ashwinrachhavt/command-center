@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { api, dateLabel, runFailureMessage, type Schema } from "@/lib/api";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
 import { useWorkspaceContext } from "./context";
@@ -125,11 +126,13 @@ function StartWork({
           work.output_version_id
             ? "Saved result recovered"
             : resource === "contacts"
-              ? request?.research_requested
-                ? "Contact enrichment started"
-                : request?.connection_note
-                  ? "Connection note started"
-                  : "Follow-up drafting started"
+              ? request?.channel === "email"
+                ? "Email drafting started"
+                : request?.research_requested
+                  ? "Contact enrichment started"
+                  : request?.connection_note
+                    ? "Connection note started"
+                    : "Follow-up drafting started"
               : "Company research started",
         );
       }
@@ -149,11 +152,15 @@ function StartWork({
           : start.error
             ? "Retry agent request"
             : request?.research_requested
-              ? "Enrich contact"
+              ? request?.channel === "email"
+                ? "Research & draft email"
+                : "Enrich contact"
               : request?.connection_note
                 ? "Draft connection note"
                 : resource === "contacts"
-                  ? "Draft with agent"
+                  ? request?.channel === "email"
+                    ? "Draft email with agent"
+                    : "Draft with agent"
                   : "Enrich company"}
       </Button>
       {start.error && (
@@ -169,14 +176,20 @@ export function RecordAgentWork({
   resource,
   id,
   onDraftReady,
+  email = false,
 }: {
   resource: Resource;
   id: string;
   onDraftReady?: (id: string) => void;
+  email?: boolean;
 }) {
   const { userId } = useAuth();
   const client = useQueryClient();
   const context = useWorkspaceContext();
+  const [instructions, setInstructions] = useState(
+    "Write a concise, specific email about relevant engineering opportunities. Use the relationship notes, prior sent emails and my reviewed background. Include one useful ask and keep research caveats outside the message.",
+  );
+  const [research, setResearch] = useState(true);
   const seenOutput = useRef<string | undefined>(undefined);
   const work = useQuery({
     queryKey: ["record-work", userId, resource, id],
@@ -184,9 +197,12 @@ export function RecordAgentWork({
     queryFn: () => api<Work[]>(`record-work/${resource}/${id}`),
     refetchInterval: (query) => (query.state.data?.some(active) ? 2500 : false),
   });
-  const latest = work.data?.[0];
+  const latest = work.data?.find((item) => !email || item.channel === "email");
   const lastSaved = work.data?.find(
-    (item) => item.output_version_id && !item.output_archived,
+    (item) =>
+      item.output_version_id &&
+      !item.output_archived &&
+      (!email || item.channel === "email"),
   );
   const artifact = lastSaved?.output_artifact_id;
   const versionId = lastSaved?.output_version_id;
@@ -232,9 +248,47 @@ export function RecordAgentWork({
         <RecordWorkButton
           resource={resource}
           id={id}
-          disabled={active(latest)}
+          disabled={work.data?.some(active)}
+          request={
+            email
+              ? { channel: "email", research_requested: research, instructions }
+              : undefined
+          }
         />
       </div>
+      {email && (
+        <div className="space-y-3">
+          <label className="block space-y-2 text-sm">
+            <span>Email brief</span>
+            <Textarea
+              value={instructions}
+              maxLength={3000}
+              rows={3}
+              onChange={(event) => setInstructions(event.target.value)}
+            />
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={research}
+              onChange={(event) => setResearch(event.target.checked)}
+            />
+            Research missing person or company context using a few focused
+            public sources.
+          </label>
+          <p className="text-xs text-muted-foreground">
+            The agent reuses saved research and confirmed send history. It saves
+            an editable draft with evidence for your review.
+          </p>
+          {work.data?.some(active) && !active(latest) && (
+            <p className="text-xs text-muted-foreground">
+              Another drafting task for this contact is still active. Finish it
+              before starting an email.
+            </p>
+          )}
+        </div>
+      )}
       {work.error && (
         <ErrorState error={work.error} retry={() => void work.refetch()} />
       )}

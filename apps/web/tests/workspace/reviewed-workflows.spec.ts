@@ -54,7 +54,7 @@ test("only an explicitly reviewed exact action revision is queued", async ({
   await expect(
     page.getByText("alex@example.com", { exact: false }).first(),
   ).toBeVisible();
-  const approve = page.getByRole("button", { name: "Approve & queue" });
+  const approve = page.getByRole("button", { name: "Approve & send" });
   await expect(approve).toBeDisabled();
   await page
     .getByRole("textbox", { name: "Review reason" })
@@ -90,7 +90,7 @@ test("a concurrent revision invalidates the review checkbox and preserves the pr
   await page.evaluate(() =>
     fetch("/api/backend/test/action-conflict", { method: "POST" }),
   );
-  await page.getByRole("button", { name: "Approve & queue" }).click();
+  await page.getByRole("button", { name: "Approve & send" }).click();
   await expect(
     page.getByText("Revised text that requires a fresh review."),
   ).toBeVisible();
@@ -98,7 +98,7 @@ test("a concurrent revision invalidates the review checkbox and preserves the pr
     page.getByRole("checkbox", { name: /I reviewed this account/ }),
   ).not.toBeChecked();
   await expect(
-    page.getByRole("button", { name: "Approve & queue" }),
+    page.getByRole("button", { name: "Approve & send" }),
   ).toBeDisabled();
   await expect(page.getByRole("alert")).toContainText(
     "Review the current version",
@@ -117,7 +117,7 @@ test("unknown external outcomes offer receipt reconciliation without another sen
     .click();
   await page.getByRole("button", { name: "Check provider receipt" }).click();
   await expect(
-    page.getByRole("button", { name: "Approve & queue" }),
+    page.getByRole("button", { name: "Approve & send" }),
   ).toHaveCount(0);
   const requests = await page.evaluate(async () =>
     (await fetch("/api/backend/test/workflow-requests")).json(),
@@ -176,4 +176,61 @@ test("connected operations are discoverable without inventing prices", async ({
   await expect(
     page.getByRole("textbox", { name: "Input / million tokens (USD)" }),
   ).toHaveValue("");
+});
+
+test("email scheduling opens exact review, then supports rescheduling and cancellation", async ({
+  page,
+}) => {
+  await page.goto("/actions");
+  await page.getByRole("button", { name: "New proposal" }).click();
+  await page.getByLabel("To", { exact: true }).fill("synthetic@example.com");
+  await page
+    .getByLabel("Subject", { exact: true })
+    .fill("Scheduled synthetic follow-up");
+  await page
+    .getByRole("textbox", { name: "Message", exact: true })
+    .fill("Could we discuss the platform role?");
+  await page.getByLabel("When to send").selectOption("at");
+  await page.getByLabel(/Send at \(/).fill("2035-01-05T10:00");
+  await page
+    .getByRole("button", { name: "Save proposal", exact: true })
+    .click();
+  const approve = page.getByRole("button", {
+    name: "Approve & schedule",
+    exact: true,
+  });
+  await expect(approve).toBeDisabled();
+  await expect(page.getByText(/Scheduled for/)).toBeVisible();
+  await page
+    .getByLabel("Review reason")
+    .fill("Reviewed content and future send time.");
+  await page.getByRole("checkbox", { name: /I reviewed this account/ }).check();
+  await approve.click();
+  await expect(
+    page.getByRole("button", { name: "Cancel scheduled email" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Edit proposal", exact: true })
+    .click();
+  await page.getByLabel(/Send at \(/).fill("2035-01-06T11:00");
+  await page
+    .getByRole("button", { name: "Save proposal", exact: true })
+    .click();
+  await expect(approve).toBeDisabled();
+  await page.getByRole("checkbox", { name: /I reviewed this account/ }).check();
+  await approve.click();
+  await page.getByRole("button", { name: "Cancel scheduled email" }).click();
+  await expect(
+    page.getByRole("button", { name: "Cancel scheduled email" }),
+  ).toHaveCount(0);
+  const requests = await page.evaluate(async () =>
+    (await fetch("/api/backend/test/workflow-requests")).json(),
+  );
+  expect(
+    requests
+      .map((item: { body: { decision?: string } }) => item.body.decision)
+      .filter(Boolean),
+  ).toEqual(["approved", "approved", "revoked"]);
+  expect(requests[0].body.delivery.mode).toBe("at");
+  expect(requests[0].body.delivery.send_at).toMatch(/^2035-01-05T/);
 });

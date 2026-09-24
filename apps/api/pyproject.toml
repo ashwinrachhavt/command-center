@@ -34,6 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 executor = ["docker>=7.2,<8"]
+strands = ["strands-harness==0.1.2", "strands-agents==1.57.0"]
 
 [dependency-groups]
 dev = [

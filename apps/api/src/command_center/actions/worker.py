@@ -73,14 +73,18 @@ def claim(engine: Engine, action_id: UUID) -> ClaimedAction | None:
         account = db.get(ExternalAccount, action.account_id) if action else None
         if action is None or revision is None or account is None or attempt.lease_id is None:
             raise ValueError("Reviewed action claim lineage is incomplete")
-        if account.connection_status != "ACTIVE" or account.archived_at is not None:
+        if (
+            account.connection_status != "ACTIVE"
+            or account.archived_at is not None
+            or (action.kind == "gmail_send" and account.selected_purpose != "outreach")
+        ):
             attempt.finish("failed", error_code="account_unavailable")
             action.state = "failed"
             return None
         source_text: str | None = None
         if revision.source_version_id is not None:
             source = ReviewedAction._owned_text_version(
-                db, action.owner_id, revision.source_version_id
+                db, action.owner_id, revision.source_version_id, email=action.kind == "gmail_send"
             )
             canonical = json.dumps(
                 source.payload,

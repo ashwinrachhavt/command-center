@@ -13,7 +13,7 @@ from command_center.db.models import Task
 from command_center.db.reviewed_actions import ACTION_LABEL_FOR_KIND
 
 WorkLane = Literal["attention", "running", "outputs"]
-TaskView = Literal["today", "upcoming", "unscheduled", "snoozed"]
+TaskView = Literal["today", "upcoming", "unscheduled", "waiting", "snoozed"]
 
 _ITEM_COLUMNS = """id, kind, title, state, updated_at, task_id, opportunity_id,
 run_id, artifact_id, version_id, detail, action_kind
@@ -201,6 +201,7 @@ def daily_tasks_page(
         "today": and_(active, due_today),
         "upcoming": and_(active, or_(Task.due_date > today, Task.due_at >= tomorrow)),
         "unscheduled": and_(active, Task.due_date.is_(None), Task.due_at.is_(None)),
+        "waiting": Task.state == "waiting",
         "snoozed": Task.state == "snoozed",
     }
     counts = dict(

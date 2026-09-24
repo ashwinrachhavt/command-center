@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -32,6 +32,13 @@ import { EmailPreview } from "@/components/writing/email-preview";
 import { DraftStatus } from "@/components/writing/draft-status";
 import { useWorkingDraft } from "@/components/writing/use-working-draft";
 import { MailPull } from "./mail-pull";
+import {
+  EmailDeliveryFields,
+  emailDelivery,
+  emailTiming,
+  sendTimeLabel,
+  type EmailTiming,
+} from "./email-delivery";
 import { useArtifactHistory } from "@/components/writing/use-artifact-history";
 import {
   api,
@@ -269,6 +276,7 @@ export function ActionEditor({
   existing,
   seed,
   close,
+  onSaved,
 }: {
   existing?: Action;
   seed?: {
@@ -277,6 +285,7 @@ export function ActionEditor({
     values: Record<string, string>;
   };
   close: () => void;
+  onSaved?: (action: Action) => void;
 }) {
   const { isLoaded, userId } = useAuth();
   if (!isLoaded || !userId) return <p role="status">Opening your writer…</p>;
@@ -287,6 +296,7 @@ export function ActionEditor({
       existing={existing}
       seed={seed}
       close={close}
+      onSaved={onSaved}
     />
   );
 }
@@ -301,6 +311,7 @@ type ActionDraft = {
   sourceTitle: string;
   attachments: { id: string; title: string }[];
   reason: string;
+  timing?: EmailTiming;
 };
 
 function ActionEditorForm({
@@ -308,6 +319,7 @@ function ActionEditorForm({
   existing,
   seed,
   close,
+  onSaved,
 }: {
   actor: string;
   existing?: Action;
@@ -317,6 +329,7 @@ function ActionEditorForm({
     values: Record<string, string>;
   };
   close: () => void;
+  onSaved?: (action: Action) => void;
 }) {
   const client = useQueryClient();
   const writing = useWorkingDraft<ActionDraft>(
@@ -357,6 +370,7 @@ function ActionEditorForm({
         title: `Version ${item.artifact_version_id.slice(0, 8)}`,
       })),
       reason: existing?.current.reason ?? "Prepared for review",
+      timing: emailTiming(existing?.current.delivery),
     },
   );
   const { draft } = writing;
@@ -387,6 +401,29 @@ function ActionEditorForm({
     queryKey: ["connected-accounts"],
     queryFn: () => api<Account[]>("integrations/composio/accounts"),
   });
+  const accountInitialized = useRef(false);
+  useEffect(() => {
+    if (
+      accountInitialized.current ||
+      writing.status === "loading" ||
+      !accounts.data
+    )
+      return;
+    // Initialize once: clearing a saved working draft must not create a new edit.
+    accountInitialized.current = true;
+    if (targetId || accountId || kind !== "gmail_send") return;
+    const selected = accounts.data?.find(
+      (item) =>
+        item.toolkit === "gmail" &&
+        item.selected_purpose === "outreach" &&
+        item.connection_status === "ACTIVE",
+    );
+    if (selected)
+      draft.edit((current) => ({
+        ...current,
+        accountId: current.accountId || selected.id,
+      }));
+  }, [accounts.data, accountId, draft, kind, targetId, writing.status]);
   const save = useMutation({
     mutationFn: async () => {
       const snapshot = draft.getSnapshot().data;
@@ -422,6 +459,8 @@ function ActionEditorForm({
       if (kind === "gmail_send") payload.is_html = values.is_html === "true";
       const body = {
         payload,
+        delivery: kind === "gmail_send" ? emailDelivery(snapshot.timing) : null,
+        expires_at: existing?.current.expires_at ?? null,
         source_version_id: source || null,
         attachment_version_ids: attachments.map((item) => item.id),
         reason,
@@ -450,6 +489,7 @@ function ActionEditorForm({
         if (await draft.clearIfUnchanged(snapshot)) {
           draft.resetIntent();
           close();
+          onSaved?.(result);
           toast.success("Proposal saved for review");
         } else {
           draft.resetIntent();
@@ -481,7 +521,11 @@ function ActionEditorForm({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {existing ? "Edit proposal" : "New connected action"}
+            {existing
+              ? "Edit proposal"
+              : seed
+                ? "Review email & timing"
+                : "New connected action"}
           </DialogTitle>
           <DialogDescription>
             Save an exact proposal, then review it before execution. Edits
@@ -524,6 +568,7 @@ function ActionEditorForm({
                     setValues({ calendar_id: "primary", send_updates: "all" });
                     setSource("");
                     setAttachments([]);
+                    set("timing", emailTiming());
                   }}
                 >
                   {Object.entries(kinds).map(([key, value]) => (
@@ -669,6 +714,14 @@ function ActionEditorForm({
                   )}
                 </Field>
               ))}
+            {kind === "gmail_send" && (
+              <EmailDeliveryFields
+                timing={writing.data.timing ?? emailTiming()}
+                onChange={(value) => set("timing", value)}
+                recipient={(values.to ?? "").trim()}
+                accountId={accountId}
+              />
+            )}
             <details
               className="space-y-3 rounded-lg border border-border p-3"
               open={
@@ -802,12 +855,12 @@ function ActionEditorForm({
   );
 }
 
-function SourcePreview({
+export function SourcePreview({
   versionId,
   onReady,
 }: {
   versionId: string;
-  onReady: (id: string | null) => void;
+  onReady?: (id: string | null) => void;
 }) {
   const source = useQuery({
     queryKey: ["action-source", versionId],
@@ -827,7 +880,7 @@ function SourcePreview({
     },
   });
   useEffect(() => {
-    onReady(source.data && !source.error ? versionId : null);
+    onReady?.(source.data && !source.error ? versionId : null);
   }, [source.data, source.error, versionId, onReady]);
   return (
     <div className="rounded-lg border border-border p-4">
@@ -954,7 +1007,7 @@ function ActionReview({
         <div className="flex flex-wrap items-center gap-2">
           <Status value={current.state} />
           <Badge variant="outline">{label(current.account.toolkit)}</Badge>
-          {canReview && (
+          {(canReview || current.state === "queued") && (
             <Button
               size="sm"
               variant="outline"
@@ -985,6 +1038,26 @@ function ActionReview({
             ),
           )}
         </div>
+        {current.kind === "gmail_send" && (
+          <div className="space-y-1 rounded-lg border p-4 text-sm">
+            <p className="font-medium">
+              {current.current.scheduled_for
+                ? `Scheduled for ${sendTimeLabel(current.current.scheduled_for)}`
+                : "Send after your approval"}
+            </p>
+            {current.current.delivery?.mode === "after_send" && (
+              <p className="text-muted-foreground">
+                {current.current.delivery.delay_days} days after the selected
+                confirmed email. Each email is reviewed separately.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {current.current.scheduled_for
+                ? "Delivery starts at or after this time while Command Center is running. Edit timing or cancel before delivery starts. Replies are not monitored automatically."
+                : "Your selected Gmail account sends this exact reviewed message through Composio."}
+            </p>
+          </div>
+        )}
         <dl className="space-y-4">
           {Object.entries(current.current.payload)
             .filter(
@@ -1147,8 +1220,8 @@ function ActionReview({
                     setConfirmed(e.target.checked ? current.current.id : null)
                   }
                 />
-                I reviewed this account, content, source and attachments, and
-                authorize this exact action.
+                I reviewed this account, content, delivery timing, source and
+                attachments, and authorize this exact action.
               </label>
             )}
             <div className="flex flex-wrap gap-2">
@@ -1167,7 +1240,11 @@ function ActionReview({
                     onClick={() => review.mutate("approved")}
                   >
                     <Check />
-                    Approve & queue
+                    {current.kind === "gmail_send"
+                      ? current.current.scheduled_for
+                        ? "Approve & schedule"
+                        : "Approve & send"
+                      : "Approve & queue"}
                   </Button>
                   <Button
                     variant="outline"
@@ -1184,7 +1261,10 @@ function ActionReview({
                   disabled={review.isPending || !reason.trim()}
                   onClick={() => review.mutate("revoked")}
                 >
-                  Revoke approval
+                  {current.kind === "gmail_send" &&
+                  current.current.scheduled_for
+                    ? "Cancel scheduled email"
+                    : "Revoke approval"}
                 </Button>
               )}
             </div>
@@ -1311,8 +1391,19 @@ export function ReviewedActions() {
                       {action.account.display_name} · v{action.current.version}{" "}
                       · {dateLabel(action.updated_at)}
                     </p>
+                    {action.current.scheduled_for && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Send time: {sendTimeLabel(action.current.scheduled_for)}
+                      </p>
+                    )}
                   </div>
-                  <Status value={action.state} />
+                  <Status
+                    value={
+                      action.state === "queued" && action.current.scheduled_for
+                        ? "scheduled"
+                        : action.state
+                    }
+                  />
                 </button>
               ))}
             </div>
@@ -1347,7 +1438,9 @@ export function ReviewedActions() {
       {selected && (
         <ActionReview initial={selected} close={() => setSelected(null)} />
       )}
-      {creating && <ActionEditor close={() => setCreating(false)} />}
+      {creating && (
+        <ActionEditor close={() => setCreating(false)} onSaved={setSelected} />
+      )}
     </>
   );
 }

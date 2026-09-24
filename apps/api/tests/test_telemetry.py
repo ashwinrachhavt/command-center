@@ -10,7 +10,7 @@ from langfuse._client.span import LangfuseAgent, LangfuseGeneration
 from langgraph.checkpoint.memory import InMemorySaver
 
 from command_center.agents.config import load_profiles
-from command_center.agents.mcp_catalog import add_catalog_tools
+from command_center.agents.mcp_catalog import add_api_tools, add_catalog_tools
 from command_center.agents.runtime import run_graph
 from command_center.agents.telemetry import RunTrace, current_trace
 from command_center.agents.tools import ToolRegistry
@@ -30,7 +30,10 @@ def sdk_client(mocker):
 def test_compact_supervisor_reduces_actual_schema_payload(settings, scripted_model, mocker):
     profile = load_profiles("agents/profiles.toml")[0]["lead"]
     registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-token")
-    add_catalog_tools(registry, create_app(settings).openapi(), local=False)
+    openapi = create_app(settings).openapi()
+    # Match MCP's registry, including API-backed operations such as lead intake.
+    add_api_tools(registry, openapi, local=False)
+    add_catalog_tools(registry, openapi, local=False)
     profile = profile.model_copy(update={"specialists": {}})
     model = scripted_model([AIMessage(content="Hello.")])
     snapshots = []

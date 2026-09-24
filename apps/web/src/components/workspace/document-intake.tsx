@@ -38,6 +38,7 @@ import {
   type AgentSession,
   type DocumentImport,
   type Page,
+  type Schema,
 } from "@/lib/api";
 import { RetainedRequestIntent } from "@/lib/retained-intent";
 import { ErrorState, Spinner, Status } from "./primitives";
@@ -115,6 +116,15 @@ export function DocumentUploadDialog({
     enabled: open && !artifact,
     queryFn: () => api<DocumentType[]>("document-types"),
   });
+  const policy = useQuery({
+    queryKey: ["document-policy"],
+    enabled: open && !artifact,
+    queryFn: () => api<Schema["DocumentPolicyRead"]>("documents/policy"),
+  });
+  const selectedDocumentTypeId =
+    documentTypeId ||
+    documentTypes.data?.find((type) => type.slug === "unclassified")?.id ||
+    "";
   const updateEntry = (key: string, change: Partial<UploadEntry>) =>
     setEntries((current) =>
       current.map((entry) =>
@@ -124,7 +134,7 @@ export function DocumentUploadDialog({
   const upload = useMutation({
     mutationFn: async () => {
       if (!entries.length) throw new Error("Choose documents to upload.");
-      if (!documentTypeId) throw new Error("Choose a document type.");
+      if (!selectedDocumentTypeId) throw new Error("Choose a document type.");
       const results: DocumentImport[] = [];
       let failures = 0;
       setValidation("");
@@ -144,7 +154,7 @@ export function DocumentUploadDialog({
         const form = new FormData();
         form.set("file", entry.file);
         form.set("title", entry.title.trim());
-        form.set("document_type_id", documentTypeId);
+        form.set("document_type_id", selectedDocumentTypeId);
         if (artifact) {
           form.set("artifact_id", artifact.id);
           form.set("expected_version", String(artifact.rowVersion));
@@ -312,7 +322,7 @@ export function DocumentUploadDialog({
             <Field>
               <FieldLabel htmlFor="document-type">Document type</FieldLabel>
               <Select
-                value={documentTypeId}
+                value={selectedDocumentTypeId}
                 disabled={started || upload.isPending}
                 onValueChange={setDocumentTypeId}
               >
@@ -329,6 +339,12 @@ export function DocumentUploadDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose Unclassified when the type needs review. Original
+                filenames stay preserved.
+                {policy.data?.classification_mode === "after_extraction" &&
+                  ` Your settings send extracted text to ${policy.data.provider} for a type suggestion after extraction. You review any change.`}
+              </p>
               {entries.length > 1 ? (
                 <p className="text-xs text-muted-foreground">
                   Applies to all selected files.

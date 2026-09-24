@@ -1,12 +1,16 @@
 # Jev as a Decision Layer for Command Center Deep Agents
 
+**Status update, 2026-09-24:** the generic agent gates in this note remain experimental. Current Jev use includes the bounded optional capability-discovery hint and a separate opt-in document-decision worker. The document worker batches classification and explicit research/agent checks in `document-type.v3`, with human type review and separately configured rename review; it does not require a conversational agent run. Its action-match signal is advisory and does not install a pre-tool gate. Permissions, known side effects and required review remain deterministic. See the [source audit](../tech/jev-audit.md) and [current delivery](../tech/engineering.md#spaces-and-document-decisions--local-implementation-2026-09-24).
+
 ## Purpose
 
 Jev refers to TypeSafe AI's System One decision model. It is not a conversational assistant, named in-product persona, LangGraph replacement, or autonomous agent framework. Jev evaluates bounded, typed questions over supplied application state and returns machine-actionable choices, scores, probabilities, and confidence.
 
 Command Center should use Jev as a semantic verifier and policy-aware routing layer around its LangGraph/Deep Agents. Deep Agents retain responsibility for open-ended planning, research, drafting, specialist delegation, and proposing tool calls. Deterministic application code retains responsibility for permissions, schemas, policy thresholds, budgets, audit records, idempotency, retries, external side effects, and escalation.
 
-## Architecture
+## Proposed generic agent architecture
+
+This diagram is a future integration pattern, not the implemented routing or dedicated document-worker call path.
 
 ```text
 User request
@@ -57,7 +61,7 @@ Jev never executes tools directly, owns application state transitions, or bypass
 
 ## Pre-tool semantic verification
 
-The highest-value first integration is before a Deep Agent tool call. First validate deterministic properties. Then use Jev to determine whether the call is semantically appropriate.
+One later experiment is a semantic check before a Deep Agent tool call. It is not established as the highest-value integration. First enforce deterministic properties and mandatory review; only then consider an additional semantic check. The pseudocode below illustrates an unimplemented experiment, not the provider SDK or runtime API.
 
 ```python
 async def decide_tool_execution(*, user_request: str, agent_plan: dict, tool_name: str, tool_args: dict, available_tools: list[dict], policy: dict) -> ToolDecision:
@@ -95,6 +99,10 @@ Compose atomic answers in code rather than asking a broad question such as "Was 
 
 ```python
 def compose_tool_decision(*, structural_validation: ToolValidation, jev: JevResult, policy: ToolPolicy) -> ToolDecision:
+    # Pseudocode: host policy is authoritative and is rechecked after model I/O.
+    host_decision = policy.revalidate_authorization(structural_validation)
+    if host_decision.outcome != "allow":
+        return host_decision
     relevant = jev.answers["tool_is_relevant"].noul
     intent_match = jev.answers["arguments_match_intent"].noul
     has_effect = jev.answers["has_external_effect"].noul
@@ -105,10 +113,10 @@ def compose_tool_decision(*, structural_validation: ToolValidation, jev: JevResu
         return ToolDecision.replan(reason="semantic mismatch or insufficient certainty", evidence=jev)
     if has_effect >= 0.70 or needs_approval >= 0.70 or risk >= 2.0:
         return ToolDecision.review(reason="side effect or policy-sensitive action", evidence=jev)
-    return ToolDecision.allow(reason="read-only, relevant, policy-compatible action", evidence=jev)
+    return host_decision  # Jev may escalate, never create or expand permission.
 ```
 
-Thresholds are examples only. Calibrate them from held-out Command Center cases and set them through policy, not prompt text.
+Thresholds are examples only. Calibrate them from held-out Command Center cases and set them through policy, not prompt text. The `has_external_effect` and `approval_is_required` model questions above are optional warning experiments, not sources of truth: host tool metadata already determines effects and required review. Prefer omitting redundant questions. A low value can never turn a known write into a read or waive approval.
 
 ## Post-run quality verification
 
@@ -164,13 +172,13 @@ apps/api/src/command_center/
         └── calibration_report.py
 ```
 
-Keep the TypeSafe client server-side. Do not put API credentials in the browser extension, API route handlers, Celery task definitions, integration adapters, or reviewed-action executor.
+Keep the TypeSafe client server-side. Pass credentials from server settings only to the provider transport when needed; never hard-code them or persist them in prompts, decisions, browser code, task payloads or audit records. Reuse the existing integration boundary rather than introducing the speculative directory tree before it is needed.
 
 ## First implementation PR
 
 For the 2026-09-23 cost investigation, [request costs and evaluation](../tech/request-costs.md#model-quality-and-optional-jev-routing) documents the implemented, bounded capability router, available server transports, Langfuse instrumentation and synthetic checks. The broader semantic gates described in this document remain proposed; net savings have not yet been measured.
 
-Start with "Add Jev semantic guardrails for Deep Agent tool calls."
+The following was the earlier suggested first PR and remains deferred. The [implemented document decision slice](../tech/engineering.md#spaces-and-document-decisions--local-implementation-2026-09-24) uses focused domain/integration modules rather than this proposed generic guard framework.
 
 - Implement a `DecisionModel` protocol and server-side TypeSafe adapter.
 - Define typed decisions for tool relevance, intent alignment, external effect, human-review need, and operational risk.

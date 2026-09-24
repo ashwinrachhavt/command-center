@@ -44,6 +44,8 @@ const action: Schema["ActionRead"] = {
     expected_remote_revision: null,
     observed_target: null,
     expires_at: null,
+    delivery: null,
+    scheduled_for: null,
     review_state: "unreviewed",
     reason: "A synthetic follow-up is ready for review.",
     created_at: updated,
@@ -152,7 +154,7 @@ describe("contextual reviewed actions", () => {
     ).toBeVisible();
     expect(screen.getByText("Saved message for review.")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Approve & queue" }),
+      screen.getByRole("button", { name: "Approve & send" }),
     ).toBeDisabled();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(requests.length).toBeGreaterThan(0);

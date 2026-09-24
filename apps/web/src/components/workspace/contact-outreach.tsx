@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Copy, Pencil, SearchCheck } from "lucide-react";
+import { ArrowUpRight, Copy, Mail, Pencil, SearchCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +80,16 @@ export function ContactOutreach({
       className="w-full md:w-80 space-y-2 py-3 whitespace-normal"
       aria-label={`Outreach for ${contact.name}`}
     >
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() =>
+          context?.open("contacts", contact.id, { tab: "follow-ups" })
+        }
+      >
+        <Mail />
+        Email & follow-ups
+      </Button>
       {message && (
         <p className="text-xs leading-5 text-foreground">{message}</p>
       )}

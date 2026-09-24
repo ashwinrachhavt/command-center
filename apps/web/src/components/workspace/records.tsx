@@ -9,6 +9,8 @@ import {
   ChevronRight,
   CircleCheck,
   Filter,
+  LayoutGrid,
+  LayoutList,
   Plus,
   Search,
 } from "lucide-react";
@@ -67,6 +69,7 @@ import {
 import { useWorkspaceContext } from "./context";
 import { ContactBatchEnrich } from "./contact-batch-enrich";
 import type { ContactDiscoveryProps } from "./contact-discovery";
+import { OpportunityCard } from "./opportunity-card";
 const DeferredContactDiscovery = deferView<ContactDiscoveryProps>(
   () =>
     import("./contact-discovery").then((module) => ({
@@ -99,6 +102,7 @@ export function Records({ resource }: { resource: Resource }) {
   const [creating, setCreating] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [outreachBrief, setOutreachBrief] = useState(defaultOutreachBrief);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const limit = 20;
   const params = new URLSearchParams({
     q,
@@ -272,7 +276,7 @@ export function Records({ resource }: { resource: Resource }) {
                       All {resource === "tasks" ? "statuses" : "stages"}
                     </SelectItem>
                     {(resource === "tasks"
-                      ? ["open", "in_progress", "snoozed", "done", "cancelled"]
+                      ? ["open", "in_progress", "waiting", "snoozed", "done", "cancelled"]
                       : stages
                     ).map((v) => (
                       <SelectItem value={v} key={v}>
@@ -283,10 +287,32 @@ export function Records({ resource }: { resource: Resource }) {
                 </SelectContent>
               </Select>
             )}
+            {resource === "opportunities" && (
+              <div className="ml-auto flex gap-1">
+                <Button
+                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => setViewMode("list")}
+                  aria-label="List view"
+                  aria-pressed={viewMode === "list"}
+                >
+                  <LayoutList className="size-4" />
+                </Button>
+                <Button
+                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => setViewMode("grid")}
+                  aria-label="Grid view"
+                  aria-pressed={viewMode === "grid"}
+                >
+                  <LayoutGrid className="size-4" />
+                </Button>
+              </div>
+            )}
             <Button
               variant="ghost"
               size="sm"
-              className="ml-auto text-muted-foreground"
+              className={cn("text-muted-foreground", resource !== "opportunities" && "ml-auto")}
               onClick={() => setAscending(!ascending)}
               aria-pressed={ascending}
             >
@@ -369,6 +395,22 @@ export function Records({ resource }: { resource: Resource }) {
                 </Button>
               )}
             </EmptyState>
+          ) : resource === "opportunities" && viewMode === "grid" ? (
+            <div className="grid gap-4 p-5 md:grid-cols-2 md:px-9 lg:grid-cols-3">
+              {rows.map((row) => (
+                <OpportunityCard
+                  key={row.id}
+                  opportunity={row}
+                  companyName={
+                    companies.data?.find(
+                      (c) => c.id === field(row, "company_id"),
+                    )?.name
+                  }
+                  onClick={() => select(row.id)}
+                  isSelected={selected === row.id}
+                />
+              ))}
+            </div>
           ) : (
             <Table
               className={cn(

@@ -40,6 +40,7 @@ const views = {
   today: "Today",
   upcoming: "Upcoming",
   unscheduled: "Unscheduled",
+  waiting: "Waiting",
   snoozed: "Snoozed",
 } as const;
 type TaskView = keyof typeof views;
@@ -160,7 +161,10 @@ function DailyTaskList({ timezone }: { timezone: string }) {
     mutationFn: (task: DailyTask) => {
       const path = `tasks/${task.id}`;
       const body = {
-        state: task.state === "snoozed" ? "in_progress" : "done",
+        state:
+          task.state === "snoozed" || task.state === "waiting"
+            ? "in_progress"
+            : "done",
         expected_version: task.row_version,
       };
       const request = intent.forRequest("PATCH", path, body);
@@ -168,7 +172,10 @@ function DailyTaskList({ timezone }: { timezone: string }) {
     },
     onSuccess: (_result, task) => {
       intent.confirmRequest("PATCH", `tasks/${task.id}`, {
-        state: task.state === "snoozed" ? "in_progress" : "done",
+        state:
+          task.state === "snoozed" || task.state === "waiting"
+            ? "in_progress"
+            : "done",
         expected_version: task.row_version,
       });
       void client.invalidateQueries();
@@ -184,7 +191,7 @@ function DailyTaskList({ timezone }: { timezone: string }) {
         <TabsList variant="line" aria-label="Task views">
           {Object.entries(views).map(([value, title]) => (
             <TabsTrigger key={value} value={value}>
-              {title}
+              {title}{" "}
               {query.data && (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {query.data.counts[value as TaskView]}
@@ -198,11 +205,13 @@ function DailyTaskList({ timezone }: { timezone: string }) {
         <p className="mb-3 text-xs text-muted-foreground">
           {page.view === "today"
             ? "Due today and overdue"
-            : page.view === "snoozed"
-              ? "Paused until you resume them"
-              : page.view === "unscheduled"
-                ? "Open tasks without a due date"
-                : "Scheduled after today"}{" "}
+            : page.view === "waiting"
+              ? "Marked by you as waiting on a person or external event"
+              : page.view === "snoozed"
+                ? "Paused until you resume them"
+                : page.view === "unscheduled"
+                  ? "Open tasks without a due date"
+                  : "Scheduled after today"}{" "}
           · {query.data?.timezone || timezone}
         </p>
         {query.isPending ? (
@@ -222,10 +231,10 @@ function DailyTaskList({ timezone }: { timezone: string }) {
                       variant="ghost"
                       size="icon-sm"
                       disabled={update.isPending}
-                      aria-label={`${task.state === "snoozed" ? "Resume" : "Complete"} ${task.title}`}
+                      aria-label={`${task.state === "snoozed" || task.state === "waiting" ? "Resume" : "Complete"} ${task.title}`}
                       onClick={() => update.mutate(task)}
                     >
-                      {task.state === "snoozed" ? (
+                      {task.state === "snoozed" || task.state === "waiting" ? (
                         <Play aria-hidden />
                       ) : (
                         <CircleCheck aria-hidden />
@@ -265,9 +274,11 @@ function DailyTaskList({ timezone }: { timezone: string }) {
                     ? "Return to the previous page to see your tasks."
                     : page.view === "today"
                       ? "Your upcoming and unscheduled work is one tab away."
-                      : page.view === "snoozed"
-                        ? "Tasks you snooze will stay here until you resume them."
-                        : "Create a task or choose another view."
+                      : page.view === "waiting"
+                        ? "Mark a task as waiting when someone else or an external event is the next step."
+                        : page.view === "snoozed"
+                          ? "Tasks you snooze will stay here until you resume them."
+                          : "Create a task or choose another view."
                 }
               />
             )}
@@ -285,7 +296,7 @@ function DailyTaskList({ timezone }: { timezone: string }) {
   );
 }
 
-export function DailyTasks() {
+export function DailyTasks({ title = "Your tasks" }: { title?: string } = {}) {
   const context = useWorkspaceContext();
   const profile = useQuery({
     queryKey: ["me"],
@@ -295,7 +306,7 @@ export function DailyTasks() {
     <section aria-labelledby="daily-tasks-heading" className="min-w-0">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 id="daily-tasks-heading" className="font-medium">
-          Your tasks
+          {title}
         </h2>
         <Button
           variant="ghost"
@@ -343,12 +354,17 @@ const lanes = {
 function WorkLane({
   lane,
   onOpen,
+  briefing = false,
 }: {
   lane: keyof typeof lanes;
   onOpen: (item: WorkQueueItem) => void;
+  briefing?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
-  const copy = lanes[lane];
+  const copy =
+    briefing && lane === "attention"
+      ? { ...lanes[lane], title: "Needs a decision" }
+      : lanes[lane];
   const query = useQuery({
     queryKey: ["dashboard", "work", lane, offset],
     queryFn: () =>
@@ -442,7 +458,7 @@ function WorkLane({
   );
 }
 
-export function WorkQueues() {
+export function WorkQueues({ briefing = false }: { briefing?: boolean } = {}) {
   const context = useWorkspaceContext();
   const [selected, setSelected] = useState<WorkQueueItem | null>(null);
   const open = (item: WorkQueueItem) => {
@@ -465,7 +481,7 @@ export function WorkQueues() {
     <>
       <div className="flex min-w-0 flex-col gap-8">
         {(Object.keys(lanes) as (keyof typeof lanes)[]).map((lane) => (
-          <WorkLane key={lane} lane={lane} onOpen={open} />
+          <WorkLane key={lane} lane={lane} onOpen={open} briefing={briefing} />
         ))}
       </div>
       {selected && (

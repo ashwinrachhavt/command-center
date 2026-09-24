@@ -91,6 +91,8 @@ const actions: Schema["ActionRead"][] = [
       expected_remote_revision: null,
       observed_target: null,
       expires_at: null,
+      delivery: null,
+      scheduled_for: null,
       review_state: "proposed",
       reason: "Requested introduction for synthetic review",
       created_at: "2026-09-21T10:00:00Z",
@@ -247,13 +249,24 @@ export async function workflowFixture(
   if (route === "integrations/composio/accounts/sync")
     return Response.json([account]);
   if (route.endsWith("/select")) return Response.json(account);
-  if (route === "reviewed-actions" && method === "GET")
+  if (route === "reviewed-actions" && method === "GET") {
+    const recipient = url.searchParams.get("recipient");
+    const state = url.searchParams.get("state");
+    const filtered = actions.filter(
+      (item) =>
+        (!recipient ||
+          (item.current.payload.to as string[] | undefined)?.includes(
+            recipient,
+          )) &&
+        (!state || item.state === state),
+    );
     return Response.json({
-      items: actions,
-      total: actions.length,
+      items: filtered,
+      total: filtered.length,
       offset: 0,
       limit: 20,
     });
+  }
   if (route === "reviewed-actions" && method === "POST") {
     const linkedin =
       (body.payload as { kind: string }).kind === "linkedin_post";
@@ -270,6 +283,10 @@ export async function workflowFixture(
           ? "LINKEDIN_CREATE_LINKED_IN_POST"
           : actions[0].current.tool_slug,
         payload: body.payload as Record<string, unknown>,
+        delivery: (body.delivery as Schema["EmailDelivery"]) ?? null,
+        scheduled_for:
+          (body.delivery as Schema["EmailDelivery"])?.send_at ?? null,
+        source_version_id: String(body.source_version_id || "") || null,
         reason: String(body.reason),
       },
     };
@@ -317,10 +334,16 @@ export async function workflowFixture(
       ...action.current,
       id: crypto.randomUUID(),
       payload: body.payload as Record<string, unknown>,
+      delivery: (body.delivery as Schema["EmailDelivery"]) ?? null,
+      scheduled_for:
+        (body.delivery as Schema["EmailDelivery"])?.send_at ?? null,
       version: action.current.version + 1,
       reason: String(body.reason),
     };
     action.row_version += 1;
+    action.state = "proposed";
+    action.approved_revision_id = null;
+    action.current.review_state = "proposed";
   }
   if (route.endsWith("/reconcile"))
     action.attempt!.reconciliation = {

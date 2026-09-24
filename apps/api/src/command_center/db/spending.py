@@ -415,6 +415,11 @@ class SpendingReservation(Base):
             ["agent_run_id", "owner_id"], ["agent_runs.id", "agent_runs.owner_id"]
         ),
         ForeignKeyConstraint(
+            ["document_decision_id", "owner_id"],
+            ["document_decisions.id", "document_decisions.owner_id"],
+            name="fk_spending_document_decision_owner",
+        ),
+        ForeignKeyConstraint(
             ["period_id", "owner_id"], ["spending_periods.id", "spending_periods.owner_id"]
         ),
         ForeignKeyConstraint(
@@ -424,7 +429,8 @@ class SpendingReservation(Base):
         UniqueConstraint("owner_id", "kind", "operation_id"),
         CheckConstraint("kind IN ('model', 'connected_tool')", name="kind"),
         CheckConstraint(
-            "kind != 'model' OR (agent_run_id IS NOT NULL AND original_lease_id IS NOT NULL)",
+            "kind != 'model' OR (num_nonnulls(agent_run_id, document_decision_id) = 1 "
+            "AND original_lease_id IS NOT NULL)",
             name="model_run_lease",
         ),
         CheckConstraint("state IN ('reserved', 'settled', 'unknown', 'released')", name="state"),
@@ -437,6 +443,7 @@ class SpendingReservation(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("actors.id"), index=True)
     agent_run_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
+    document_decision_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     original_lease_id: Mapped[UUID | None] = mapped_column(Uuid)
     period_id: Mapped[UUID] = mapped_column(Uuid)
     work_budget_id: Mapped[UUID] = mapped_column(Uuid)
@@ -572,6 +579,90 @@ class SpendingReservation(Base):
             expires_at=current + timedelta(minutes=15),
         )
         session.add(reservation)
+        return reservation
+
+    @classmethod
+    def reserve_document_model(
+        cls,
+        session: Session,
+        *,
+        decision_id: UUID,
+        lease_id: UUID,
+        input_token_bound: int,
+        output_token_bound: int,
+    ) -> "SpendingReservation":
+        """A document subject has its own lease; it never impersonates an agent run."""
+        from command_center.db.document_decisions import DocumentDecision, fence_document
+
+        owner_id = session.scalar(
+            select(DocumentDecision.owner_id).where(DocumentDecision.id == decision_id)
+        )
+        if owner_id is None:
+            raise SpendingDenied("spending_lease_lost")
+        session.scalar(select(Actor).where(Actor.id == owner_id).with_for_update())
+        job = session.scalar(
+            select(DocumentDecision).where(DocumentDecision.id == decision_id).with_for_update()
+        )
+        if job is None or not job.accepts(lease_id):
+            raise SpendingDenied("spending_lease_lost")
+        fence_document(
+            session,
+            job.artifact_id,
+            job.owner_id,
+            job.metadata_revision,
+            job.source_version_id,
+            job.extraction_version_id,
+        )
+        existing = session.scalar(
+            select(cls).where(
+                cls.owner_id == job.owner_id, cls.kind == "model", cls.operation_id == job.id
+            )
+        )
+        if existing:
+            if (
+                existing.document_decision_id != job.id
+                or existing.original_lease_id != lease_id
+                or existing.input_token_bound != input_token_bound
+                or existing.output_token_bound != output_token_bound
+            ):
+                raise SpendingDenied("spending_reservation_conflict")
+            return existing
+        period, work, card = _current_scope(
+            session,
+            owner_id=job.owner_id,
+            task_id=job.task_id,
+            opportunity_id=None,
+            request_scope_id=None,
+            now=utc_now(),
+        )
+        rate = card.model_rate(job.provider, job.requested_model)
+        reserved = cls._cost(rate, input_token_bound, output_token_bound)
+        if period.committed_micros + reserved > period.limit_micros:
+            raise SpendingDenied("spending_monthly_limit")
+        if work.committed_micros + reserved > work.limit_micros:
+            raise SpendingDenied("spending_work_limit")
+        period.reserved_micros += reserved
+        work.reserved_micros += reserved
+        reservation = cls(
+            owner_id=job.owner_id,
+            document_decision_id=job.id,
+            original_lease_id=lease_id,
+            period_id=period.id,
+            work_budget_id=work.id,
+            kind="model",
+            operation_id=job.id,
+            role="document_classification",
+            provider=job.provider,
+            resource=job.requested_model,
+            input_token_bound=input_token_bound,
+            output_token_bound=output_token_bound,
+            reserved_micros=reserved,
+            rate_snapshot=rate,
+            usage={},
+            expires_at=utc_now() + timedelta(minutes=2),
+        )
+        session.add(reservation)
+        session.flush()
         return reservation
 
     @classmethod

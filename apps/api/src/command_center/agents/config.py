@@ -21,6 +21,7 @@ class AgentProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     description: str
+    runtime: Literal["deepagents", "strands"] = "deepagents"
     provider: ModelProvider = "openai"
     model: str = Field(
         min_length=1,
@@ -53,9 +54,22 @@ class AgentProfile(BaseModel):
 
         if set(self.tools) - (set(CAPABILITIES) | catalog_tool_names() | {"ask_user"}):
             raise ValueError("Unknown tool grant")
+        discovery_tools = {"catalog_search", "catalog_execute"}
+        if self.runtime == "deepagents":
+            discovery_tools.add("ask_user")
+        if self.runtime == "strands" and (
+            self.specialists
+            or self.skills
+            or self.skill_files
+            or self.jev_routing
+            or "ask_user" in self.tools
+        ):
+            raise ValueError(
+                "Experimental Strands profiles cannot delegate, use skills/JEV, or ask questions"
+            )
         if self.prompt_tools is not None and (
             set(self.prompt_tools) - set(self.tools)
-            or not {"catalog_search", "catalog_execute", "ask_user"}.issubset(self.prompt_tools)
+            or not discovery_tools.issubset(self.prompt_tools)
         ):
             raise ValueError(
                 "Prompt tools require granted catalog discovery, execution and questions"
@@ -77,6 +91,8 @@ class AgentProfile(BaseModel):
         if len({tool.slug for tool in self.composio_tools}) != len(self.composio_tools):
             raise ValueError("Composio tools must be unique")
         for role, specialist in self.specialists.items():
+            if specialist.runtime != "deepagents":
+                raise ValueError("Specialists require the Deep Agents runtime")
             if not re.fullmatch(r"[a-z0-9-]{1,80}", role) or specialist.specialists:
                 raise ValueError("Specialists require a plain role and cannot delegate further")
             if set(specialist.tools) - set(self.tools):

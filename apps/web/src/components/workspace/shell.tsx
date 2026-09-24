@@ -14,6 +14,7 @@ import {
   ChevronsUpDown,
   Command,
   Files,
+  FolderOpen,
   House,
   PanelLeftClose,
   PanelLeftOpen,
@@ -61,9 +62,11 @@ import { usePanelOpen } from "@/hooks/use-panel-open";
 import { WorkspaceContext, useWorkspaceContext, isResource } from "./context";
 
 export const navigation = [
-  { path: "/", name: "Home", icon: House },
+  { path: "/", name: "Briefing", icon: House },
+  { path: "/agents", name: "Assistant", icon: Bot },
   { path: "/opportunities", name: "Opportunities", icon: BriefcaseBusiness },
   { path: "/tasks", name: "Tasks", icon: CheckCheck },
+  { path: "/spaces", name: "Spaces", icon: FolderOpen },
   { path: "/library", name: "Library", icon: BookOpen },
   { path: "/documents", name: "Document Vault", icon: Files },
   { path: "/contacts", name: "Contacts", icon: Users },
@@ -79,7 +82,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const path =
     (
       {
-        "/agents": "/",
+        "/briefing": "/",
         "/applications": "/opportunities",
         "/jobs": "/opportunities",
         "/notes": "/library",
@@ -346,7 +349,7 @@ function NavigationToggle() {
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  const chatPage = path === "/" || path === "/agents";
+  const chatPage = path === "/agents";
   const [navigationOpen, setNavigationOpen] = usePanelOpen("navigation");
   const [searchOpen, setSearchOpen] = useState(false);
   return (

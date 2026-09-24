@@ -95,7 +95,7 @@ def test_errors_are_not_cached_and_cached_reads_do_not_survive_a_new_run(envelop
         async def handler(request):
             nonlocal calls
             calls += 1
-            failure = {"error": "Synthetic temporary service failure. " * 20, "status_code": 503}
+            failure = {"error": "Synthetic permanent service failure. " * 20, "status_code": 403}
             error = {
                 "status": "Unavailable",
                 "json": json.dumps(failure),
@@ -328,7 +328,8 @@ def test_budget_guidance_keeps_the_system_prefix_and_original_history_unchanged(
         async def model(effective):
             assert effective.system_message is system
             assert effective.messages[0] is messages[0]
-            assert len(effective.messages) == (2 if control.tool_count else 1)
+            assert len(effective.messages) == 2
+            assert effective.messages[-1].name == "execution_budget"
             return "answer"
 
         await worker.awrap_model_call(request, model)

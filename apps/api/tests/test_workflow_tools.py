@@ -264,14 +264,22 @@ def test_dispatch_recovers_expired_spend_and_routes_paid_work(mocker) -> None:
         queue.celery.conf.task_routes["command_center.execute_reviewed_action"]["queue"]
         == "actions"
     )
+    assert (
+        queue.celery.conf.task_routes["command_center.execute_document_decision"]["queue"]
+        == "documents"
+    )
 
     engine = mocker.MagicMock()
     mocker.patch.object(queue, "create_database_engine", return_value=engine)
+    question_recovery = mocker.patch.object(queue, "recover_stale_questions")
     db = mocker.MagicMock()
-    db.scalars.return_value = []
+    decision_id = uuid4()
+    db.scalars.side_effect = [[], [], [], [decision_id], [], []]
     session = mocker.patch.object(queue, "Session")
     session.return_value.__enter__.return_value = db
     spending_expiry = mocker.patch.object(queue.SpendingReservation, "expire_stale")
+    decision_expiry = mocker.patch.object(queue.DocumentDecision, "expire_stale")
+    dispatch_decision = mocker.patch.object(queue.execute_document_decision, "apply_async")
     for model in (
         queue.AgentRun,
         queue.DocumentImport,
@@ -281,8 +289,13 @@ def test_dispatch_recovers_expired_spend_and_routes_paid_work(mocker) -> None:
     ):
         mocker.patch.object(model, "expire_stale")
 
-    assert queue.dispatch.run() == 0
+    assert queue.dispatch.run() == 1
+    question_recovery.assert_called_once_with(engine, queue.settings)
     spending_expiry.assert_called_once_with(db)
+    decision_expiry.assert_called_once_with(db)
+    dispatch_decision.assert_called_once_with(
+        args=(str(decision_id),), task_id=f"document-decision:{decision_id}", expires=60
+    )
     engine.dispose.assert_called_once_with()
 
 

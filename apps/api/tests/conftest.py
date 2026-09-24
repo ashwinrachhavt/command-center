@@ -14,6 +14,7 @@ from command_center.db import (  # noqa: F401
     agent_questions,
     application_preparations,
     artifacts,
+    document_decisions,
     document_imports,
     evidence,
     models,
@@ -21,6 +22,7 @@ from command_center.db import (  # noqa: F401
     profile_facts,
     research_executions,
     reviewed_actions,
+    spaces,
     spending,
     writing,
 )

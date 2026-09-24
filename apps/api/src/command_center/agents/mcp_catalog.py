@@ -146,41 +146,48 @@ class CatalogProvider(Provider):
         super().__init__()
         self.factory = factory
 
+    def _build_tool(
+        self, entry: dict[str, Any], registry: ToolRegistry, local: bool, call_id: str
+    ) -> Tool:
+        fn = entry["function"]
+        schema = copy.deepcopy(fn["parameters"])
+        if local and not readonly(fn["name"]):
+            schema["properties"]["operation_id"] = {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": (
+                    "Unique operation identifier. Reuse it with identical arguments when "
+                    "retrying this action; use a new identifier for a new action."
+                ),
+            }
+            policy = tool_policy(fn["name"])
+            if not policy or policy["policy"] == "tool":
+                schema.setdefault("required", []).append("operation_id")
+        tool = CatalogTool(
+            name=fn["name"],
+            description=fn["description"],
+            parameters=schema,
+            annotations=ToolAnnotations(
+                readOnlyHint=readonly(fn["name"]), destructiveHint=False, openWorldHint=True
+            ),
+        )
+        tool._registry, tool._local, tool._call_id = registry, local, call_id
+        return tool
+
     async def _list_tools(self) -> Sequence[Tool]:
         registry, local, call_id = await run_in_threadpool(self.factory)
-        result: list[Tool] = []
-        for entry in registry.schemas:
-            fn = entry["function"]
-            schema = copy.deepcopy(fn["parameters"])
-            if local and not readonly(fn["name"]):
-                schema["properties"]["operation_id"] = {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200,
-                    "description": (
-                        "Unique operation identifier. Reuse it with identical arguments when "
-                        "retrying this action; use a new identifier for a new action."
-                    ),
-                }
-                policy = tool_policy(fn["name"])
-                if not policy or policy["policy"] == "tool":
-                    schema.setdefault("required", []).append("operation_id")
-            tool = CatalogTool(
-                name=fn["name"],
-                description=fn["description"],
-                parameters=schema,
-                annotations=ToolAnnotations(
-                    readOnlyHint=readonly(fn["name"]), destructiveHint=False, openWorldHint=True
-                ),
-            )
-            tool._registry, tool._local, tool._call_id = registry, local, call_id
-            result.append(tool)
-        return result
+        return [self._build_tool(entry, registry, local, call_id) for entry in registry.schemas]
 
     async def _get_tool(self, name: str, version: Any = None) -> Tool | None:
-        # No name-only cache: each request gets its own credentials, grant and schema.
-        result = next((tool for tool in await self._list_tools() if tool.name == name), None)
-        return result or DeniedTool(name=name, parameters={"type": "object"})
+        # Reauthorize every lookup, but only materialize the requested schema.
+        registry, local, call_id = await run_in_threadpool(self.factory)
+        entry = next(
+            (entry for entry in registry.schemas if entry["function"]["name"] == name), None
+        )
+        if entry is None:
+            return DeniedTool(name=name, parameters={"type": "object"})
+        return self._build_tool(entry, registry, local, call_id)
 
 
 class DeniedTool(Tool):

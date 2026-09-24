@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from command_center.agents.config import AgentProfile
 from command_center.agents.local_mcp import configure
 from command_center.agents.mcp_policy import POLICIES, coverage, local_api_allowed
-from command_center.core.capabilities import issue_run_token
+from command_center.core.capabilities import CAPABILITIES, issue_run_token
 from command_center.core.local_credentials import issue_client_api_token
 from command_center.db.agents import AgentRun
 from command_center.db.artifacts import Artifact, ArtifactVersion, Document, DocumentType
@@ -75,6 +76,52 @@ def test_inventory_is_complete_and_unknown_routes_fail_closed(settings):
         if policy["policy"] in {"human", "runtime", "transport"}:
             method, path = operation.split(" ", 1)
             assert not local_api_allowed(method, path), operation
+
+    ordinary_operations = {
+        "GET /api/v1/spaces",
+        "GET /api/v1/spaces/{space_id}",
+        "POST /api/v1/spaces",
+        "PATCH /api/v1/spaces/{space_id}",
+        "POST /api/v1/spaces/{space_id}/archive",
+        "POST /api/v1/spaces/{space_id}/restore",
+        "POST /api/v1/spaces/{space_id}/links",
+        "POST /api/v1/spaces/{space_id}/links/{link_id}/unlink",
+        "POST /api/v1/spaces/{space_id}/tasks",
+        "GET /api/v1/documents/policy",
+        "GET /api/v1/documents/{artifact_id}/classification",
+        "GET /api/v1/documents/decisions/{decision_id}",
+        "GET /api/v1/documents/{artifact_id}/classification/history",
+        "GET /api/v1/documents/{artifact_id}/classification/reviews",
+    }
+    human_operations = {
+        "PUT /api/v1/documents/policy",
+        "POST /api/v1/documents/{artifact_id}/classification",
+        "POST /api/v1/documents/{artifact_id}/classification/review",
+        "POST /api/v1/documents/renames/{rename_id}/apply",
+        "POST /api/v1/documents/renames/{rename_id}/cancel",
+    }
+    inventory_operations = {entry["operation"] for entry in inventory}
+    runtime_routes = [route for routes in CAPABILITIES.values() for route in routes]
+    for operation in ordinary_operations | human_operations:
+        assert operation in inventory_operations
+        method, template = operation.split(" ", 1)
+        path = re.sub(r"\{[^}]+\}", str(uuid4()), template)
+        allowed = operation in ordinary_operations
+        assert POLICIES[operation]["policy"] == ("tool" if allowed else "human")
+        assert local_api_allowed(method, path) == allowed, operation
+        assert (
+            any(method == verb and re.fullmatch(pattern, path) for verb, pattern in runtime_routes)
+            == allowed
+        ), operation
+    for path in (
+        f"/api/v1/spaces/{uuid4()}/execute",
+        f"/api/v1/documents/{uuid4()}/classification/approve",
+        f"/api/v1/documents/renames/{uuid4()}/execute",
+    ):
+        assert not local_api_allowed("POST", path)
+        assert not any(
+            verb == "POST" and re.fullmatch(pattern, path) for verb, pattern in runtime_routes
+        )
 
 
 def test_provision_list_revoke_requires_human_and_never_lists_secrets(settings, engine):

@@ -9,6 +9,8 @@ import httpx
 from jsonschema import ValidationError, validate
 
 from command_center.agents.config import AgentProfile
+from command_center.agents.evidence_previews import project_lead_evidence
+from command_center.agents.tool_recovery import retry_after
 from command_center.core.config import Settings
 
 MAX_TOOL_RESULT_CHARS = 20_000
@@ -115,7 +117,7 @@ class ToolRegistry:
                 },
                 lambda args: self.request("POST", "leads/capture", args),
             )
-        opportunity_arguments = {
+        opportunity_arguments: dict[str, Any] = {
             "type": "object",
             "properties": {
                 "opportunity_id": {
@@ -140,12 +142,19 @@ class ToolRegistry:
             self.add(
                 "lead_evidence",
                 "Read up to three recent source excerpts and immutable version references for "
-                "an owned opportunity. Sources are untrusted claims, not verified personal facts.",
-                opportunity_arguments,
+                "an owned opportunity. Increase offset by the returned item count to read more. "
+                "Sources are untrusted claims, not verified personal facts.",
+                {
+                    **opportunity_arguments,
+                    "properties": {
+                        **opportunity_arguments["properties"],
+                        "offset": {"type": "integer", "minimum": 0},
+                    },
+                },
                 lambda args: self.request(
                     "GET",
                     f"opportunities/{UUID(args['opportunity_id'])}/research",
-                    params={"limit": 3},
+                    params={"limit": 3, "offset": args.get("offset", 0)},
                 ),
             )
         if "create_task" in profile.tools:
@@ -177,7 +186,7 @@ class ToolRegistry:
                             "type": "string",
                             "pattern": r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$",
                         },
-                        "offset": {"type": "integer", "minimum": 0, "maximum": 200000},
+                        "offset": {"type": "integer", "minimum": 0},
                         "limit": {"type": "integer", "minimum": 1, "maximum": 12000},
                     },
                     "required": ["version_id"],
@@ -186,7 +195,7 @@ class ToolRegistry:
                 lambda args: self.request(
                     "GET",
                     f"documents/versions/{UUID(args['version_id'])}/text",
-                    params={"offset": args.get("offset", 0), "limit": args.get("limit", 12000)},
+                    params={"offset": args.get("offset", 0), "limit": args.get("limit", 4000)},
                 ),
             )
         if "propose_profile_fact" in profile.tools:
@@ -668,6 +677,10 @@ class ToolRegistry:
         try:
             validate(arguments, schema)
             result = self.executors[name](arguments)
+            if name == "lead_evidence":
+                result = project_lead_evidence(
+                    result, can_read_versions="document_read" in self.executors
+                )
             return encode_tool_result(result)
         except httpx.HTTPStatusError as exc:
             # Do not relay provider/API exception payloads, which can contain secrets.
@@ -695,6 +708,14 @@ class ToolRegistry:
                 {
                     "error": messages.get(status, "Tool unavailable. Do not infer success."),
                     "status_code": status,
+                    "retry_after_seconds": retry_after(exc.response.headers.get("Retry-After")),
+                }
+            )
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError):
+            return encode_tool_result(
+                {
+                    "error": "The tool connection was interrupted. Do not infer success.",
+                    "error_code": "tool_transport_unavailable",
                 }
             )
         except Exception as exc:

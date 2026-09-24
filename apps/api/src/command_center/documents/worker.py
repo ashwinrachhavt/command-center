@@ -20,6 +20,7 @@ from command_center.db.artifacts import (
 )
 from command_center.db.document_imports import DocumentImport
 from command_center.integrations.docling import DoclingClient, ExtractedDocument
+from command_center.integrations.jev import JevProvider
 
 logger = logging.getLogger(__name__)
 HEARTBEAT_SECONDS = 15
@@ -104,7 +105,12 @@ async def convert_with_heartbeat(
         await client.close()
 
 
-def persist_output(engine: Engine, claimed: ClaimedImport, output: ExtractedDocument) -> None:
+def persist_output(
+    engine: Engine,
+    claimed: ClaimedImport,
+    output: ExtractedDocument,
+    provider: JevProvider = "typesafe",
+) -> None:
     if not output.text.strip() or not isinstance(output.document, dict):
         raise ValueError("Document conversion did not produce reviewable content")
     with Session(engine) as db, db.begin():
@@ -164,6 +170,30 @@ def persist_output(engine: Engine, claimed: ClaimedImport, output: ExtractedDocu
             extraction_version_id=derived.id,
             request_id=uuid4(),
         )
+        # Persist dispatch intent in the extraction transaction; beat recovers
+        # broker outages. Classification cannot roll back the completed import.
+        from command_center.db.document_decisions import DocumentDecision, DocumentPolicy
+
+        policy = db.get(DocumentPolicy, job.owner_id)
+        if policy and policy.classification_mode == "after_extraction":
+            try:
+                with db.begin_nested():
+                    DocumentDecision.request(
+                        db,
+                        decision_id=uuid5(job.id, "automatic-classification"),
+                        owner_id=job.owner_id,
+                        artifact_id=job.artifact_id,
+                        metadata_revision=source_artifact.row_version,
+                        source_version_id=job.source_version_id,
+                        extraction_version_id=derived.id,
+                        provider=provider,
+                        request_id=uuid4(),
+                        automatic=True,
+                    )
+            except ValueError:
+                logger.warning(
+                    "Document import %s completed; classification inputs need review", job.id
+                )
 
 
 def fail(engine: Engine, claimed: ClaimedImport, error: str) -> None:
@@ -183,7 +213,7 @@ def perform_document_import(engine: Engine, settings: Settings, import_id: UUID 
     try:
         content = BlobStore(settings.blob_store_path).read(claimed.content_sha256)
         output = asyncio.run(convert_with_heartbeat(engine, settings, claimed, content))
-        persist_output(engine, claimed, output)
+        persist_output(engine, claimed, output, settings.jev_provider)
     except ConversionLeaseLost:
         return True
     except TimeoutError:

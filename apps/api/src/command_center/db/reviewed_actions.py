@@ -23,10 +23,12 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Select,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    func,
     select,
     text,
     update,
@@ -475,6 +477,29 @@ class ExternalAccount(OwnedRecord, Base):
         )
 
 
+class EmailDelivery(BaseModel):
+    """One reviewed email, at an instant or after a confirmed previous send."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["at", "after_send"]
+    send_at: AwareDatetime | None = None
+    after_action_id: UUID | None = None
+    delay_days: int | None = Field(default=None, ge=1, le=90)
+
+    @model_validator(mode="after")
+    def exact_timing(self) -> "EmailDelivery":
+        if self.mode == "at":
+            if (
+                self.send_at is None
+                or self.after_action_id is not None
+                or self.delay_days is not None
+            ):
+                raise ValueError("Choose an exact send time without cadence fields")
+        elif self.send_at is not None or self.after_action_id is None or self.delay_days is None:
+            raise ValueError("Cadence needs a previous sent email and an interval in days")
+        return self
+
+
 class ReviewedAction(OwnedRecord, Base):
     """Mutable pointers and execution state over exact immutable proposals."""
 
@@ -536,6 +561,7 @@ class ReviewedAction(OwnedRecord, Base):
         expires_at: datetime | None,
         reason: str,
         request_id: UUID,
+        delivery: EmailDelivery | None = None,
     ) -> "ReviewedAction":
         data, digest = canonical_payload(payload)
         kind = data["kind"]
@@ -552,6 +578,14 @@ class ReviewedAction(OwnedRecord, Base):
             source_run_id=source_run_id,
             expires_at=expires_at,
             reason=reason,
+        )
+        scheduled_for = cls.delivery_time(
+            session,
+            owner_id=owner_id,
+            account_id=account_id,
+            payload=data,
+            delivery=delivery,
+            expires_at=expires_at,
         )
         action = cls(
             id=record_id,
@@ -576,6 +610,8 @@ class ReviewedAction(OwnedRecord, Base):
             observed_target=observed_target,
             source_run_id=source_run_id,
             expires_at=expires_at,
+            delivery=delivery.model_dump(mode="json") if delivery else None,
+            scheduled_for=scheduled_for,
             proposed_by_id=owner_id,
             reason=reason.strip(),
         )
@@ -612,6 +648,7 @@ class ReviewedAction(OwnedRecord, Base):
         expires_at: datetime | None,
         reason: str,
         request_id: UUID,
+        delivery: EmailDelivery | None = None,
     ) -> "ReviewedActionRevision":
         session = object_session(self)
         if session is None or self.current_revision_id is None:
@@ -635,6 +672,14 @@ class ReviewedAction(OwnedRecord, Base):
             expires_at=expires_at,
             reason=reason,
         )
+        scheduled_for = self.delivery_time(
+            session,
+            owner_id=self.owner_id,
+            account_id=self.account_id,
+            payload=data,
+            delivery=delivery,
+            expires_at=expires_at,
+        )
         current = session.get(ReviewedActionRevision, self.current_revision_id)
         if current is None:
             raise ValueError("Action current revision is missing")
@@ -650,6 +695,8 @@ class ReviewedAction(OwnedRecord, Base):
             observed_target=observed_target,
             source_run_id=source_run_id,
             expires_at=expires_at,
+            delivery=delivery.model_dump(mode="json") if delivery else None,
+            scheduled_for=scheduled_for,
             proposed_by_id=self.owner_id,
             reason=reason.strip(),
         )
@@ -709,6 +756,10 @@ class ReviewedAction(OwnedRecord, Base):
             if decision == "approved":
                 if revision.expires_at is not None and revision.expires_at <= utc_now():
                     raise RecordConflict("Expired actions cannot be approved")
+                if revision.scheduled_for is not None and revision.scheduled_for <= utc_now():
+                    raise RecordConflict(
+                        "The scheduled time has passed; choose a new time before approving"
+                    )
                 self.approved_revision_id = revision.id
                 self.state = "queued"
             else:
@@ -736,17 +787,42 @@ class ReviewedAction(OwnedRecord, Base):
         return review
 
     @classmethod
-    def claim(cls, session: Session, action_id: UUID | None = None) -> "ActionAttempt | None":
-        statement = (
+    def dispatchable(cls) -> Select[tuple["ReviewedAction"]]:
+        """Use the same due-time gate for both broker dispatch and durable claims."""
+        return (
             select(cls)
             .join(ReviewedActionRevision, ReviewedActionRevision.id == cls.approved_revision_id)
             .where(
                 cls.state == "queued",
+                cls.archived_at.is_(None),
+                cls.approved_revision_id == cls.current_revision_id,
+                (ReviewedActionRevision.scheduled_for.is_(None))
+                | (ReviewedActionRevision.scheduled_for <= utc_now()),
                 (ReviewedActionRevision.expires_at.is_(None))
                 | (ReviewedActionRevision.expires_at > utc_now()),
             )
             .order_by(cls.updated_at, cls.id)
         )
+
+    @classmethod
+    def emails_to(cls, owner_id: UUID, recipient: str) -> Select[tuple["ReviewedAction"]]:
+        addresses = func.jsonb_array_elements_text(
+            ReviewedActionRevision.payload["to"]
+        ).column_valued("email_recipient")
+        return (
+            select(cls)
+            .join(ReviewedActionRevision, ReviewedActionRevision.id == cls.current_revision_id)
+            .where(
+                cls.owner_id == owner_id,
+                cls.archived_at.is_(None),
+                cls.kind == "gmail_send",
+                select(1).where(func.lower(addresses) == recipient.casefold()).exists(),
+            )
+        )
+
+    @classmethod
+    def claim(cls, session: Session, action_id: UUID | None = None) -> "ActionAttempt | None":
+        statement = cls.dispatchable()
         if action_id is not None:
             statement = statement.where(cls.id == action_id)
         action = session.scalar(statement.with_for_update(skip_locked=True))
@@ -771,6 +847,58 @@ class ReviewedAction(OwnedRecord, Base):
         action.updated_at = utc_now()
         session.flush()
         return attempt
+
+    @staticmethod
+    def delivery_time(
+        session: Session,
+        *,
+        owner_id: UUID,
+        account_id: UUID,
+        payload: dict[str, Any],
+        delivery: EmailDelivery | None,
+        expires_at: datetime | None,
+    ) -> datetime | None:
+        if delivery is None:
+            return None
+        if payload["kind"] != "gmail_send":
+            raise ValueError("Delivery scheduling is available for email only")
+        due = delivery.send_at
+        if delivery.mode == "after_send":
+            previous = session.scalar(
+                select(ReviewedAction).where(
+                    ReviewedAction.id == delivery.after_action_id,
+                    ReviewedAction.owner_id == owner_id,
+                    ReviewedAction.account_id == account_id,
+                    ReviewedAction.kind == "gmail_send",
+                    ReviewedAction.state == "succeeded",
+                    ReviewedAction.archived_at.is_(None),
+                )
+            )
+            attempt = (
+                session.scalar(
+                    select(ActionAttempt).where(
+                        ActionAttempt.action_id == previous.id,
+                        ActionAttempt.revision_id == previous.approved_revision_id,
+                        ActionAttempt.state == "succeeded",
+                    )
+                )
+                if previous
+                else None
+            )
+            prior = session.get(ReviewedActionRevision, attempt.revision_id) if attempt else None
+            if attempt is None or attempt.completed_at is None or prior is None:
+                raise ValueError("Choose a confirmed sent email from this account for cadence")
+            previous_recipients = {address.casefold() for address in prior.payload.get("to", [])}
+            if previous_recipients != {address.casefold() for address in payload.get("to", [])}:
+                raise ValueError("Cadence must follow an email to the same recipients")
+            assert delivery.delay_days is not None
+            due = attempt.completed_at + timedelta(days=delivery.delay_days)
+        assert due is not None
+        if due <= utc_now():
+            raise ValueError("That send time is already due; choose Send now or a future time")
+        if expires_at is not None and expires_at <= due:
+            raise ValueError("Action expiry must be later than the scheduled send time")
+        return due
 
     @classmethod
     def expire_stale(cls, session: Session) -> int:
@@ -845,6 +973,8 @@ class ReviewedAction(OwnedRecord, Base):
             if source_version_id is None:
                 raise ValueError("Notion publication requires an exact document version")
             ReviewedAction._owned_text_version(session, owner_id, source_version_id)
+        elif kind == "gmail_send" and source_version_id is not None:
+            ReviewedAction._owned_text_version(session, owner_id, source_version_id, email=True)
         elif source_version_id is not None:
             raise ValueError("This action does not use a source document")
         if kind != "gmail_send" and attachment_version_ids:
@@ -893,10 +1023,17 @@ class ReviewedAction(OwnedRecord, Base):
         return version
 
     @staticmethod
-    def _owned_text_version(session: Session, owner_id: UUID, version_id: UUID) -> ArtifactVersion:
+    def _owned_text_version(
+        session: Session, owner_id: UUID, version_id: UUID, *, email: bool = False
+    ) -> ArtifactVersion:
         version = ReviewedAction._owned_version(session, owner_id, version_id)
         if (
-            version.schema_key not in {"text.v1", "docling.document.v1"}
+            version.schema_key
+            not in (
+                {"text.v1", "docling.document.v1", "follow_up.v1"}
+                if email
+                else {"text.v1", "docling.document.v1"}
+            )
             or version.payload is None
             or not isinstance(version.payload.get("text"), str)
         ):
@@ -947,6 +1084,8 @@ class ReviewedActionRevision(Base):
     observed_target: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     source_run_id: Mapped[UUID | None] = mapped_column(ForeignKey("agent_runs.id"), index=True)
     expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    delivery: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    scheduled_for: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     proposed_by_id: Mapped[UUID] = mapped_column(ForeignKey("actors.id"))
     reason: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)

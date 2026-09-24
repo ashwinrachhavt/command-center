@@ -28,7 +28,12 @@ import {
   type Resources,
   type Schema,
 } from "@/lib/api";
-import { ActionEditor } from "./reviewed-actions";
+import {
+  ActionEditor,
+  ReviewedActionDialog,
+  SourcePreview,
+} from "./reviewed-actions";
+import { ContactEmailHistory } from "./contact-email-history";
 import { ErrorState, LoadingRows } from "./primitives";
 import { RecordAgentWork } from "./record-agent-work";
 
@@ -55,6 +60,8 @@ export function ContactFollowUps({
   const [selected, setSelected] = useState<string>();
   const [editing, setEditing] = useState<FollowUp | "new">();
   const [email, setEmail] = useState<FollowUp>();
+  const [reviewing, setReviewing] = useState<string>();
+  const [source, setSource] = useState<string>();
   const list = useQuery({
     queryKey: ["follow-ups", contact.id, offset],
     queryFn: () =>
@@ -69,6 +76,8 @@ export function ContactFollowUps({
   });
   const saved = detail.data;
   const payload = saved?.version.payload;
+  const research = payload?.contact_research as
+    Schema["ContactResearch"] | undefined;
   const recipient = String(payload?.recipient_email ?? contact.email ?? "");
   const subject = String(payload?.subject ?? "");
   const linkedin = safeLinkedIn(contact.linkedin_url);
@@ -80,10 +89,10 @@ export function ContactFollowUps({
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-medium">Follow-ups</h3>
+          <h3 className="text-base font-medium">Email & follow-ups</h3>
           <p className="mt-1 max-w-lg text-sm text-muted-foreground">
-            Keep a thoughtful message ready. Save it here, then copy it for
-            LinkedIn or prepare an email.
+            Research a useful reason to reconnect, edit the draft, then review
+            it to send now or schedule a follow-up.
           </p>
         </div>
         <Button onClick={() => setEditing("new")}>
@@ -94,11 +103,15 @@ export function ContactFollowUps({
       <RecordAgentWork
         resource="contacts"
         id={contact.id}
+        email
         onDraftReady={(id) => {
           setSelected(id);
           setOffset(0);
         }}
       />
+      {contact.email && (
+        <ContactEmailHistory key={contact.email} recipient={contact.email} />
+      )}
       {list.isPending && <LoadingRows />}
       {list.error && (
         <ErrorState error={list.error} retry={() => void list.refetch()} />
@@ -219,7 +232,7 @@ export function ContactFollowUps({
             {recipient && (
               <Button onClick={() => setEmail(saved)}>
                 <Mail />
-                Prepare email
+                Review & send or schedule
               </Button>
             )}
             {mailto && mailto.length < 2000 && (
@@ -231,6 +244,42 @@ export function ContactFollowUps({
               </Button>
             )}
           </div>
+          {research && (
+            <details className="space-y-3 rounded-lg border p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Research & evidence
+                {research.identity === "uncertain"
+                  ? " — identity needs review"
+                  : ""}
+              </summary>
+              <p className="text-sm">{research.summary}</p>
+              {research.caveats && (
+                <p className="text-sm text-muted-foreground">
+                  {research.caveats}
+                </p>
+              )}
+              {[
+                ...(research.identity_evidence ?? []),
+                ...(research.employment_evidence ?? []),
+              ].map((citation, index) => (
+                <div
+                  key={`${citation.source_version_id}-${index}`}
+                  className="space-y-1 text-sm"
+                >
+                  <blockquote className="border-l-2 pl-3">
+                    {citation.quote}
+                  </blockquote>
+                  <Button
+                    size="sm"
+                    variant="link"
+                    onClick={() => setSource(citation.source_version_id)}
+                  >
+                    Open captured source
+                  </Button>
+                </div>
+              ))}
+            </details>
+          )}
           {!recipient && (
             <p className="text-xs text-muted-foreground">
               No email saved for this person. You can add one while editing the
@@ -257,6 +306,7 @@ export function ContactFollowUps({
       {email && (
         <ActionEditor
           close={() => setEmail(undefined)}
+          onSaved={(action) => setReviewing(action.id)}
           seed={{
             sourceVersionId: email.version.id,
             sourceTitle: `Follow-up for ${contact.name} · version ${email.version.version}`,
@@ -270,6 +320,25 @@ export function ContactFollowUps({
             },
           }}
         />
+      )}
+      {reviewing && (
+        <ReviewedActionDialog
+          actionId={reviewing}
+          close={() => setReviewing(undefined)}
+        />
+      )}
+      {source && (
+        <Dialog open onOpenChange={(open) => !open && setSource(undefined)}>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Draft research source</DialogTitle>
+              <DialogDescription>
+                The exact saved source used for this draft.
+              </DialogDescription>
+            </DialogHeader>
+            <SourcePreview versionId={source} />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

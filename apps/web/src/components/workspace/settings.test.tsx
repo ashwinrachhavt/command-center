@@ -8,6 +8,7 @@ import { ProfileForm, Settings } from "./settings";
 vi.mock("./profile-facts", () => ({ ProfileFacts: () => null }));
 vi.mock("./connected-accounts", () => ({ ConnectedAccounts: () => null }));
 vi.mock("./spending", () => ({ SpendingSettings: () => null }));
+vi.mock("./document-decisions", () => ({ DocumentSettings: () => null }));
 
 const profile = (rowVersion: number, displayName = "Original profile") => ({
   actor_id: "11111111-1111-4111-8111-111111111111",

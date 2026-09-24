@@ -50,7 +50,7 @@ test("contact writing recovers, saves and copies a LinkedIn message, then prepar
   );
   expect(saved.total).toBe(1);
   await page
-    .getByRole("button", { name: "Prepare email", exact: true })
+    .getByRole("button", { name: "Review & send or schedule", exact: true })
     .click();
   await expect(page.getByLabel("To", { exact: true })).toHaveValue(
     "alex@example.com",
@@ -64,7 +64,13 @@ test("contact writing recovers, saves and copies a LinkedIn message, then prepar
   await page
     .getByRole("button", { name: "Save proposal", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Approve & send" }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
   const requests = await page.evaluate(async () =>
     (await fetch("/api/backend/test/workflow-requests")).json(),
   );

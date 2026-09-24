@@ -116,13 +116,15 @@ function install(work: Work, workspace: Workspace) {
       : {
           text: "Hi Alex, I’m interested in the platform team. Would you be open to a short conversation?",
           format: "text",
-          channel: "linkedin",
+          channel: work.channel,
           subject: "Platform team introduction",
           recipient_email: "alex@example.com",
-          connection_note: !!(work.researchRequested || work.connectionNote),
+          connection_note:
+            work.channel === "linkedin" &&
+            !!(work.researchRequested || work.connectionNote),
           ...(work.researchRequested
             ? {
-                connection_note: true,
+                connection_note: work.channel === "linkedin",
                 contact_research: {
                   identity: "matched",
                   company: "Northstar",
@@ -246,7 +248,7 @@ export async function recordWorkFixture(
       session_id: crypto.randomUUID(),
       run_id: crypto.randomUUID(),
       state: "queued",
-      channel: "linkedin",
+      channel: JSON.parse(String(init?.body ?? "{}")).channel ?? "linkedin",
       error_code: null,
       contact_id: match[1] === "contacts" ? match[2] : null,
       company_id: match[1] === "companies" ? match[2] : null,

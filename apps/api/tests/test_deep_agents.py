@@ -303,13 +303,16 @@ def test_skills_are_progressively_loaded_and_cannot_be_overwritten(
     assert states[-1]["steps"] == 4
 
 
-@pytest.mark.parametrize("limit,expected", [(5, "Research complete."), (3, None)])
+@pytest.mark.parametrize(
+    "limit,expected,steps", [(6, "Research complete.", 4), (3, "Research is incomplete.", 2)]
+)
 def test_delegation_has_visible_activity_and_one_shared_model_limit(
     agent_server,
     engine,
     scripted_model,
     limit,
     expected,
+    steps,
 ):
     child = AgentProfile(
         name="Research",
@@ -343,7 +346,7 @@ def test_delegation_has_visible_activity_and_one_shared_model_limit(
                     }
                 ],
             ),
-            AIMessage(content="Research complete."),
+            AIMessage(content=expected),
         ]
     )
     specialist = scripted_model(
@@ -384,18 +387,14 @@ def test_delegation_has_visible_activity_and_one_shared_model_limit(
             thread_id=str(run.id),
         )
 
-    if expected:
-        assert asyncio.run(exercise()) == expected
-    else:
-        with pytest.raises(ValueError, match="model_limit"):
-            asyncio.run(exercise())
-    assert states[-1]["steps"] == min(limit, 4)
+    assert asyncio.run(exercise()) == expected
+    assert states[-1]["steps"] == steps
     assert any(
         step["role"] == "research"
         and step["name"] == "workspace_summary"
         and step["state"] == "output-available"
         for step in states[-1]["tools"]
-    )
+    ) == (limit == 6)
 
 
 def test_worker_saves_a_conversation_reply_and_durable_checkpoint(

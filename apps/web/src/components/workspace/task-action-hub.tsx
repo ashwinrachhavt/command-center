@@ -11,11 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { type WorkspaceRecord, dateLabel, label } from "@/lib/api";
 
-type TaskState = "open" | "in_progress" | "snoozed" | "done" | "cancelled";
+type TaskState =
+  "open" | "in_progress" | "waiting" | "snoozed" | "done" | "cancelled";
 
 const STATE_LABELS: Record<TaskState, string> = {
   open: "Open",
   in_progress: "In progress",
+  waiting: "Waiting",
   snoozed: "Snoozed",
   done: "Done",
   cancelled: "Cancelled",
@@ -108,7 +110,9 @@ export function TaskActionHub({
                   onClick={() => onStatusChange("in_progress")}
                 >
                   <Play data-icon="inline-start" aria-hidden="true" />
-                  {state === "snoozed" ? "Resume task" : "Start task"}
+                  {state === "snoozed" || state === "waiting"
+                    ? "Resume task"
+                    : "Start task"}
                 </Button>
               )}
               <Button
@@ -129,6 +133,17 @@ export function TaskActionHub({
                 >
                   <Clock data-icon="inline-start" aria-hidden="true" />
                   Snooze
+                </Button>
+              )}
+              {state !== "waiting" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() => onStatusChange("waiting")}
+                >
+                  <Clock data-icon="inline-start" aria-hidden="true" />
+                  Mark waiting
                 </Button>
               )}
               <Button

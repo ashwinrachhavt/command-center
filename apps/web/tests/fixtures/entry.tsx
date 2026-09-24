@@ -5,6 +5,10 @@ import { WorkspaceShell } from "../../src/components/workspace/shell";
 import { isResource } from "../../src/components/workspace/context";
 import { Records } from "../../src/components/workspace/records";
 import { Overview } from "../../src/components/workspace/overview";
+import { Briefing } from "../../src/components/workspace/briefing";
+import { Spaces } from "../../src/components/workspace/spaces";
+import { spacesFixture } from "./spaces";
+import { documentDecisionsFixture } from "./document-decisions";
 import { Agents } from "../../src/components/workspace/agents";
 import { AgentSettings } from "../../src/components/workspace/agent-settings";
 import { OpportunityNavigation } from "../../src/components/workspace/opportunity-navigation";
@@ -34,6 +38,14 @@ const base = {
   updated_at: "2026-09-21T10:00:00Z",
   archived_at: null,
 };
+const briefingRequests: {
+  route: string;
+  method: string;
+  key: string;
+  body?: Record<string, unknown>;
+}[] = [];
+const capturedTasks = new Map<string, Record<string, unknown>>();
+let failedTaskCaptures = 0;
 const company = {
   ...base,
   id: "company-1",
@@ -102,6 +114,15 @@ const tasks = [
     opportunity_id: opportunities[0].id,
     state: "open",
     priority: 2,
+    due_date: null,
+  },
+  {
+    ...base,
+    id: "task-waiting",
+    title: "Wait for interview availability",
+    opportunity_id: opportunities[0].id,
+    state: "waiting",
+    priority: 1,
     due_date: null,
   },
 ];
@@ -1027,6 +1048,29 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const url = new URL(String(input), location.origin);
   if (!url.pathname.startsWith("/api/backend/"))
     throw new Error("Only fixture API requests are supported");
+  const route = url.pathname.replace("/api/backend/", "");
+  const method = init?.method ?? "GET";
+  const idempotencyKey =
+    new Headers(init?.headers).get("Idempotency-Key") ?? "";
+  if (route === "test/briefing-requests")
+    return Response.json(briefingRequests);
+  briefingRequests.push({
+    route,
+    method,
+    key: idempotencyKey,
+    ...(route === "tasks" && method === "POST"
+      ? { body: JSON.parse(String(init?.body)) }
+      : {}),
+  });
+  const spaceResponse = await spacesFixture(url, init, rows);
+  if (spaceResponse) return spaceResponse;
+  const documentDecisionResponse = await documentDecisionsFixture(
+    url,
+    init,
+    rows,
+    documentImports,
+  );
+  if (documentDecisionResponse) return documentDecisionResponse;
   const application = await applicationsFixture(
     url,
     init,
@@ -1056,10 +1100,6 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   if (connection) return connection;
   const workflow = await workflowFixture(url, init);
   if (workflow) return workflow;
-  const route = url.pathname.replace("/api/backend/", "");
-  const method = init?.method ?? "GET";
-  const idempotencyKey =
-    new Headers(init?.headers).get("Idempotency-Key") ?? "";
   const trackLeadRequest = (name: string) => {
     (leadRequestKeys[name] ??= []).push(idempotencyKey);
   };
@@ -1257,6 +1297,11 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   }
   if (route === "document-types")
     return Response.json([
+      {
+        id: "document-type-unclassified",
+        name: "Unclassified",
+        slug: "unclassified",
+      },
       { id: "document-type-notes", name: "Notes", slug: "notes" },
       { id: "document-type-resume", name: "Resume", slug: "resume" },
       {
@@ -2183,12 +2228,28 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const [resource, id] = route.split("/");
   if (rows[resource]) {
     if (!id && init?.method === "POST") {
-      const created = {
+      const previous =
+        resource === "tasks" ? capturedTasks.get(idempotencyKey) : undefined;
+      const created = previous ?? {
         ...base,
+        ...(resource === "tasks"
+          ? { state: "open", priority: 0, due_date: null }
+          : {}),
         ...JSON.parse(String(init.body)),
         id: crypto.randomUUID(),
       };
-      rows[resource].push(created);
+      if (!previous) rows[resource].push(created);
+      if (resource === "tasks") {
+        capturedTasks.set(idempotencyKey, created);
+        if (
+          new URLSearchParams(location.search).has("capture_retry") &&
+          failedTaskCaptures++ < 2
+        )
+          return Response.json(
+            { detail: "Connection lost after saving task." },
+            { status: 503 },
+          );
+      }
       return Response.json(created);
     }
     if (id) {
@@ -2240,6 +2301,7 @@ const fixtureFetch: typeof fetch = async (input, init) => {
       today: active.filter((task) => task.due_date && task.due_date <= today),
       upcoming: active.filter((task) => task.due_date && task.due_date > today),
       unscheduled: active.filter((task) => !task.due_date),
+      waiting: tasks.filter((task) => task.state === "waiting"),
       snoozed: tasks.filter((task) => task.state === "snoozed"),
     };
     const matches = groups[view as keyof typeof groups] || [];
@@ -2386,8 +2448,10 @@ function Preview() {
         )}
         {new URLSearchParams(location.search).has("routeError") ? (
           <WorkspaceError />
-        ) : path === "/" ? (
-          <Agents />
+        ) : path === "/" || path === "/briefing" ? (
+          <Briefing />
+        ) : path === "/spaces" ? (
+          <Spaces />
         ) : path === "/overview" ? (
           <Overview />
         ) : path === "/notes" ? (

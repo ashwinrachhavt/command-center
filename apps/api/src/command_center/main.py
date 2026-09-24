@@ -24,6 +24,7 @@ from command_center.api import (
     contact_discovery,
     conversations,
     correspondence,
+    document_decisions,
     document_text,
     documents,
     leads,
@@ -34,6 +35,7 @@ from command_center.api import (
     record_work,
     research_executions,
     reviewed_actions,
+    spaces,
     spending,
     work_queue,
     workspace,
@@ -173,6 +175,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_router)
     app.include_router(workspace.router)
     app.include_router(work_queue.router)
+    app.include_router(spaces.router)
+    app.include_router(document_decisions.router)
     app.include_router(artifacts.router)
     app.include_router(agents.router)
     app.include_router(agent_questions.router)

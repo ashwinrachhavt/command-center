@@ -23,6 +23,14 @@ const Overview = deferView<Record<string, never>>(
   () => import("./overview").then((module) => ({ default: module.Overview })),
   "daily overview",
 );
+const Briefing = deferView<Record<string, never>>(
+  () => import("./briefing").then((module) => ({ default: module.Briefing })),
+  "briefing",
+);
+const Spaces = deferView<Record<string, never>>(
+  () => import("./spaces").then((module) => ({ default: module.Spaces })),
+  "spaces",
+);
 const Agents = deferView<Record<string, never>>(
   () => import("./agents").then((module) => ({ default: module.Agents })),
   "agents",
@@ -75,6 +83,8 @@ export type WorkspaceSection =
   | "documents"
   | "agent-settings"
   | "overview"
+  | "briefing"
+  | "spaces"
   | "notes"
   | "memory"
   | "browser"
@@ -84,6 +94,10 @@ export type WorkspaceSection =
 
 export function SectionView({ section }: { section: WorkspaceSection }) {
   switch (section) {
+    case "briefing":
+      return <Briefing />;
+    case "spaces":
+      return <Spaces />;
     case "library":
       return <Library />;
     case "documents":
