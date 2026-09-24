@@ -50,15 +50,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
       - name: Install locked backend dependencies
-        run: uv sync --project apps/api --locked
+        run: uv sync --project apps/api --locked --extra strands
       - name: Ruff lint
         run: uv run --project apps/api ruff check apps/api scripts
       - name: Ruff formatting
         run: uv run --project apps/api ruff format --check apps/api scripts
       - name: Python types
-        run: uv run --project apps/api mypy --config-file apps/api/pyproject.toml apps/api/src
+        run: uv run --project apps/api --extra strands mypy --config-file apps/api/pyproject.toml apps/api/src
       - name: PostgreSQL tests and migrations
-        run: uv run --project apps/api pytest apps/api/tests -q
+        run: uv run --project apps/api --extra strands pytest apps/api/tests -q
 
   web:
     name: Web, browser and contract checks

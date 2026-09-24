@@ -95,7 +95,7 @@ def test_errors_are_not_cached_and_cached_reads_do_not_survive_a_new_run(envelop
         async def handler(request):
             nonlocal calls
             calls += 1
-            failure = {"error": "Synthetic temporary service failure. " * 20, "status_code": 503}
+            failure = {"error": "Synthetic permanent service failure. " * 20, "status_code": 403}
             error = {
                 "status": "Unavailable",
                 "json": json.dumps(failure),

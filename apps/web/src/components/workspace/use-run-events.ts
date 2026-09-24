@@ -24,6 +24,17 @@ export type StreamConnection =
   "idle" | "connecting" | "live" | "disconnected" | "complete";
 
 const terminalStates = new Set(["completed", "failed", "cancelled"]);
+const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+const maxEventChars = 256_000;
+
+class StreamError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -55,7 +66,8 @@ function validEnvelope(
   if (
     !candidate ||
     !data ||
-    !Number.isInteger(candidate.sequence) ||
+    !Number.isSafeInteger(candidate.sequence) ||
+    (candidate.sequence as number) <= 0 ||
     candidate.run_id !== runId ||
     typeof candidate.type !== "string" ||
     typeof candidate.role !== "string" ||
@@ -88,6 +100,8 @@ export function useRunEvents(runId: string, enabled: boolean) {
   const frame = useRef<number | undefined>(undefined);
   const [resumeSequence, setResumeSequence] = useState(0);
   const automaticAttempts = useRef(0);
+  const canReconnect = useRef(true);
+  const retryNotBefore = useRef(0);
 
   const flushText = useCallback(() => {
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
@@ -135,6 +149,8 @@ export function useRunEvents(runId: string, enabled: boolean) {
     lastSequence.current = 0;
     terminalStatus.current = false;
     automaticAttempts.current = 0;
+    canReconnect.current = true;
+    retryNotBefore.current = 0;
     pendingText.current.clear();
     if (frame.current !== undefined) cancelAnimationFrame(frame.current);
     frame.current = undefined;
@@ -168,6 +184,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
     const apply = (event: RunEventEnvelope) => {
       if (event.sequence <= lastSequence.current) return;
       lastSequence.current = event.sequence;
+      automaticAttempts.current = 0;
       const data = event.data;
       if (event.type === "text-delta") {
         const id = data.message_id;
@@ -225,13 +242,18 @@ export function useRunEvents(runId: string, enabled: boolean) {
           errorCode:
             typeof data.error_code === "string" ? data.error_code : undefined,
         });
-        if (terminal) setConnection("complete");
+        if (terminal) {
+          flushText();
+          setConnection("complete");
+        }
       }
     };
 
     const connect = async () => {
       setConnection("connecting");
       setConnectionError("");
+      canReconnect.current = true;
+      retryNotBefore.current = 0;
       try {
         const response = await fetch(
           `/api/backend/agent-runs/${encodeURIComponent(runId)}/events?after_sequence=${lastSequence.current}`,
@@ -242,33 +264,67 @@ export function useRunEvents(runId: string, enabled: boolean) {
           },
         );
         if (!current || controller.signal.aborted) return;
-        if (!response.ok || !response.body)
-          throw new Error(`Event stream returned ${response.status}.`);
+        if (!response.ok) {
+          const after = response.headers.get("Retry-After");
+          if (after) {
+            const seconds = Number(after);
+            const deadline = Number.isFinite(seconds)
+              ? Date.now() + Math.max(0, seconds) * 1000
+              : Date.parse(after);
+            if (Number.isFinite(deadline)) retryNotBefore.current = deadline;
+          }
+          throw new StreamError(
+            response.status === 401
+              ? "Sign in again to reconnect live activity."
+              : response.status === 403 || response.status === 404
+                ? "Live activity is unavailable for this run or account."
+                : `Event stream returned ${response.status}.`,
+            retryableStatuses.has(response.status),
+          );
+        }
+        if (!response.body)
+          throw new StreamError(
+            "Event stream returned an empty response.",
+            false,
+          );
         if (
           !response.headers.get("content-type")?.includes("text/event-stream")
         )
-          throw new Error("Event stream returned an unexpected response.");
+          throw new StreamError(
+            "Event stream returned an unexpected response.",
+            false,
+          );
         setConnection("live");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        while (current) {
-          const { done, value } = await reader.read();
-          if (!current || controller.signal.aborted) return;
-          buffer += decoder.decode(value, { stream: !done });
-          let separator = buffer.search(/\r?\n\r?\n/);
-          while (separator >= 0) {
-            const match = buffer.slice(separator).match(/^\r?\n\r?\n/);
-            const length = match?.[0].length ?? 2;
-            const envelope = validEnvelope(
-              parseBlock(buffer.slice(0, separator)),
-              runId,
-            );
-            buffer = buffer.slice(separator + length);
-            if (envelope) apply(envelope);
-            separator = buffer.search(/\r?\n\r?\n/);
+        try {
+          while (current && !terminal) {
+            const { done, value } = await reader.read();
+            if (!current || controller.signal.aborted) return;
+            buffer += decoder.decode(value, { stream: !done });
+            let separator = buffer.search(/\r?\n\r?\n/);
+            while (separator >= 0 && !terminal) {
+              const match = buffer.slice(separator).match(/^\r?\n\r?\n/);
+              const length = match?.[0].length ?? 2;
+              const envelope = validEnvelope(
+                parseBlock(buffer.slice(0, separator)),
+                runId,
+              );
+              buffer = buffer.slice(separator + length);
+              if (envelope) apply(envelope);
+              separator = buffer.search(/\r?\n\r?\n/);
+            }
+            if (buffer.length > maxEventChars)
+              throw new StreamError(
+                "Live activity exceeded the event size limit.",
+                false,
+              );
+            if (done) break;
           }
-          if (done) break;
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
         }
         flushText();
         if (current && !terminal) {
@@ -278,6 +334,8 @@ export function useRunEvents(runId: string, enabled: boolean) {
         }
       } catch (error) {
         if (!current || controller.signal.aborted) return;
+        canReconnect.current =
+          !(error instanceof StreamError) || error.retryable;
         flushText();
         setResumeSequence(lastSequence.current);
         setConnection("disconnected");
@@ -297,13 +355,19 @@ export function useRunEvents(runId: string, enabled: boolean) {
   }, [attempt, enabled, flushText, queueText, runId]);
 
   useEffect(() => {
-    if (!enabled || connection !== "disconnected" || terminalStatus.current)
+    if (
+      !enabled ||
+      connection !== "disconnected" ||
+      terminalStatus.current ||
+      !canReconnect.current
+    )
       return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       clearTimeout(timer);
       if (
         document.visibilityState === "hidden" ||
+        !navigator.onLine ||
         automaticAttempts.current >= 3
       )
         return;
@@ -312,14 +376,24 @@ export function useRunEvents(runId: string, enabled: boolean) {
           automaticAttempts.current += 1;
           setAttempt((value) => value + 1);
         },
-        1000 * 2 ** automaticAttempts.current,
+        Math.min(
+          2_147_483_647,
+          Math.max(
+            1000 * 2 ** automaticAttempts.current * (0.5 + Math.random() * 0.5),
+            retryNotBefore.current - Date.now(),
+          ),
+        ),
       );
     };
     schedule();
     document.addEventListener("visibilitychange", schedule);
+    window.addEventListener("online", schedule);
+    window.addEventListener("offline", schedule);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", schedule);
+      window.removeEventListener("online", schedule);
+      window.removeEventListener("offline", schedule);
     };
   }, [attempt, connection, enabled, runId]);
 

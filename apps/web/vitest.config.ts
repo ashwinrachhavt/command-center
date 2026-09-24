@@ -7,6 +7,8 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     environment: "jsdom",
+    // DOM suites are CPU-heavy; unbounded forks starve interaction timers.
+    maxWorkers: 4,
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],
   },

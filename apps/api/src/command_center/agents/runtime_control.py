@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import json
+import random
 import time
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
@@ -25,6 +26,13 @@ from command_center.agents.progress import progress_text
 from command_center.agents.read_cache import failed_tool_result, immutable_read_key
 from command_center.agents.spending import ModelSpendingGate, conservative_input_bound
 from command_center.agents.telemetry import current_trace
+from command_center.agents.tool_recovery import (
+    MAX_READ_ATTEMPTS,
+    MAX_RETRY_DELAY,
+    safe_read,
+    transient_exception,
+    transient_result,
+)
 from command_center.db.spending import SpendingDenied
 
 type ProgressSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -268,7 +276,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         if not limits:
             return None
         used = sum(
-            1
+            int(item.get("attempts", 1))
             for item in self.control.tools.values()
             if (item.get("summary") if item["name"] == "catalog_execute" else item["name"]) == name
         )
@@ -336,16 +344,16 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         )
         control = self.control
         limited = False
+        budget_name = (
+            str(call["args"].get("tool_name", ""))
+            if call["name"] == "catalog_execute"
+            else call["name"]
+        )
         async with control.lock:
             existing = control.tools.get(call_id)
             if existing is None:
                 if control.tool_count >= control.profile.max_tool_calls:
                     raise ExecutionStopped("tool_limit")
-                budget_name = (
-                    str(call["args"].get("tool_name", ""))
-                    if call["name"] == "catalog_execute"
-                    else call["name"]
-                )
                 limited = self.lookup_remaining(budget_name) == 0
                 control.tool_count += 1
                 control.tools[call_id] = {
@@ -355,6 +363,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     "state": "input-available",
                     "output": None,
                     "budget_denied": limited,
+                    "attempts": 1,
                 }
                 if call["name"] == "task":
                     control.tools[call_id].update(
@@ -378,8 +387,9 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
             else:
                 limited = bool(existing.get("budget_denied"))
         context = tool_identity.set(call_id)
+        recoverable = safe_read(call)
 
-        async def dispatch() -> ToolMessage | Command[Any]:
+        async def steering() -> ToolMessage | None:
             if self.instructions is not None:
                 planned_sequence = request.state.get(
                     "instruction_sequence", control.initial_sequence
@@ -392,9 +402,53 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         tool_call_id=original_id,
                         status="error",
                     )
+            return None
+
+        async def invoke() -> ToolMessage | Command[Any]:
+            while True:
+                try:
+                    result = await handler(request)
+                    transient, delay = (
+                        transient_result(result.content)
+                        if recoverable and isinstance(result, ToolMessage)
+                        else (False, None)
+                    )
+                except Exception as exc:
+                    transient, delay = transient_exception(exc)
+                    if not transient or not recoverable:
+                        raise
+                    result = ToolMessage(
+                        "The read service is temporarily unavailable. Continue with available "
+                        "evidence or explain the missing information; do not infer success.",
+                        tool_call_id=original_id,
+                        status="error",
+                    )
+                if not transient:
+                    return result
+                attempt = int(control.tools[call_id].get("attempts", 1))
+                if attempt >= MAX_READ_ATTEMPTS or (delay is not None and delay > MAX_RETRY_DELAY):
+                    return result
+                # Reserve before sleeping; a cancelled attempt remains charged, never replayed
+                # for free. The run deadline and heartbeat cancel this await normally.
+                async with control.lock:
+                    if (
+                        control.tool_count >= control.profile.max_tool_calls
+                        or self.lookup_remaining(budget_name) == 0
+                    ):
+                        return result
+                    control.tool_count += 1
+                    control.tools[call_id]["attempts"] = attempt + 1
+                    await control.emit()
+                await asyncio.sleep(max(delay or 0, random.uniform(0.25, 0.5) * 2 ** (attempt - 1)))
+                if updated := await steering():
+                    return updated
+
+        async def dispatch() -> ToolMessage | Command[Any]:
+            if updated := await steering():
+                return updated
             key = immutable_read_key(call)
             if key is None:
-                return await handler(request)
+                return await invoke()
             key = f"{self.role}:{control.sequence}:{key}"
             task = control.read_cache.get(key)
             if task is None:
@@ -403,11 +457,8 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         (key for key, task in control.read_cache.items() if task.done()), None
                     )
                     if expired is None:
-                        return await handler(request)
+                        return await invoke()
                     control.read_cache.pop(expired)
-
-                async def invoke() -> ToolMessage | Command[Any]:
-                    return await handler(request)
 
                 task = asyncio.create_task(invoke())
                 control.read_cache[key] = task

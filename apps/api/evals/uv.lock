@@ -529,9 +529,11 @@ requires-dist = [
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "python-multipart", specifier = ">=0.0.22,<1" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
+    { name = "strands-agents", marker = "extra == 'strands'", specifier = "==1.57.0" },
+    { name = "strands-harness", marker = "extra == 'strands'", specifier = "==0.1.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1" },
 ]
-provides-extras = ["executor"]
+provides-extras = ["executor", "strands"]
 
 [package.metadata.requires-dev]
 dev = [

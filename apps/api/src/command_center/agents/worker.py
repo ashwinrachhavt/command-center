@@ -452,6 +452,26 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
         # LangChain caches its default HTTP clients. A Celery invocation owns a new
         # event loop, so share one explicit client within this run and close it here.
         async with httpx.AsyncClient(timeout=60) as http, checkpoint_store(settings) as saver:
+            if profile.runtime == "strands":
+                # Optional extra; the default worker never imports or initializes Strands.
+                from command_center.agents.strands_runtime import run_strands
+
+                return await run_strands(
+                    profile,
+                    messages,
+                    registry,
+                    persist,
+                    model=create_chat_model(settings, profile, http_async_client=http),
+                    thread_id=str(run_id),
+                    instructions=instructions,
+                    initial_sequence=sequence,
+                    root_role=profile_slug,
+                    activity=activity,
+                    spending=spending,
+                    resume=resume,
+                    prior_state=prior_state,
+                    summary_sink=summary_sink,
+                )
             models = {
                 role: create_chat_model(settings, child, http_async_client=http)
                 for role, child in profile.specialists.items()

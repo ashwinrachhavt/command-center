@@ -2,6 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import StringConstraints
 from sqlalchemy import select
 
 from command_center.api import schemas as s
@@ -16,7 +17,7 @@ class DocumentTextRead(s.ResponseContract):
     artifact_id: UUID
     version_id: UUID
     title: str
-    text: str
+    text: Annotated[str, StringConstraints(strip_whitespace=False)]
     offset: int
     next_offset: int | None
     total_chars: int
@@ -27,7 +28,7 @@ def read_document_text(
     version_id: UUID,
     identity: CurrentIdentity,
     db: Database,
-    offset: Annotated[int, Query(ge=0, le=200000)] = 0,
+    offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=12000)] = 12000,
 ) -> DocumentTextRead:
     row = db.execute(

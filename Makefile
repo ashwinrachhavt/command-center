@@ -81,13 +81,13 @@ test-db:
 	docker compose --profile test up -d --wait db-test
 
 test: test-db
-	$(UV) pytest apps/api/tests -q
+	$(UV) --extra strands pytest apps/api/tests -q
 	npm run test:unit --prefix apps/web
 
 lint:
 	$(UV) ruff check apps/api scripts
 	$(UV) ruff format --check apps/api scripts
-	$(UV) mypy --config-file apps/api/pyproject.toml apps/api/src
+	$(UV) --extra strands mypy --config-file apps/api/pyproject.toml apps/api/src
 	npm run lint --prefix apps/web
 	npm run typecheck --prefix apps/web
 
@@ -112,6 +112,10 @@ langfuse-down:
 .PHONY: eval-chat
 eval-chat:
 	$(EVAL_UV) python -m apps.api.evals.chat_smoke $(if $(filter 1,$(allow_paid)),--allow-paid,)
+
+.PHONY: benchmark-runtime
+benchmark-runtime:
+	$(UV) --extra strands python -m apps.api.evals.runtime_benchmark $(args)
 
 eval-plan:
 	$(UV) python scripts/evaluation_plan.py

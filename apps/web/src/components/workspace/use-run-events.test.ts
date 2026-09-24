@@ -28,6 +28,7 @@ function openStream() {
       );
     },
     close: () => controller.close(),
+    raw: (value: string) => controller.enqueue(new TextEncoder().encode(value)),
   };
 }
 
@@ -77,6 +78,103 @@ it("keeps one connection through status changes and paints a burst once before f
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(cancel).toHaveBeenCalled();
   unmount();
+});
+
+it("flushes completion immediately even when the transport stays open", async () => {
+  const stream = openStream();
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(stream.response);
+  vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(() => 1);
+  vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+  const { result, unmount } = renderHook(() => useRunEvents("run-a", true));
+  await waitFor(() => expect(result.current.connection).toBe("live"));
+  await act(async () => {
+    stream.send("run-a", 1, "text-delta", {
+      message_id: "reply",
+      delta: "Complete reply",
+    });
+    stream.send("run-a", 2, "run-status", { state: "completed" });
+  });
+  expect(result.current.connection).toBe("complete");
+  expect(result.current.messages).toEqual([
+    { id: "reply", content: "Complete reply" },
+  ]);
+  expect(stream.response.body?.locked).toBe(false);
+  unmount();
+});
+
+it.each([400, 401, 403, 404, 422])(
+  "does not automatically retry a permanent HTTP %s",
+  async (status) => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status }));
+    const { result, unmount } = renderHook(() => useRunEvents("run-a", true));
+    await waitFor(() => expect(result.current.connection).toBe("disconnected"));
+    vi.useFakeTimers();
+    try {
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      act(() => result.current.retry());
+      await act(async () => {});
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("honors Retry-After and pauses reconnect attempts while offline", async () => {
+  const stream = openStream();
+  const fetch = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(
+      new Response(null, { status: 429, headers: { "Retry-After": "10" } }),
+    )
+    .mockResolvedValueOnce(stream.response);
+  vi.useFakeTimers();
+  const { result, unmount } = renderHook(() => useRunEvents("run-a", true));
+  try {
+    await act(async () => {});
+    expect(result.current.connection).toBe("disconnected");
+    await act(() => vi.advanceTimersByTimeAsync(9_000));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    act(() => window.dispatchEvent(new Event("offline")));
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    online.mockReturnValue(true);
+    act(() => window.dispatchEvent(new Event("online")));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result.current.connection).toBe("live");
+    await act(async () => stream.close());
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
+});
+
+it("bounds an unterminated event and does not retry a broken stream protocol", async () => {
+  const stream = openStream();
+  const fetch = vi
+    .spyOn(globalThis, "fetch")
+    .mockResolvedValue(stream.response);
+  const { result, unmount } = renderHook(() => useRunEvents("run-a", true));
+  await waitFor(() => expect(result.current.connection).toBe("live"));
+  await act(async () => stream.raw("data: " + "x".repeat(256_001)));
+  expect(result.current.connection).toBe("disconnected");
+  expect(result.current.connectionError).toContain("event size limit");
+  vi.useFakeTimers();
+  try {
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
 });
 
 it("fences a late read when switching runs and starts the new cursor at zero", async () => {

@@ -83,6 +83,38 @@ def image_bytes(image_format="PNG"):
     return buffer.getvalue()
 
 
+def test_exact_version_text_remains_readable_past_old_offset_ceiling(client, engine):
+    text = "Synthetic evidence. " * 12000
+    with Session(engine) as db, db.begin():
+        artifact = Artifact(
+            id=uuid4(),
+            owner_id=client.actor_id,
+            created_by_id=client.actor_id,
+            title="Long synthetic source",
+            kind="document",
+            sensitivity="private",
+        )
+        db.add(artifact)
+        db.flush()
+        db.add(Document(artifact_id=artifact.id, document_type_id=resume_type(db).id))
+        version_id = uuid4()
+        artifact.append_text(text, version_id=version_id, request_id=uuid4())
+    offset = 200000
+    passages = []
+    while offset is not None:
+        response = client.get(
+            f"/api/v1/documents/versions/{version_id}/text",
+            params={"offset": offset, "limit": 4000},
+        )
+        assert response.status_code == 200
+        page = response.json()
+        assert page["version_id"] == str(version_id)
+        assert page["offset"] == offset
+        passages.append(page["text"])
+        offset = page["next_offset"]
+    assert "".join(passages) == text[200000:]
+
+
 @pytest.mark.parametrize(
     "filename,image_format,media_type",
     [
