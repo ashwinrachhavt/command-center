@@ -20,7 +20,7 @@ export function Status({ value }: { value: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "gap-1.5 rounded-md px-2 py-0.5 font-normal",
+        "gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs transition-colors",
         `stage-${value}`,
       )}
     >
@@ -36,46 +36,62 @@ export function Mark({
   name: string;
   className?: string;
 }) {
+  const initials = name
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+
+  const hue =
+    name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) % 360;
+
   return (
     <span
       aria-hidden
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground text-xs font-medium",
+        "flex size-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tracking-tight transition-transform hover:scale-105",
         className,
       )}
+      style={{
+        backgroundColor: `hsl(${hue} 70% 95%)`,
+        color: `hsl(${hue} 70% 35%)`,
+      }}
     >
-      {name
-        .split(" ")
-        .slice(0, 2)
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()}
+      {initials}
     </span>
   );
 }
 export function Priority({ value }: { value: number }) {
+  const labels = ["Low", "Normal", "High", "Urgent"];
+  const colors = [
+    "var(--muted-foreground)",
+    "var(--muted-foreground)",
+    "var(--status-amber)",
+    "var(--status-red)",
+  ];
+
   return (
-    <span
-      title={["Low", "Normal", "High", "Urgent"][value]}
-      className="inline-flex items-end gap-0.5"
-    >
-      <span className="sr-only">
-        {["Low", "Normal", "High", "Urgent"][value]} priority
+    <span title={labels[value]} className="inline-flex items-center gap-1.5">
+      <span className="sr-only">{labels[value]} priority</span>
+      <span className="inline-flex items-end gap-0.5">
+        {[0, 1, 2, 3].map((i) => (
+          <span
+            key={i}
+            className={cn(
+              "w-1 rounded-sm transition-all",
+              i <= value ? "opacity-100" : "opacity-20",
+            )}
+            style={{
+              height: 4 + i * 3,
+              backgroundColor: i <= value ? colors[value] : "var(--border)",
+            }}
+          />
+        ))}
       </span>
-      {[0, 1, 2, 3].map((i) => (
-        <span
-          key={i}
-          className={cn(
-            "w-0.75 rounded-xs",
-            i <= value
-              ? value === 3
-                ? "bg-[var(--status-amber)]"
-                : "bg-muted-foreground"
-              : "bg-border",
-          )}
-          style={{ height: 4 + i * 3 }}
-        />
-      ))}
+      <span className="text-xs font-medium" style={{ color: colors[value] }}>
+        {labels[value]}
+      </span>
     </span>
   );
 }

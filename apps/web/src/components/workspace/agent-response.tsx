@@ -89,7 +89,7 @@ export const AgentResponse = memo(function AgentResponse({
         skipHtml
         disallowedElements={disallowedElements}
         linkSafety={linkSafety}
-        className="text-base leading-7 [&_a:visited]:text-primary/70"
+        className="text-sm leading-6 [&_a:visited]:text-primary/70"
       >
         {children}
       </MessageResponse>
