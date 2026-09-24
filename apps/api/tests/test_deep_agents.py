@@ -240,7 +240,9 @@ def test_skills_are_progressively_loaded_and_cannot_be_overwritten(
         )
 
     def attempt_overwrite(messages):
-        assert "Cite original synthetic sources" in messages[-1].text
+        assert "Cite original synthetic sources" in next(
+            message.text for message in reversed(messages) if isinstance(message, ToolMessage)
+        )
         return AIMessage(
             content="",
             tool_calls=[
@@ -253,7 +255,8 @@ def test_skills_are_progressively_loaded_and_cannot_be_overwritten(
         )
 
     def verify_denial(messages):
-        assert "denied" in messages[-1].text.lower()
+        result = next(message for message in reversed(messages) if isinstance(message, ToolMessage))
+        assert "denied" in result.text.lower()
         return AIMessage(
             content="",
             tool_calls=[
@@ -266,8 +269,9 @@ def test_skills_are_progressively_loaded_and_cannot_be_overwritten(
         )
 
     def finish(messages):
-        assert "Cite original synthetic sources" in messages[-1].text
-        assert "Untrusted replacement" not in messages[-1].text
+        result = next(message for message in reversed(messages) if isinstance(message, ToolMessage))
+        assert "Cite original synthetic sources" in result.text
+        assert "Untrusted replacement" not in result.text
         return AIMessage(content="The pinned research guidance is intact.")
 
     model = scripted_model([read_skill, attempt_overwrite, verify_denial, finish])
@@ -458,6 +462,62 @@ def test_worker_saves_a_conversation_reply_and_durable_checkpoint(
             > 0
         )
     assert not perform_next(engine, agent_server, run_id)
+
+
+@pytest.mark.parametrize("limit", [1, 3])
+def test_tool_limit_preserves_a_useful_partial_reply_and_checkpoint(
+    agent_server, engine, scripted_model, mocker, limit
+):
+    from command_center.agents.worker import perform_next
+
+    profile = AgentProfile(
+        name="Lead",
+        description="Synthetic bounded research",
+        model="gpt-5-mini",
+        instructions="Read the workspace, then report what remains.",
+        tools=["workspace_summary"],
+        max_tool_calls=limit,
+    )
+    run = enqueue(engine, profile.model_dump())
+    model = scripted_model(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "workspace_summary", "args": {}, "id": identifier}],
+            )
+            for identifier in [*(f"lookup-{i}" for i in range(limit)), "over-limit"]
+        ]
+    )
+    mocker.patch("command_center.agents.worker.create_chat_model", return_value=model)
+    assert perform_next(engine, agent_server, run.id)
+    with Session(engine) as db:
+        finished = db.get(AgentRun, run.id)
+        assert finished.state == "failed"
+        assert finished.error_code == "tool_limit"
+        assert finished.output, "A bounded run must leave a useful partial reply."
+        assert "workspace" in finished.output.lower()
+        assert "continue" in finished.output.lower()
+        assert [step["id"] for step in finished.checkpoint["tools"]] == [
+            f"lookup-{i}" for i in range(limit)
+        ]
+        if limit == 3:
+            from command_center.db.agent_events import AgentEvent
+
+            events = db.scalars(
+                select(AgentEvent).where(
+                    AgentEvent.run_id == run.id, AgentEvent.type == "text-delta"
+                )
+            ).all()
+            assert any("3 operations" in event.data["delta"] for event in events)
+        from sqlalchemy import text
+
+        assert (
+            db.scalar(
+                text("SELECT count(*) FROM agent_checkpoints.checkpoints WHERE thread_id = :id"),
+                {"id": str(run.id)},
+            )
+            > 0
+        )
 
 
 def test_new_instruction_prevents_a_tool_planned_before_it(
@@ -746,7 +806,7 @@ def test_parallel_specialists_do_not_hide_steering_from_the_lead(
     }
     mocker.patch(
         "command_center.agents.worker.create_chat_model",
-        side_effect=lambda settings, configured: models[configured.name],
+        side_effect=lambda settings, configured, **kwargs: models[configured.name],
     )
     assert perform_next(engine, agent_server, run_id)
     with Session(engine) as db:

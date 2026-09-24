@@ -29,6 +29,9 @@ class AgentProfile(BaseModel):
     )
     instructions: str = Field(max_length=20000)
     tools: list[str] = []
+    # Optional prompt exposure, independent of the server-enforced capability grants.
+    prompt_tools: list[str] | None = None
+    jev_routing: bool = False
     skills: list[str] = Field(default_factory=list, max_length=10)
     skill_files: dict[str, str] = Field(default_factory=dict, max_length=10)
     composio_tools: list[ComposioTool] = []
@@ -50,6 +53,13 @@ class AgentProfile(BaseModel):
 
         if set(self.tools) - (set(CAPABILITIES) | catalog_tool_names() | {"ask_user"}):
             raise ValueError("Unknown tool grant")
+        if self.prompt_tools is not None and (
+            set(self.prompt_tools) - set(self.tools)
+            or not {"catalog_search", "catalog_execute", "ask_user"}.issubset(self.prompt_tools)
+        ):
+            raise ValueError(
+                "Prompt tools require granted catalog discovery, execution and questions"
+            )
         if any(
             name not in self.tools or not 1 <= limit <= 128
             for name, limit in self.tool_call_limits.items()

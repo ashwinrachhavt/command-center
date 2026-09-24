@@ -19,6 +19,9 @@ def pytest_addoption(parser):
     parser.addoption("--eval-plan", help="Reviewed judge configuration and per-run allowance")
     parser.addoption("--eval-captures", help="Versioned synthetic outputs from actual model runs")
     parser.addoption("--allow-paid", action="store_true", help="Explicitly enable paid judge calls")
+    parser.addoption(
+        "--langfuse", action="store_true", help="Publish synthetic results to Langfuse"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -109,4 +112,13 @@ def quality_run(pytestconfig):
         else "incomplete"
     )
     report.save()
+    if pytestconfig.getoption("--langfuse"):
+        from command_center.agents.telemetry import langfuse_client
+
+        from .langfuse_report import publish_report
+
+        client = langfuse_client(Settings())
+        if client is None:
+            pytest.fail("Langfuse is not configured; the local report was preserved")
+        publish_report(report, client)
     print(f"\nLocal evaluation report: {report.path}")

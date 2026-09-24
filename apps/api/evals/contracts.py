@@ -56,7 +56,7 @@ class Case(Contract):
         return digest(self.model_dump(mode="json", exclude={"reference_output"}))
 
 
-class Suite(Contract):
+class FocusedSuite(Contract):
     schema_version: Literal[1]
     id: Nonempty
     revision: Nonempty
@@ -64,18 +64,24 @@ class Suite(Contract):
     cases: list[Case] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
-    def complete_matrix(self) -> Suite:
+    def unique_cases(self) -> FocusedSuite:
         if len({case.id for case in self.cases}) != len(self.cases):
             raise ValueError("Case IDs must be unique")
+        return self
+
+    def fingerprint(self) -> str:
+        return digest(self.model_dump(mode="json"))
+
+
+class Suite(FocusedSuite):
+    @model_validator(mode="after")
+    def complete_matrix(self) -> Suite:
         if {case.workflow for case in self.cases} != {"application", "outreach", "research"}:
             raise ValueError("All three first-release workflows are required")
         platforms = {case.platform for case in self.cases if case.workflow == "application"}
         if platforms != {"greenhouse", "lever", "ashby", "workday", "icims"}:
             raise ValueError("All five application platforms are required")
         return self
-
-    def fingerprint(self) -> str:
-        return digest(self.model_dump(mode="json"))
 
 
 class ModelIdentity(Contract):
@@ -95,6 +101,7 @@ class Capture(Contract):
     elapsed_ms: int = Field(ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class Captures(Contract):
@@ -104,7 +111,7 @@ class Captures(Contract):
     suite_sha256: Digest
     cases: list[Capture] = Field(min_length=1, max_length=100)
 
-    def bind(self, suite: Suite, *, require_model: bool = True) -> dict[str, Capture]:
+    def bind(self, suite: FocusedSuite, *, require_model: bool = True) -> dict[str, Capture]:
         if require_model and self.origin != "recorded_model":
             raise ValueError("Reference fixtures cannot establish model quality")
         if self.suite_sha256 != suite.fingerprint():
@@ -157,7 +164,7 @@ class Plan(Contract):
     def upper_bound(self) -> int:
         return self.max_calls * self.price.cost(self.max_input_tokens, self.max_output_tokens)
 
-    def validate_run(self, suite: Suite, *, allow_paid: bool) -> None:
+    def validate_run(self, suite: FocusedSuite, *, allow_paid: bool) -> None:
         if self.suite_sha256 != suite.fingerprint():
             raise ValueError("Plan belongs to a different fixture revision")
         if self.max_calls != len(suite.cases) * len(METRICS):

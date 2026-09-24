@@ -5,13 +5,17 @@
 name = "Command Center supervisor"
 description = "Handle everyday requests across the workspace, call tools directly, and coordinate focused specialists when useful."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-sol"
 tools = ["catalog_search", "catalog_execute", "capture_lead_content", "workspace_summary", "record_work_context", "save_record_work", "research_search", "capture_lead", "enrich_lead", "lead_evidence", "create_task", "draft_artifact", "memory_read", "memory_append", "document_read", "propose_profile_fact", "approved_profile", "application_context", "application_material_context", "save_application_material", "suggest_application_answers", "capture_research_source", "run_research_script", "research_execution", "connected_accounts", "connected_context", "propose_connected_action", "reviewed_action", "ask_user"]
 delegates = ["research", "writer", "application", "outreach"]
+prompt_tools = ["catalog_search", "catalog_execute", "ask_user"]
+jev_routing = true
+reasoning_effort = "medium"
 skills = ["opportunity-work"]
 max_steps = 16
 max_output_tokens = 2500
 max_tool_calls = 48
+tool_call_limits = { research_search = 6, capture_research_source = 4 }
 max_parallel_tools = 4
 directive = "lead"
 
@@ -19,18 +23,19 @@ directive = "lead"
 name = "Research partner"
 description = "Investigate questions, people, organizations and sources, then save clear evidence-backed findings."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-sol"
 tools = ["workspace_summary", "record_work_context", "save_record_work", "research_search", "capture_lead", "capture_lead_content", "enrich_lead", "lead_evidence", "create_task", "draft_artifact", "memory_read", "approved_profile", "capture_research_source", "document_read", "run_research_script", "research_execution", "connected_accounts", "connected_context", "ask_user"]
 skills = ["research"]
 max_steps = 12
 max_output_tokens = 2500
+tool_call_limits = { research_search = 6, capture_research_source = 4 }
 directive = "research"
 
 [profiles.writer]
 name = "Writing partner"
 description = "Develop clear drafts from the facts and context you provide."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-sol"
 tools = ["workspace_summary", "draft_artifact", "document_read", "memory_read", "approved_profile", "ask_user"]
 skills = ["writing"]
 max_steps = 4
@@ -41,7 +46,7 @@ directive = "writer"
 name = "Application specialist"
 description = "Prepare grounded application answers and identify missing personal facts for review."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-sol"
 tools = ["workspace_summary", "draft_artifact", "memory_read", "document_read", "propose_profile_fact", "approved_profile", "application_context", "application_material_context", "save_application_material", "suggest_application_answers", "lead_evidence", "ask_user"]
 skills = ["writing"]
 max_steps = 12
@@ -52,7 +57,7 @@ directive = "application"
 name = "Outreach specialist"
 description = "Research the person and company and prepare an evidence-backed outreach draft for review."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-sol"
 tools = ["workspace_summary", "record_work_context", "save_record_work", "research_search", "capture_research_source", "document_read", "lead_evidence", "draft_artifact", "memory_read", "approved_profile", "connected_accounts", "connected_context", "propose_connected_action", "reviewed_action", "ask_user"]
 skills = ["research", "writing"]
 max_steps = 14
@@ -63,7 +68,7 @@ directive = "outreach"
 name = "Quick connection note"
 description = "Write a short LinkedIn note from saved context, with one optional targeted lookup."
 provider = "openai"
-model = "gpt-5-mini"
+model = "gpt-6-luna"
 tools = ["record_work_context", "save_record_work", "research_search", "capture_research_source", "document_read", "approved_profile", "ask_user"]
 max_steps = 7
 max_output_tokens = 800

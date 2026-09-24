@@ -19,6 +19,7 @@ from langchain_core.messages.utils import MessageLikeRepresentation
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langgraph.types import Command
 
+from command_center.agents.read_cache import compact_read_results
 from command_center.agents.runtime_control import ExecutionStopped
 
 type SummarySink = Callable[[str, list[str]], Awaitable[None]]
@@ -96,7 +97,7 @@ class ChatSummarizationMiddleware(SummarizationMiddleware):
         target = self.limit * 3 // 4
         event = cast(SummarizationEvent | None, request.state.get("_summarization_event"))
         changed = False
-        while message_chars(effective) + overhead > target:
+        while message_chars(compact_read_results(effective)) + overhead > target:
             # Keep the newest message and complete AI/tool groups. The original input
             # may exceed any provider window, so summarize a bounded prefix at a time.
             cutoff = 0
@@ -153,7 +154,9 @@ class ChatSummarizationMiddleware(SummarizationMiddleware):
             changed = True
         # Deliberately one provider invocation. Context errors do not create the
         # framework's implicit smaller retry; a new attempt needs a new user turn.
-        response = await handler(request.override(messages=[*authoritative, *effective]))
+        response = await handler(
+            request.override(messages=[*authoritative, *compact_read_results(effective)])
+        )
         if not changed:
             return response
         return ExtendedModelResponse(

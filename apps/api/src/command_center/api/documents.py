@@ -12,6 +12,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
+from PIL import Image
 from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -44,6 +45,12 @@ router = APIRouter(prefix="/api/v1", tags=["documents"])
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 MAX_DOCX_ENTRIES = 10_000
 MAX_DOCX_EXPANDED_BYTES = 100 * 1024 * 1024
+MAX_IMAGE_PIXELS = 25_000_000
+IMAGE_FORMATS = {
+    ".png": ("PNG", "image/png"),
+    ".jpg": ("JPEG", "image/jpeg"),
+    ".jpeg": ("JPEG", "image/jpeg"),
+}
 ArtifactFilter = Annotated[UUID | None, Query()]
 
 
@@ -92,12 +99,36 @@ def clean_filename(value: str | None) -> str:
     return value
 
 
+def inspect_image(extension: str, content: bytes) -> str:
+    """Validate decoded image content without changing the immutable original."""
+    try:
+        with Image.open(io.BytesIO(content), formats=("JPEG", "PNG")) as image:
+            expected_format, media_type = IMAGE_FORMATS.get(extension, (None, ""))
+            if image.format != expected_format:
+                raise HTTPException(422, "The filename must match the uploaded JPEG or PNG content")
+            if image.width * image.height > MAX_IMAGE_PIXELS:
+                raise HTTPException(422, "Images must be 25 megapixels or smaller")
+            if getattr(image, "n_frames", 1) != 1:
+                raise HTTPException(422, "Upload a single-frame JPEG or PNG image")
+            image.verify()
+        # verify() checks structure; decoding also detects incomplete JPEG pixel data.
+        with Image.open(io.BytesIO(content), formats=("JPEG", "PNG")) as image:
+            image.load()
+        return media_type
+    except Image.DecompressionBombError:
+        raise HTTPException(422, "Images must be 25 megapixels or smaller") from None
+    except (OSError, ValueError, SyntaxError):
+        raise HTTPException(422, "The uploaded image is invalid or incomplete") from None
+
+
 def inspect_document(filename: str, content: bytes) -> tuple[str, str]:
     """Return a safe filename and content-derived media type."""
     safe_name = clean_filename(filename)
     extension = Path(safe_name).suffix.lower()
     if not content:
         raise HTTPException(422, "The uploaded document is empty")
+    if extension in IMAGE_FORMATS or content.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8")):
+        return safe_name, inspect_image(extension, content)
     if content.startswith(b"%PDF-"):
         if extension != ".pdf":
             raise HTTPException(422, "The filename must match the uploaded PDF content")
@@ -128,7 +159,7 @@ def inspect_document(filename: str, content: bytes) -> tuple[str, str]:
     except zipfile.BadZipFile:
         pass
     if extension not in {".txt", ".md", ".markdown"}:
-        raise HTTPException(422, "Upload a PDF, DOCX, text or Markdown document")
+        raise HTTPException(422, "Upload a PDF, DOCX, JPEG, PNG, text or Markdown document")
     try:
         decoded = content.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -186,7 +217,7 @@ async def import_document(
     expected_version: Annotated[int | None, Form(ge=1)] = None,
 ) -> dict[str, Any]:
     content = await bounded_upload(file)
-    filename, media_type = inspect_document(file.filename or "", content)
+    filename, media_type = await run_in_threadpool(inspect_document, file.filename or "", content)
     from command_center.core.storage import BlobStore
 
     stored = await run_in_threadpool(

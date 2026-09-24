@@ -70,6 +70,7 @@ export function useRunEvents(runId: string, enabled: boolean) {
   const [tools, setTools] = useState<StreamedTool[]>([]);
   const [usage, setUsage] = useState<{
     input: number;
+    cachedInput: number;
     output: number;
     total: number;
   }>();
@@ -206,6 +207,10 @@ export function useRunEvents(runId: string, enabled: boolean) {
         )
           setUsage({
             input: data.input_tokens,
+            cachedInput:
+              typeof data.cached_input_tokens === "number"
+                ? data.cached_input_tokens
+                : 0,
             output: data.output_tokens,
             total: data.total_tokens,
           });

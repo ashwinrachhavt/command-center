@@ -99,12 +99,26 @@ format:
 eval-check:
 	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_contracts.py -q
 
+.PHONY: langfuse-setup langfuse-up langfuse-down
+langfuse-setup:
+	$(UV) python scripts/langfuse_setup.py
+
+langfuse-up: langfuse-setup
+	docker compose -f compose.langfuse.yaml up -d --wait
+
+langfuse-down:
+	docker compose -f compose.langfuse.yaml down
+
+.PHONY: eval-chat
+eval-chat:
+	$(EVAL_UV) python -m apps.api.evals.chat_smoke $(if $(filter 1,$(allow_paid)),--allow-paid,)
+
 eval-plan:
 	$(UV) python scripts/evaluation_plan.py
 
 eval-paid:
 	@test -n "$(plan)" -a -n "$(captures)" || (echo 'Use: make eval-paid plan=REVIEWED_PLAN captures=MODEL_CAPTURES'; exit 1)
-	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_quality.py --eval-plan "$(plan)" --eval-captures "$(captures)" --allow-paid -q
+	$(EVAL_UV) pytest -p pytest_mock apps/api/evals/test_quality.py --eval-plan "$(plan)" --eval-captures "$(captures)" --allow-paid $(if $(filter 1,$(langfuse)),--langfuse,) -q
 
 check: env-check contracts-check lint test test-browser eval-check
 	npm run build --prefix apps/web

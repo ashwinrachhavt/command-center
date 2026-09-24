@@ -123,30 +123,15 @@ export async function api<T>(
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        const detail =
-          typeof data.detail === "string"
-            ? data.detail
-            : Array.isArray(data.detail)
-              ? data.detail
-                  .map(
-                    (item: { msg: string; loc?: string[] }) =>
-                      `${item.loc?.at(-1) ?? "Field"}: ${item.msg}`,
-                  )
-                  .join(". ")
-              : typeof data.detail?.message === "string"
-                ? data.detail.message
-                : "The request could not be completed.";
+      if (!response.ok) throw await responseError(response);
+      try {
+        return (await response.json()) as T;
+      } catch {
         throw new ApiError(
-          response.status,
-          response.status === 401
-            ? "Your session expired. Sign in again to continue."
-            : detail,
-          typeof data.detail?.code === "string" ? data.detail.code : undefined,
+          502,
+          "The workspace service returned an invalid response. Try again shortly.",
         );
       }
-      return data as T;
     } catch (error) {
       if (
         options.retry === false ||
@@ -182,12 +167,20 @@ async function responseError(response: Response) {
             "message" in detail &&
             typeof detail.message === "string"
           ? detail.message
-          : "The request could not be completed.";
+          : response.status >= 500
+            ? "The workspace service is temporarily unavailable. Try again shortly."
+            : "The request could not be completed.";
   return new ApiError(
     response.status,
     response.status === 401
       ? "Your session expired. Sign in again to continue."
       : message,
+    detail &&
+      typeof detail === "object" &&
+      "code" in detail &&
+      typeof detail.code === "string"
+      ? detail.code
+      : undefined,
   );
 }
 

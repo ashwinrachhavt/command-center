@@ -102,17 +102,23 @@ test("replays a disconnected run stream without duplicating tools or mixing runs
 
   // Event delivery reconnects automatically from the saved cursor; work is not resubmitted.
   await expect(
-    primary.getByText("Live activity complete", { exact: true }),
+    primary.getByText("Work complete", { exact: true }),
   ).toBeVisible();
   await expect(primary).toContainText("Grounded evidence is ready.");
+  const capsule = primary.getByRole("button", {
+    name: "Show activity details",
+  });
+  await expect(capsule).toHaveAttribute("aria-expanded", "false");
+  await capsule.focus();
+  await page.keyboard.press("Enter");
   await expect(primary).toContainText("150 tokens");
   await expect(primary.getByText("Duplicate should not render")).toHaveCount(0);
   await expect(
-    primary.getByRole("button", { name: /Document read.*Completed/ }),
+    primary.getByRole("button", { name: /Reading document.*Completed/ }),
   ).toHaveCount(1);
 
   await primary
-    .getByRole("button", { name: /Document read.*Completed/ })
+    .getByRole("button", { name: /Reading document.*Completed/ })
     .click();
   await expect(primary).toContainText("resume-version-1");
   await expect(primary).toContainText("cited_versions");

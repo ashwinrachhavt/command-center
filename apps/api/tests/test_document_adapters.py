@@ -46,7 +46,7 @@ def test_blob_store_rejects_path_escape_symlinks_and_oversize(tmp_path):
         BlobStore(linked_root)
 
 
-def run_conversion(mocker, respond):
+def run_conversion(mocker, respond, *, media_type="text/plain"):
     client_type = httpx.AsyncClient
     mocker.patch(
         "command_center.integrations.docling.httpx.AsyncClient",
@@ -56,7 +56,7 @@ def run_conversion(mocker, respond):
     async def run():
         client = DoclingClient("http://docling.local:5001", "synthetic-service-key")
         try:
-            return await client.convert(b"Synthetic candidate.\nPython", "resume.txt", "text/plain")
+            return await client.convert(b"Synthetic candidate.\nPython", "resume.txt", media_type)
         finally:
             await client.close()
 
@@ -99,6 +99,55 @@ def test_docling_uploads_bytes_and_preserves_complete_versioned_result(mocker):
     assert result.document["texts"][0]["text"] == "Python"
     assert result.producer_version == "docling-serve/1.34.0"
     assert len(requests) == 4
+
+
+@pytest.mark.parametrize("media_type,extension", [("image/png", "png"), ("image/jpeg", "jpg")])
+def test_docling_images_use_image_format_and_full_page_ocr(mocker, media_type, extension):
+    def respond(request):
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"docling-serve": "1.34.0"})
+        if request.url.path == "/v1/convert/file/async":
+            body = request.content
+            assert f'filename="document.{extension}"'.encode() in body
+            assert b'name="from_formats"\r\n\r\nimage' in body
+            assert b'name="force_ocr"\r\n\r\ntrue' in body
+            assert b'name="do_picture_description"\r\n\r\nfalse' in body
+            return httpx.Response(200, json={"task_id": "image-1", "task_status": "success"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "document": {
+                    "md_content": "Synthetic invoice total: 42",
+                    "json_content": {"texts": []},
+                },
+            },
+        )
+
+    assert (
+        run_conversion(mocker, respond, media_type=media_type).text == "Synthetic invoice total: 42"
+    )
+
+
+def test_image_placeholder_is_not_successful_text_extraction(mocker):
+    def respond(request):
+        if request.url.path == "/version":
+            return httpx.Response(200, json={"docling-serve": "1.34.0"})
+        if request.url.path == "/v1/convert/file/async":
+            return httpx.Response(200, json={"task_id": "image-1", "task_status": "success"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "document": {
+                    "md_content": "<!-- image -->",
+                    "json_content": {"texts": []},
+                },
+            },
+        )
+
+    with pytest.raises(DoclingError, match="reviewable text"):
+        run_conversion(mocker, respond, media_type="image/png")
 
 
 @pytest.mark.parametrize("state", ["failure", "partial_success", "skipped", "unknown"])

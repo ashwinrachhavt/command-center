@@ -39,6 +39,12 @@ def settings() -> Settings:
         api_token="synthetic-test-token-with-at-least-32-characters",
         database_url=TEST_DATABASE_URL,
         allowed_hosts=["testserver"],
+        langfuse_enabled=False,
+        jev_enabled=False,
+        jev_provider="typesafe",
+        TYPESAFE_API_KEY="",
+        AI_GATEWAY_API_KEY="",
+        VENICE_API_KEY="",
     )
 
 

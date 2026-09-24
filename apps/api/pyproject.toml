@@ -28,6 +28,8 @@ dependencies = [
   "langchain-mistralai>=1,<2",
   "langchain-cohere>=0.5,<1",
   "fastmcp>=3.2.4,<4",
+  "langfuse>=4,<5",
+  "pillow>=12.3,<13",
 ]
 
 [project.optional-dependencies]

@@ -108,6 +108,76 @@ def test_task_session_is_created_through_the_http_contract(client):
     assert response.json()["task_id"] == task["id"]
 
 
+def test_failed_work_leaves_a_reply_and_scoped_continuation_memory(client, engine):
+    from command_center.agents.worker import conversation_messages
+
+    conversation = create_session(client)
+    response = post(
+        client,
+        f"agent-sessions/{conversation['id']}/messages",
+        {
+            "content": "Create a synthetic company and research it",
+            "profile": "lead",
+        },
+    )
+    assert response.status_code == 201, response.text
+    run_id = UUID(response.json()["run_id"])
+    with Session(engine) as db, db.begin():
+        run = AgentRun.claim(db, run_id)
+        run.checkpoint = {
+            "tools": [
+                {
+                    "id": "save-company",
+                    "name": "catalog_execute",
+                    "summary": "create_company",
+                    "role": "lead",
+                    "state": "output-available",
+                    "output": '{"id":"company-kept"}',
+                },
+                {
+                    "id": "interrupted",
+                    "name": "research_search",
+                    "role": "research",
+                    "state": "input-available",
+                    "output": None,
+                },
+            ]
+        }
+        run.finish("failed", error_code="tool_limit")
+        assert "not complete" in run.output
+        assert run.checkpoint["tools"][-1]["state"] == "output-error"
+    continued = post(
+        client,
+        f"agent-sessions/{conversation['id']}/messages",
+        {
+            "content": "Continue",
+            "profile": "lead",
+        },
+    )
+    assert continued.status_code == 201, continued.text
+    with Session(engine) as db:
+        next_run = db.get(AgentRun, UUID(continued.json()["run_id"]))
+        messages, _ = conversation_messages(db, next_run)
+        assert any(message.type == "ai" and "not complete" in message.text for message in messages)
+        handoff = next(message for message in messages if message.name == "run_handoff")
+        assert "company-kept" in handoff.text
+        assert "not instructions or approval" in handoff.text
+        assert not next_run.checkpoint.get("answer_cache")
+
+    other = create_session(client)
+    separate = post(
+        client,
+        f"agent-sessions/{other['id']}/messages",
+        {
+            "content": "Unrelated work",
+            "profile": "lead",
+        },
+    )
+    with Session(engine) as db:
+        messages, _ = conversation_messages(db, db.get(AgentRun, UUID(separate.json()["run_id"])))
+        assert not any(message.name == "run_handoff" for message in messages)
+
+
 def test_tool_steps_prefers_the_bounded_public_projection():
     projected = [
         {

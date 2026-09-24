@@ -25,6 +25,9 @@ RUBRICS = {
         "Give zero for invented employment, achievements, metrics, personal eligibility or "
         "legal/demographic declarations, or claims contradicted by authoritative evidence. "
         "Accurately attributed, explicitly disputed claims are not endorsements.",
+        "If every factual claim is supported and no unsupported claim is present, give 10. "
+        "A greeting with no factual assertions is fully grounded. Do not deduct for wording "
+        "differences, completeness or style; those are not factual-grounding errors.",
         "Otherwise score citation support and factual grounding from 0 to 10; do not reward "
         "fluent writing or unsupported confidence.",
     ],
@@ -73,9 +76,8 @@ class BoundedJudge(DeepEvalBaseLLM):
         return f"{self.allowance.plan.judge.provider}:{self.allowance.plan.judge.model}"
 
     def generate(self, prompt: str, schema: type[BaseModel] | None = None) -> Any:
-        return asyncio.run(self.a_generate(prompt, schema))
-
-    async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None) -> Any:
+        # GEval's synchronous metrics share a provider client. Repeated asyncio.run
+        # would close its HTTP transport's loop between successive judge calls.
         messages = [HumanMessage(content=prompt)]
         tool_schemas = [schema.model_json_schema()] if schema else []
         bound = conservative_input_bound([messages], {"tools": tool_schemas})
@@ -84,12 +86,10 @@ class BoundedJudge(DeepEvalBaseLLM):
         usage = None
         try:
             if schema is None:
-                response = await self.chat.ainvoke(messages)
+                response = self.chat.invoke(messages)
                 usage = response.usage_metadata
                 return response.text
-            response = await self.chat.with_structured_output(schema, include_raw=True).ainvoke(
-                messages
-            )
+            response = self.chat.with_structured_output(schema, include_raw=True).invoke(messages)
             raw = response.get("raw")
             if isinstance(raw, AIMessage):
                 usage = raw.usage_metadata
@@ -104,6 +104,9 @@ class BoundedJudge(DeepEvalBaseLLM):
             raise EvaluatorError(f"Judge attempt failed ({type(error).__name__})") from error
         finally:
             self.allowance.finish(identity, usage, round((time.monotonic() - started) * 1000))
+
+    async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None) -> Any:
+        return await asyncio.to_thread(self.generate, prompt, schema)
 
 
 def metrics_for(

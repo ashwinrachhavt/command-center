@@ -164,6 +164,9 @@ def test_question_waits_answers_once_and_resumes_exact_run(
         assert question["role"] == "lead"
         assert question["tool_call_id"] == "location-question"
         assert question["interrupt_id"] and question["branch_id"]
+        with Session(engine) as db:
+            waiting = db.get(AgentRun, run_id)
+            assert waiting.tool_steps()[0]["state"] == "input-available"
 
         key = uuid4()
         body = {"answer": "Seattle", "expected_version": question["row_version"]}

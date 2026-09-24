@@ -67,8 +67,16 @@ def validate_event(event_type: str, role: str, data: dict[str, Any]) -> dict[str
         "usage": {"input_tokens", "output_tokens", "total_tokens"},
         "run-status": {"state"},
     }[event_type]
-    allowed = required | ({"error_code"} if event_type == "run-status" else set())
-    if set(data) != required and not (set(data) == allowed and data.get("error_code")):
+    allowed = required | (
+        {"error_code"}
+        if event_type == "run-status"
+        else {"cached_input_tokens"}
+        if event_type == "usage"
+        else set()
+    )
+    if not required.issubset(data) or set(data) - allowed:
+        raise ValueError("Invalid agent event payload")
+    if event_type == "run-status" and "error_code" in data and not data["error_code"]:
         raise ValueError("Invalid agent event payload")
     if event_type == "text-delta":
         if not str(data["message_id"]).strip() or not isinstance(data["delta"], str):
@@ -86,9 +94,12 @@ def validate_event(event_type: str, role: str, data: dict[str, Any]) -> dict[str
             raise ValueError("Invalid usage event")
         if data["total_tokens"] != data["input_tokens"] + data["output_tokens"]:
             raise ValueError("Invalid usage event")
+        cached = data.get("cached_input_tokens", 0)
+        if type(cached) is not int or not 0 <= cached <= data["input_tokens"]:
+            raise ValueError("Invalid cached usage event")
     elif data["state"] not in {"queued", "running", "waiting_for_user", *TERMINAL_STATES}:
         raise ValueError("Invalid run status")
-    # Usage has exactly three validated integer counters, not credential tokens.
+    # Usage contains validated integer counters, not credential tokens.
     normalized = dict(data) if event_type == "usage" else public_input(data)
     if len(json.dumps(normalized, separators=(",", ":"), default=str)) > 24_000:
         if event_type == "tool-input-available":

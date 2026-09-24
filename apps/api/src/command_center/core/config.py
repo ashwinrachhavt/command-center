@@ -67,6 +67,28 @@ class Settings(BaseSettings):
     agent_checkpoint_database_url: str | None = Field(default=None, repr=False)
     agent_dependency_urls: list[str] = []
     web_origin: str = "http://localhost:3001"
+    langfuse_enabled: bool = False
+    langfuse_capture_content: bool = False
+    jev_enabled: bool = False
+    jev_provider: Literal["typesafe", "gateway", "venice"] = "typesafe"
+    jev_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias=AliasChoices("TYPESAFE_API_KEY", "CC_JEV_API_KEY")
+    )
+    ai_gateway_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="AI_GATEWAY_API_KEY"
+    )
+    venice_api_key: SecretStr = Field(default=SecretStr(""), validation_alias="VENICE_API_KEY")
+    langfuse_base_url: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_BASE_URL", "CC_LANGFUSE_BASE_URL")
+    )
+    langfuse_public_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY", "CC_LANGFUSE_PUBLIC_KEY"),
+    )
+    langfuse_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("LANGFUSE_SECRET_KEY", "CC_LANGFUSE_SECRET_KEY"),
+    )
 
     @model_validator(mode="after")
     def validate_auth_mode(self) -> "Settings":

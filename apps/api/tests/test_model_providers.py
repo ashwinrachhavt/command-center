@@ -351,10 +351,12 @@ def test_cohere_bounds_reach_the_actual_sdk_request(settings, mocker):
     assert send.await_args.kwargs["request_options"] == {"max_retries": 0, "timeout_in_seconds": 60}
 
 
-def test_gpt6_tool_calls_use_responses_with_bounded_output(settings, mocker):
+@pytest.mark.parametrize("model_name", ["gpt-6-sol", "gpt-6-luna", "gpt-6-astra"])
+def test_gpt6_tool_calls_use_responses_across_run_scoped_event_loops(settings, model_name):
     import httpx
 
     requests = []
+    clients = []
 
     def respond(request):
         import json
@@ -366,7 +368,7 @@ def test_gpt6_tool_calls_use_responses_with_bounded_output(settings, mocker):
                 "id": "resp_synthetic",
                 "object": "response",
                 "created_at": 1,
-                "model": "gpt-6-astra",
+                "model": model_name,
                 "status": "completed",
                 "error": None,
                 "incomplete_details": None,
@@ -386,14 +388,13 @@ def test_gpt6_tool_calls_use_responses_with_bounded_output(settings, mocker):
 
     async def check():
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-            mocker.patch(
-                "command_center.agents.models.ChatOpenAI",
-                side_effect=lambda **kwargs: ChatOpenAI(**kwargs, http_async_client=http),
-            )
+            clients.append(http)
             model = create_chat_model(
                 configured_settings(settings),
-                profile("openai", "gpt-6-astra", max_output_tokens=256),
+                profile("openai", model_name, max_output_tokens=256),
+                http_async_client=http,
             )
+            assert model.http_async_client is http
             result = await model.bind_tools(
                 [
                     {
@@ -411,6 +412,9 @@ def test_gpt6_tool_calls_use_responses_with_bounded_output(settings, mocker):
             assert result.usage_metadata["total_tokens"] == 15
 
     asyncio.run(check())
+    asyncio.run(check())
+    assert len(requests) == 2 and clients[0] is not clients[1]
+    assert all(client.is_closed for client in clients)
     path, body = requests[0]
     assert path == "/v1/responses"
     assert body["max_output_tokens"] == 256

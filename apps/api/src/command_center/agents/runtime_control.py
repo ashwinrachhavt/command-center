@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import json
+import time
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from typing import Annotated, Any, NotRequired
@@ -10,16 +11,20 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from deepagents.graph import DeepAgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import PrivateStateAttr
+from langchain.agents.middleware.types import ModelRequest, ModelResponse, PrivateStateAttr
 from langchain_core.callbacks import AsyncCallbackHandler
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import LLMResult
+from langgraph.errors import GraphInterrupt
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from command_center.agents.config import AgentProfile
+from command_center.agents.progress import progress_text
+from command_center.agents.read_cache import failed_tool_result, immutable_read_key
 from command_center.agents.spending import ModelSpendingGate, conservative_input_bound
+from command_center.agents.telemetry import current_trace
 from command_center.db.spending import SpendingDenied
 
 type ProgressSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -57,16 +62,48 @@ class RunControl:
         self.tool_count = int(prior.get("tool_count", 0))
         self.sequence = max(sequence, int(prior.get("instruction_sequence", 0)))
         self.initial_sequence = sequence
+        self.progress_index = int(prior.get("progress_index", 0))
+        self.progress_completed = int(prior.get("progress_completed", 0))
+        self.last_progress_at = time.monotonic()
+        self.read_cache: dict[str, asyncio.Task[ToolMessage | Command[Any]]] = {}
         usage = prior.get("usage", {})
         self.usage = {
             "input_tokens": int(usage.get("input_tokens", 0)),
             "output_tokens": int(usage.get("output_tokens", 0)),
+            "cached_input_tokens": int(usage.get("cached_input_tokens", 0)),
         }
         self.tools = {
             str(item["id"]): copy.deepcopy(item)
             for item in prior.get("tools", [])
             if isinstance(item, dict) and item.get("id")
         }
+
+    async def report_progress(self) -> None:
+        """A deterministic, durable update; never an extra paid model call."""
+        completed = sum(item["state"] != "input-available" for item in self.tools.values())
+        if completed - self.progress_completed < (3 if not self.progress_index else 5) and (
+            time.monotonic() - self.last_progress_at < 20
+        ):
+            return
+        async with self.lock:
+            # All callers share this lock, including concurrently completing specialists.
+            completed = sum(item["state"] != "input-available" for item in self.tools.values())
+            if completed - self.progress_completed < (3 if not self.progress_index else 5) and (
+                time.monotonic() - self.last_progress_at < 20
+            ):
+                return
+            self.progress_index += 1
+            self.progress_completed = completed
+            self.last_progress_at = time.monotonic()
+            await self.emit()
+            await self.emit_activity(
+                "text-delta",
+                "lead",
+                {
+                    "message_id": f"progress-{self.progress_index}",
+                    "delta": progress_text(list(self.tools.values())),
+                },
+            )
 
     async def emit_activity(self, event_type: str, role: str, data: dict[str, Any]) -> None:
         if self.activity is not None:
@@ -82,6 +119,8 @@ class RunControl:
                     "instruction_sequence": self.sequence,
                     "usage": self.usage,
                     "tools": list(self.tools.values()),
+                    "progress_index": self.progress_index,
+                    "progress_completed": self.progress_completed,
                 }
             )
         )
@@ -135,12 +174,32 @@ class ModelAccounting(AsyncCallbackHandler):
             except SpendingDenied as exc:
                 raise ExecutionStopped(exc.code) from exc
 
+        if trace := current_trace.get():
+            schemas = kwargs.get("invocation_params", {}).get("tools", [])
+            trace.model_start(
+                run_id,
+                self.role,
+                self.profile.provider,
+                self.profile.model,
+                sum(len(str(m.content)) for batch in messages for m in batch),
+                len(json.dumps(schemas, default=str)),
+                len(schemas),
+                messages=[message for batch in messages for message in batch],
+            )
+
     async def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
-        call_usage = {"input_tokens": 0, "output_tokens": 0}
+        call_usage = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
         async with self.control.lock:
             for generation in response.generations:
                 for output in generation:
                     usage = getattr(getattr(output, "message", None), "usage_metadata", None) or {}
+                    usage = {
+                        **usage,
+                        "cached_input_tokens": min(
+                            int(usage.get("input_tokens", 0)),
+                            max(0, int(usage.get("input_token_details", {}).get("cache_read", 0))),
+                        ),
+                    }
                     for name in self.control.usage:
                         count = int(usage.get(name, 0))
                         call_usage[name] += count
@@ -152,9 +211,20 @@ class ModelAccounting(AsyncCallbackHandler):
                     self.role,
                     {
                         **self.control.usage,
-                        "total_tokens": sum(self.control.usage.values()),
+                        "total_tokens": self.control.usage["input_tokens"]
+                        + self.control.usage["output_tokens"],
                     },
                 )
+        if trace := current_trace.get():
+            trace.model_end(
+                run_id,
+                call_usage,
+                output=[
+                    getattr(output, "message", None)
+                    for batch in response.generations
+                    for output in batch
+                ],
+            )
         if self.spending is not None:
             await self.spending.settle(
                 run_id,
@@ -163,6 +233,8 @@ class ModelAccounting(AsyncCallbackHandler):
             )
 
     async def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if trace := current_trace.get():
+            trace.model_end(run_id, {}, error=True)
         if self.spending is not None:
             await self.spending.unknown(run_id, "spending_usage_unknown")
 
@@ -182,6 +254,60 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         self.control, self.role = control, role
         self.delegates, self.instructions = delegates, instructions
         self.nested = nested
+
+    def lookup_remaining(self, name: str) -> int | None:
+        role_profile = self.control.profile.specialists.get(self.role)
+        limits = [
+            value
+            for value in (
+                self.control.profile.tool_call_limits.get(name),
+                role_profile.tool_call_limits.get(name) if role_profile else None,
+            )
+            if value is not None
+        ]
+        if not limits:
+            return None
+        used = sum(
+            1
+            for item in self.control.tools.values()
+            if (item.get("summary") if item["name"] == "catalog_execute" else item["name"]) == name
+        )
+        return max(0, min(limits) - used)
+
+    async def awrap_model_call(
+        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
+    ) -> ModelResponse:
+        control = self.control
+        if control.tool_count == 0:
+            return await handler(request)
+        remaining = max(0, control.profile.max_tool_calls - control.tool_count)
+        hint = (
+            f"Shared remaining budget: {remaining} tool calls and "
+            f"{max(0, control.profile.max_steps - control.steps)} model calls. "
+            "Give a brief public progress update before another batch of research; "
+            "state confirmed findings and what remains, never private reasoning. "
+            "Reuse saved results. Prioritize requested saves over optional research."
+        )
+        if remaining <= max(4, control.profile.max_tool_calls // 4):
+            hint += (
+                " Budget is nearly used: stop optional lookups, save supported work "
+                "and finish with a partial answer if needed."
+            )
+        return await handler(
+            request.override(
+                tools=[
+                    tool
+                    for tool in request.tools
+                    if self.lookup_remaining(
+                        str(tool.get("name", "")) if isinstance(tool, dict) else tool.name
+                    )
+                    != 0
+                ],
+                # Keep the long system prefix stable for provider prompt caching.
+                # This small, transient hint is not saved in canonical graph history.
+                messages=[*request.messages, HumanMessage(content=hint, name="execution_budget")],
+            )
+        )
 
     async def abefore_model(self, state: WorkState, runtime: Runtime[Any]) -> dict[str, Any] | None:
         if self.instructions is None:
@@ -215,12 +341,12 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
             if existing is None:
                 if control.tool_count >= control.profile.max_tool_calls:
                     raise ExecutionStopped("tool_limit")
-                limit = control.profile.tool_call_limits.get(call["name"])
-                limited = (
-                    limit is not None
-                    and sum(item["name"] == call["name"] for item in control.tools.values())
-                    >= limit
+                budget_name = (
+                    str(call["args"].get("tool_name", ""))
+                    if call["name"] == "catalog_execute"
+                    else call["name"]
                 )
+                limited = self.lookup_remaining(budget_name) == 0
                 control.tool_count += 1
                 control.tools[call_id] = {
                     "id": call_id,
@@ -235,6 +361,8 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         specialist=str(call["args"].get("subagent_type", ""))[:100],
                         summary=str(call["args"].get("description", ""))[:2000],
                     )
+                elif call["name"] == "catalog_execute":
+                    control.tools[call_id]["summary"] = str(call["args"].get("tool_name", ""))[:100]
                 await control.emit()
                 await control.emit_activity(
                     "tool-input-available",
@@ -264,7 +392,40 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         tool_call_id=original_id,
                         status="error",
                     )
-            return await handler(request)
+            key = immutable_read_key(call)
+            if key is None:
+                return await handler(request)
+            key = f"{self.role}:{control.sequence}:{key}"
+            task = control.read_cache.get(key)
+            if task is None:
+                if len(control.read_cache) >= 32:
+                    expired = next(
+                        (key for key, task in control.read_cache.items() if task.done()), None
+                    )
+                    if expired is None:
+                        return await handler(request)
+                    control.read_cache.pop(expired)
+
+                async def invoke() -> ToolMessage | Command[Any]:
+                    return await handler(request)
+
+                task = asyncio.create_task(invoke())
+                control.read_cache[key] = task
+            try:
+                result = await task
+            except BaseException:
+                if control.read_cache.get(key) is task:
+                    control.read_cache.pop(key, None)
+                raise
+            if not isinstance(result, ToolMessage):
+                if control.read_cache.get(key) is task:
+                    control.read_cache.pop(key, None)
+                return result
+            if (
+                len(str(result.content)) > 32_000 or failed_tool_result(result)
+            ) and control.read_cache.get(key) is task:
+                control.read_cache.pop(key, None)
+            return result.model_copy(update={"tool_call_id": original_id})
 
         try:
             if limited:
@@ -292,7 +453,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                 if messages:
                     content = messages[-1].content
             output = content if isinstance(content, str) else json.dumps(content, default=str)
-            failed = isinstance(result, ToolMessage) and result.status == "error"
+            failed = isinstance(result, ToolMessage) and failed_tool_result(result)
             failed = failed or output.startswith(("Denied:", "Tool unavailable"))
             async with control.lock:
                 control.tools[call_id].update(
@@ -308,7 +469,11 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         else {"tool_call_id": call_id, "output": output[:20_000]}
                     ),
                 )
+            await control.report_progress()
             return result
+        except GraphInterrupt:
+            # A durable human question is pending, not a failed tool execution.
+            raise
         except Exception:
             async with control.lock:
                 control.tools[call_id].update(state="output-error", output="Operation interrupted.")

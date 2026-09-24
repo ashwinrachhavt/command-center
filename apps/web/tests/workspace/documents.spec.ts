@@ -129,6 +129,33 @@ test("new original versions do not change the exact default resume", async ({
   );
 });
 
+for (const [extension, mimeType] of [
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+]) {
+  test(`document vault accepts ${extension} uploads for extraction`, async ({
+    page,
+  }) => {
+    await page.goto("/artifacts");
+    await page.getByRole("button", { name: "Upload document" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("JPEG, PNG");
+    const input = dialog.getByLabel("Document", { exact: true });
+    await expect(input).toHaveAttribute("accept", new RegExp(mimeType));
+    // This fixture checks the form transport. Real image bytes/decoding are covered by API tests.
+    await input.setInputFiles({
+      name: `synthetic-scan.${extension}`,
+      mimeType,
+      buffer: Buffer.from("Synthetic upload transport fixture"),
+    });
+    await dialog.getByLabel("Document type").click();
+    await page.getByRole("option", { name: "Resume" }).click();
+    await dialog.getByRole("button", { name: "Upload original" }).click();
+    await expect(page).toHaveURL(/inspect=artifacts%3Aartifact-upload-/);
+  });
+}
+
 test("completed extraction opens its canonical task conversation with the exact version", async ({
   page,
 }) => {
@@ -292,4 +319,123 @@ test("document drafts recover through refresh with their original editing base",
     (await fetch("/api/backend/artifacts/artifact-1/version-history")).json(),
   );
   expect(after.total).toBe(3);
+});
+
+test("batch upload retains each key and retries only failed files", async ({
+  page,
+}) => {
+  await page.goto("/artifacts");
+  await page.evaluate(() => {
+    const original = window.fetch;
+    let failures = 0;
+    const attempts: { name: string; key: string | null }[] = [];
+    window.fetch = async (input, init) => {
+      if (String(input).endsWith("test/batch-attempts"))
+        return Response.json(attempts);
+      if (
+        String(input).endsWith("documents/imports") &&
+        init?.body instanceof FormData
+      ) {
+        const file = init.body.get("file") as File;
+        attempts.push({
+          name: file.name,
+          key: new Headers(init.headers).get("Idempotency-Key"),
+        });
+        // Both the automatic network retry and the first attempt fail for this file.
+        if (file.name === "retry-me.png" && failures++ < 2)
+          return Response.json(
+            { detail: "Synthetic upload failure" },
+            { status: 503 },
+          );
+      }
+      return original(input, init);
+    };
+  });
+  await page
+    .getByRole("button", { name: "Upload document", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  const input = dialog.getByLabel("Document", { exact: true });
+  await expect(input).toHaveAttribute("multiple", "");
+  await input.setInputFiles([
+    {
+      name: "keep-me.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Synthetic first document"),
+    },
+    {
+      name: "retry-me.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("Synthetic transport fixture"),
+    },
+    {
+      name: "last-one.jpg",
+      mimeType: "image/jpeg",
+      buffer: Buffer.from("Synthetic transport fixture"),
+    },
+  ]);
+  await dialog.getByLabel("Title for keep-me.txt").fill("Keep this title");
+  await dialog.getByLabel("Document type").click();
+  await page.getByRole("option", { name: "Resume" }).click();
+  await dialog.getByRole("button", { name: "Upload 3 documents" }).click();
+  await expect(
+    dialog.getByText("Uploaded · queued for extraction"),
+  ).toHaveCount(2);
+  await expect(dialog).toContainText("1 file needs attention");
+  await expect(dialog.getByLabel("Document type")).toBeDisabled();
+  await dialog.getByRole("button", { name: "Retry upload" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page).not.toHaveURL(/inspect=/);
+  const attempts = await page.evaluate(async () =>
+    (await fetch("/test/batch-attempts")).json(),
+  );
+  expect(
+    attempts.filter((entry: { name: string }) => entry.name === "keep-me.txt"),
+  ).toHaveLength(1);
+  expect(
+    attempts.filter((entry: { name: string }) => entry.name === "last-one.jpg"),
+  ).toHaveLength(1);
+  const retried = attempts.filter(
+    (entry: { name: string }) => entry.name === "retry-me.png",
+  );
+  expect(retried).toHaveLength(3);
+  expect(new Set(retried.map((entry: { key: string }) => entry.key)).size).toBe(
+    1,
+  );
+  expect(
+    new Set(attempts.map((entry: { key: string }) => entry.key)).size,
+  ).toBe(3);
+});
+
+test("batch selection validates every file and permits removal before upload", async ({
+  page,
+}) => {
+  await page.goto("/artifacts");
+  await page
+    .getByRole("button", { name: "Upload document", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Document", { exact: true }).setInputFiles([
+    {
+      name: "good.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Synthetic valid document"),
+    },
+    {
+      name: "bad.exe",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("Synthetic invalid type"),
+    },
+  ]);
+  await expect(dialog).toContainText("Choose a PDF, DOCX, JPEG, PNG");
+  await expect(
+    dialog.getByRole("button", { name: "Upload 2 documents" }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "Remove bad.exe" }).click();
+  await expect(dialog.getByLabel("Title", { exact: true })).toHaveValue("good");
+  await dialog.getByLabel("Document type").click();
+  await page.getByRole("option", { name: "Resume" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Upload original" }),
+  ).toBeEnabled();
 });

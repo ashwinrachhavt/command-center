@@ -251,7 +251,13 @@ function mount(
       <Agents />
     </QueryClientProvider>,
   );
-  return { client, ...view };
+  return {
+    client,
+    setRun: (value: Run) => {
+      currentRun = value;
+    },
+    ...view,
+  };
 }
 const writePrompt = (text: string) =>
   fireEvent.change(
@@ -300,7 +306,9 @@ it("shows an initial profile failure and retries only that query", async () => {
   });
   expect(await screen.findByText("Profiles unavailable")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByText(/openai · synthetic-model/i)).toBeVisible();
+  expect(
+    await screen.findByRole("button", { name: "Switch AI model" }),
+  ).toHaveTextContent("synthetic-model");
 });
 
 it("selects a custom model without submitting the surrounding form", async () => {
@@ -390,7 +398,7 @@ it("shows live text before completion and renders the durable answer once", asyn
   });
   await waitFor(() =>
     expect(
-      screen.getByRole("group", { name: "Live activity" }),
+      screen.getByRole("group", { name: "Live answer" }),
     ).toHaveTextContent(text),
   );
   act(() => {
@@ -411,33 +419,87 @@ it("shows live text before completion and renders the durable answer once", asyn
 
 it("deduplicates replayed tool calls against saved steps and pins an active model", async () => {
   const events = [
-    { type: "tool-input-available", data: { tool_call_id: "tool-1", tool_name: "search", input: { query: "Synthetic" } } },
-    { type: "tool-output-available", data: { tool_call_id: "tool-1", output: "Live result" } },
-  ].map((event, index) => `event: agent_event\ndata: ${JSON.stringify({ ...event, sequence: index + 1, run_id: run.id, role: "assistant", created_at: base.created_at })}\n\n`).join("");
-  const { client } = mount({
+    {
+      type: "tool-input-available",
+      data: {
+        tool_call_id: "tool-1",
+        tool_name: "search",
+        input: { query: "Synthetic" },
+      },
+    },
+    {
+      type: "tool-output-available",
+      data: { tool_call_id: "tool-1", output: "Live result" },
+    },
+  ]
+    .map(
+      (event, index) =>
+        `event: agent_event\ndata: ${JSON.stringify({ ...event, sequence: index + 1, run_id: run.id, role: "assistant", created_at: base.created_at })}\n\n`,
+    )
+    .join("");
+  const { client, setRun } = mount({
     initialRun: { ...run, state: "running", output: null },
     messages: [savedMessage(1, "Research safely")],
     events,
-    steps: [Response.json([{ id: "tool-1", name: "search", role: "assistant", state: "output-available", output: "Saved result" } satisfies Partial<RunStep>])],
+    steps: Array.from({ length: 3 }, () =>
+      Response.json([
+        {
+          id: "tool-1",
+          name: "search",
+          role: "assistant",
+          state: "output-available",
+          output: "Saved result",
+        } satisfies Partial<RunStep>,
+      ]),
+    ),
   });
-  expect(await screen.findByRole("button", { name: "Switch AI model" })).toBeDisabled();
+  expect(
+    await screen.findByRole("button", { name: "Switch AI model" }),
+  ).toBeDisabled();
   await waitFor(() => {
     expect(client.getQueryData(["agent-run-steps", run.id])).toHaveLength(1);
-    expect(screen.getByRole("group", { name: "Live activity" })).toHaveTextContent("Search");
+    expect(
+      screen.getByRole("group", { name: "Live activity" }),
+    ).toHaveTextContent("Search");
     expect(screen.getAllByRole("button", { name: /Search/ })).toHaveLength(1);
   });
   fireEvent.click(screen.getByRole("button", { name: /Search/ }));
   expect(await screen.findByText("Live result")).toBeVisible();
   expect(screen.queryByText("Saved result")).not.toBeInTheDocument();
-  act(() => client.setQueryData(["agent-session-runs", session.id, 1], page([run])));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Switch AI model" })).toBeEnabled());
+  setRun(run);
+  act(() =>
+    client.setQueryData(["agent-session-runs", session.id, 1], page([run])),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Switch AI model" }),
+    ).toBeEnabled(),
+  );
+  expect(
+    screen.getByRole("button", { name: "Show activity details" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  expect(
+    screen.queryByRole("button", { name: /Search/ }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show activity details" }),
+  );
   expect(screen.getAllByRole("button", { name: /Search/ })).toHaveLength(1);
+  const savedStep = screen.getByRole("button", { name: /Search/ });
+  if (savedStep.getAttribute("aria-expanded") === "false")
+    fireEvent.click(savedStep);
+  expect(await screen.findByText("Saved result")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.queryByText("Live result")).not.toBeInTheDocument(),
+  );
 });
 
 it("shows waiting questions, answers and cancellation without falsely claiming cancellation", async () => {
   mount({ initialRun: { ...run, state: "waiting_for_user", output: null } });
   expect(await screen.findByText("Which company?")).toBeVisible();
-  expect(screen.getByRole("button", { name: "Switch AI model" })).toBeDisabled();
+  expect(
+    screen.getByRole("button", { name: "Switch AI model" }),
+  ).toBeDisabled();
   expect(screen.queryByText(/This run was cancelled/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Cancel work" })).toBeEnabled();
   fireEvent.change(

@@ -21,7 +21,14 @@ test("restores an opportunity conversation with specialist activity and outputs"
     .getByRole("region", { name: "Prepare interview brief activity" })
     .getByRole("button", { name: "Show activity details" })
     .click();
-  await expect(page.getByText("Research specialist")).toBeVisible();
+  const specialistStep = page.getByRole("button", {
+    name: "Search sources Research Completed",
+  });
+  await expect(specialistStep).toHaveAttribute("aria-expanded", "false");
+  await specialistStep.click();
+  await expect(
+    page.getByText("Reviewed the synthetic company notes"),
+  ).toBeVisible();
   await expect(page.getByText("Northstar interview brief · v2")).toBeVisible();
 
   await page
@@ -93,12 +100,18 @@ test("preserves a newly typed draft and fetches terminal run details", async ({
     return response.ok;
   });
   expect(completed).toBe(true);
-  await expect(page.getByText("Final specialist result")).toBeVisible({
-    timeout: 15_000,
-  });
   await expect(
     page.getByRole("heading", { name: "Final run outcome" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
+  const activity = page.getByRole("region", {
+    name: "Conversation work activity",
+  });
+  await activity.getByRole("button", { name: "Show activity details" }).click();
+  await activity
+    .getByRole("button", { name: "Finalize plan Research Completed" })
+    .click();
+  await expect(page.getByText("Final specialist result")).toBeVisible();
+  await expect(composer).toHaveValue("Keep this next message.");
 });
 
 test("a missing pinned artifact version does not show the latest content", async ({
@@ -143,7 +156,9 @@ test("sends a task message, appends steering, and cancels one active run", async
   await expect(page.getByText(/saved.*next safe/i)).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel work" }).click();
-  await expect(page.getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Work cancelled" }),
+  ).toBeVisible();
   await expect(page.getByText("1 active run")).toHaveCount(0);
 });
 

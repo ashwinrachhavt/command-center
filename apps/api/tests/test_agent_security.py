@@ -9,6 +9,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
+from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from command_center.agents.config import AgentProfile, load_profiles
@@ -268,11 +269,13 @@ def test_profiles_pin_skills_separately_from_directives():
     assert profiles["lead"].specialists["research"] == profile
 
 
+@pytest.mark.parametrize("routing_started", [False, True])
 def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
     agent_server,
     engine,
     mocker,
     scripted_model,
+    routing_started,
 ):
     """Only paid generation is mocked; MCP, HTTP authorization and SQL writes are real."""
     from sqlalchemy import select
@@ -288,6 +291,7 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
         instructions="Synthetic test only",
         tools=["create_task"],
         max_steps=3,
+        jev_routing=True,
     )
     with Session(engine, expire_on_commit=False) as db, db.begin():
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic worker owner")
@@ -335,6 +339,8 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
         )
         db.flush()
         run_id, actor_id = run.id, actor.id
+        if routing_started:
+            run.checkpoint = {"routing": {"status": "started"}}
     model = scripted_model(
         [
             AIMessage(
@@ -350,15 +356,170 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
             AIMessage(content="Created the task."),
         ]
     )
-    mocker.patch("command_center.agents.worker.create_chat_model", return_value=model)
+    agent_server = agent_server.model_copy(
+        update={
+            "jev_enabled": True,
+            "jev_api_key": SecretStr("synthetic-jev-key"),
+        }
+    )
+
+    async def routed(*args):
+        with Session(engine) as db:
+            assert db.get(AgentRun, run_id).checkpoint["routing"]["status"] == "started"
+        return {"status": "suggested", "hint": "Discover create task", "route": "crm"}
+
+    router = mocker.patch("command_center.agents.worker.suggest_route", side_effect=routed)
+    factory = mocker.patch("command_center.agents.worker.create_chat_model", return_value=model)
     assert perform_next(engine, agent_server, run_id)
+    assert factory.call_args.kwargs["http_async_client"].is_closed
     with Session(engine) as db:
         completed = db.get(AgentRun, run_id)
         assert completed.state == "completed", completed.error_code
         assert completed.output == "Created the task."
+        assert completed.checkpoint["routing"]["status"] == (
+            "started" if routing_started else "suggested"
+        )
         assert completed.tool_steps()[0]["state"] == "output-available"
         assert completed.tool_steps()[0]["id"] == "call_mcp_test"
         assert (
             db.scalar(select(Task).where(Task.owner_id == actor_id)).title == "MCP integration task"
         )
     assert not perform_next(engine, agent_server, run_id)
+
+    assert router.await_count == (0 if routing_started else 1)
+
+
+@pytest.mark.parametrize("running", [["catalog_search", "catalog_execute"]], indirect=True)
+@pytest.mark.parametrize("steering", [False, True])
+def test_explicit_chat_mail_pull_reuses_scoped_session_and_rejects_foreign_input(
+    settings, engine, running, mocker, steering
+):
+    from sqlalchemy import select
+
+    from command_center.db.conversations import AgentMessage, AgentSession
+    from command_center.db.reviewed_actions import ExternalAccount, ProviderObservation
+    from command_center.integrations.composio_actions import (
+        AccountMetadata,
+        ComposioActionClient,
+        VerifiedIdentity,
+    )
+
+    run_id, lease_id = running
+    with Session(engine) as db, db.begin():
+        run = db.get(AgentRun, run_id)
+        run.prompt = "Read Gmail from Synthetic Jordan and create a lead and contact"
+        conversation = AgentSession.for_run(db, run=run, request_id=uuid4())
+        owner_id = run.owner_id
+        message_id = db.scalar(select(AgentMessage.id).where(AgentMessage.run_id == run.id))
+        if steering:
+            message_id = conversation.receive(
+                content="Read Gmail from Synthetic Jordan and create a contact",
+                profile=run.profile,
+                configuration=run.config_snapshot["profile"],
+                revision=run.config_snapshot["revision"],
+                request_id=uuid4(),
+            ).id
+        account = ExternalAccount(
+            id=uuid4(),
+            owner_id=owner_id,
+            toolkit="gmail",
+            composio_connected_account_id="ca_synthetic_mail",
+            composio_auth_config_id="ac_synthetic_mail",
+            display_name="Synthetic Gmail",
+            provider_identity={"email": "owner@example.test"},
+            connection_status="ACTIVE",
+            selected_purpose="outreach",
+            identity_verified_at=utc_now(),
+        )
+        db.add(account)
+    metadata = AccountMetadata(
+        "ca_synthetic_mail",
+        "gmail",
+        "ac_synthetic_mail",
+        "ACTIVE",
+        False,
+        None,
+        {"email": "owner@example.test"},
+    )
+    adapter = ComposioActionClient(api_key="synthetic")
+    mocker.patch.object(adapter, "account_metadata", return_value=metadata)
+    mocker.patch.object(
+        adapter,
+        "verify_identity",
+        return_value=VerifiedIdentity("Synthetic Gmail", {"email": "owner@example.test"}),
+    )
+    create = mocker.patch.object(adapter, "create_gmail_session", return_value="session-synthetic")
+    search = mocker.patch.object(
+        adapter,
+        "gmail_search",
+        return_value={
+            "messages": [{"sender": "jordan@example.test", "messageText": "Synthetic lead"}],
+            "next_page_token": None,
+            "result_size_estimate": 1,
+        },
+    )
+    headers = {"Authorization": "Bearer " + issue_run_token(settings, run_id, lease_id)}
+    body = {"query": "from:jordan@example.test", "request_message_id": str(message_id)}
+    with TestClient(create_app(settings)) as client:
+        client.app.state.composio_actions = adapter
+        if steering:
+            unread = client.post(
+                "/api/v1/gmail/search",
+                headers=headers | {"Idempotency-Key": str(uuid4())},
+                json=body,
+            )
+            assert unread.status_code == 403, unread.text
+            search.assert_not_called()
+            create.assert_not_called()
+            with Session(engine) as db, db.begin():
+                # The worker persists this cursor before invoking tools planned
+                # from the newly consumed steering message.
+                db.get(AgentRun, run_id).consumed_sequence = db.get(
+                    AgentMessage, message_id
+                ).sequence
+        key = str(uuid4())
+        first = client.post(
+            "/api/v1/gmail/search", headers=headers | {"Idempotency-Key": key}, json=body
+        )
+        assert first.status_code == 200, first.text
+        replay = client.post(
+            "/api/v1/gmail/search", headers=headers | {"Idempotency-Key": key}, json=body
+        )
+        assert replay.json() == first.json()
+        second = client.post(
+            "/api/v1/gmail/search", headers=headers | {"Idempotency-Key": str(uuid4())}, json=body
+        )
+        assert second.status_code == 200, second.text
+        assert create.call_count == 1
+        assert search.call_count == 2
+        assert all(
+            call.kwargs["session_id"] == "session-synthetic" for call in search.call_args_list
+        )
+        with Session(engine) as db, db.begin():
+            run = db.get(AgentRun, run_id)
+            conversation = db.get(AgentSession, run.session_id)
+            future = conversation.receive(
+                content="Another unread request",
+                profile=run.profile,
+                configuration=run.config_snapshot["profile"],
+                revision=run.config_snapshot["revision"],
+                request_id=uuid4(),
+            )
+            future_id = future.id
+        for request_message_id in (None, str(uuid4()), str(future_id)):
+            denied = client.post(
+                "/api/v1/gmail/search",
+                headers=headers | {"Idempotency-Key": str(uuid4())},
+                json=body | {"request_message_id": request_message_id},
+            )
+            assert denied.status_code == 403, denied.text
+        assert search.call_count == 2
+    with Session(engine) as db:
+        assert (
+            len(
+                db.scalars(
+                    select(ProviderObservation).where(ProviderObservation.owner_id == owner_id)
+                ).all()
+            )
+            == 2
+        )

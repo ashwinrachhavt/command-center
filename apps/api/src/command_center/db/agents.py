@@ -63,10 +63,34 @@ class AgentRun(OwnedRecord, Base):
     input_sequence: Mapped[int] = mapped_column(Integer, default=0)
     consumed_sequence: Mapped[int] = mapped_column(Integer, default=0)
 
+    def require_user_request(self, session: Session, message_id: UUID | None) -> None:
+        """Bind an on-demand read to consumed human input for this run.
+
+        Intent is interpreted by the agent directive; this validates provenance,
+        not the semantics of arbitrary natural language. Steering can supply the
+        request after the run starts; unread input and other runs cannot.
+        """
+        from command_center.db.conversations import AgentMessage
+
+        message = session.get(AgentMessage, message_id) if message_id else None
+        if (
+            message is None
+            or message.owner_id != self.owner_id
+            or message.session_id != self.session_id
+            or message.run_id != self.id
+            or message.author != "user"
+            or not self.input_sequence <= message.sequence <= self.consumed_sequence
+        ):
+            raise ValueError("Pull email explicitly in the current chat request or workspace")
+
     def tool_steps(self) -> list[dict[str, Any]]:
         """Public execution evidence, without system instructions or hidden model reasoning."""
         if isinstance(self.checkpoint.get("tools"), list):
-            return list(self.checkpoint["tools"])
+            public_fields = {"id", "name", "role", "specialist", "summary", "state", "output"}
+            return [
+                {key: value for key, value in step.items() if key in public_fields}
+                for step in self.checkpoint["tools"]
+            ]
         steps: dict[str, dict[str, Any]] = {}
         for message in self.checkpoint.get("messages", []):
             data = message.get("data", {})
@@ -219,6 +243,27 @@ class AgentRun(OwnedRecord, Base):
                 .limit(1)
             )
 
+        if state in {"failed", "cancelled"} and self.checkpoint.get("tools"):
+            from command_center.agents.progress import partial_reply
+
+            self.checkpoint = {
+                **self.checkpoint,
+                "tools": [
+                    {
+                        **step,
+                        "state": "output-error",
+                        "output": (
+                            "Operation interrupted; completion is not confirmed. "
+                            "Check saved records before retrying."
+                        ),
+                    }
+                    if step.get("state") == "input-available"
+                    else step
+                    for step in self.checkpoint["tools"]
+                ],
+            }
+            if not output:
+                output = partial_reply(self.checkpoint, error_code or state)
         self.state, self.output, self.error_code = state, output, error_code
         self.completed_at, self.lease_id, self.lease_expires_at = utc_now(), None, None
         if session:
@@ -240,13 +285,15 @@ class AgentRun(OwnedRecord, Base):
             if self.session_id is not None:
                 session.flush([self])
                 assert conversation is not None
-                if state == "completed" and output and output.strip():
+                if output and output.strip():
                     conversation.append_assistant(
                         run_id=self.id,
                         profile=self.profile,
                         content=output,
                         request_id=self.id,
-                        answer_cache=self.checkpoint.get("answer_cache"),
+                        answer_cache=self.checkpoint.get("answer_cache")
+                        if state == "completed"
+                        else None,
                     )
                 if state == "completed" and not self.checkpoint.get("answer_cache"):
                     entry = conversation.cache_candidate(self)

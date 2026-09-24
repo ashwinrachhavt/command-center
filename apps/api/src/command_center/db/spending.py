@@ -990,6 +990,41 @@ DEFAULT_RATES: dict[str, Any] = {
     "models": [
         {
             "provider": "openai",
+            "model": "gpt-6-sol",
+            "input_per_million_micros": 2000000,
+            "output_per_million_micros": 10000000,
+            "fixed_micros": 0,
+        },
+        {
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "input_per_million_micros": 100000,
+            "output_per_million_micros": 500000,
+            "fixed_micros": 0,
+        },
+        {
+            "provider": "typesafe",
+            "model": "jev-1.13.0",
+            "input_per_million_micros": 42000,
+            "output_per_million_micros": 0,
+            "fixed_micros": 0,
+        },
+        {
+            "provider": "gateway",
+            "model": "typesafe-ai/jev",
+            "input_per_million_micros": 42000,
+            "output_per_million_micros": 0,
+            "fixed_micros": 0,
+        },
+        {
+            "provider": "venice",
+            "model": "jev-latest",
+            "input_per_million_micros": 42000,
+            "output_per_million_micros": 0,
+            "fixed_micros": 0,
+        },
+        {
+            "provider": "openai",
             "model": "gpt-5-mini",
             "input_per_million_micros": 150_000,
             "output_per_million_micros": 600_000,
@@ -1071,7 +1106,9 @@ DEFAULT_RATES: dict[str, Any] = {
         # Conservative local estimates for account verification, not provider
         # invoice prices. Custom rate cards remain authoritative when configured.
         {"slug": "COMPOSIO_CONNECTED_ACCOUNTS_LIST", "fixed_micros": 10_000},
+        {"slug": "COMPOSIO_SESSION_CREATE", "fixed_micros": 10_000},
         {"slug": "GMAIL_GET_PROFILE", "fixed_micros": 10_000},
+        {"slug": "GMAIL_FETCH_EMAILS", "fixed_micros": 10_000},
         {"slug": "GOOGLECALENDAR_GET_CURRENT_USER", "fixed_micros": 10_000},
         {"slug": "LINEAR_WHO_AM_I", "fixed_micros": 10_000},
         {"slug": "NOTION_GET_ABOUT_ME", "fixed_micros": 10_000},
