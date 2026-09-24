@@ -174,3 +174,18 @@ def test_invalid_gateway_cost_remains_unknown(cost):
         }
     )
     assert result.gateway_cost is None
+
+
+@pytest.mark.parametrize("kind", [{"name": "invoice"}, ["invoice"]])
+def test_structured_json_requests_cannot_crash_optional_routing(settings, mocker, kind):
+    gate = mocker.create_autospec(ModelSpendingGate, instance=True)
+    configured = settings.model_copy(update={"jev_enabled": True, "jev_api_key": SecretStr("key")})
+    network = mocker.patch(
+        "command_center.agents.routing.route_request",
+        return_value=JevResult.model_validate(response()),
+    )
+    request = {"type": kind, "request": "Read my uploaded invoice"}
+    result = asyncio.run(suggest_route(configured, json.dumps(request), gate))
+    assert result["status"] == "suggested"
+    assert json.loads(network.call_args.args[2]["state"]["request"]) == request
+    gate.settle.assert_awaited_once()

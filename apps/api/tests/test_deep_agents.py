@@ -746,7 +746,7 @@ def test_parallel_specialists_do_not_hide_steering_from_the_lead(
     }
     mocker.patch(
         "command_center.agents.worker.create_chat_model",
-        side_effect=lambda settings, configured: models[configured.name],
+        side_effect=lambda settings, configured, **kwargs: models[configured.name],
     )
     assert perform_next(engine, agent_server, run_id)
     with Session(engine) as db:

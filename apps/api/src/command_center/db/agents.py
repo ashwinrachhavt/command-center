@@ -64,10 +64,11 @@ class AgentRun(OwnedRecord, Base):
     consumed_sequence: Mapped[int] = mapped_column(Integer, default=0)
 
     def require_user_request(self, session: Session, message_id: UUID | None) -> None:
-        """Bind an on-demand read to the current human input, never retrieved content.
+        """Bind an on-demand read to consumed human input for this run.
 
         Intent is interpreted by the agent directive; this validates provenance,
-        not the semantics of arbitrary natural language.
+        not the semantics of arbitrary natural language. Steering can supply the
+        request after the run starts; unread input and other runs cannot.
         """
         from command_center.db.conversations import AgentMessage
 
@@ -78,7 +79,7 @@ class AgentRun(OwnedRecord, Base):
             or message.session_id != self.session_id
             or message.run_id != self.id
             or message.author != "user"
-            or message.sequence != self.input_sequence
+            or not self.input_sequence <= message.sequence <= self.consumed_sequence
         ):
             raise ValueError("Pull email explicitly in the current chat request or workspace")
 

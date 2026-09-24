@@ -390,8 +390,9 @@ def test_worker_uses_real_mcp_discovery_and_api_with_mocked_model(
 
 
 @pytest.mark.parametrize("running", [["catalog_search", "catalog_execute"]], indirect=True)
+@pytest.mark.parametrize("steering", [False, True])
 def test_explicit_chat_mail_pull_reuses_scoped_session_and_rejects_foreign_input(
-    settings, engine, running, mocker
+    settings, engine, running, mocker, steering
 ):
     from sqlalchemy import select
 
@@ -407,9 +408,17 @@ def test_explicit_chat_mail_pull_reuses_scoped_session_and_rejects_foreign_input
     with Session(engine) as db, db.begin():
         run = db.get(AgentRun, run_id)
         run.prompt = "Read Gmail from Synthetic Jordan and create a lead and contact"
-        AgentSession.for_run(db, run=run, request_id=uuid4())
+        conversation = AgentSession.for_run(db, run=run, request_id=uuid4())
         owner_id = run.owner_id
         message_id = db.scalar(select(AgentMessage.id).where(AgentMessage.run_id == run.id))
+        if steering:
+            message_id = conversation.receive(
+                content="Read Gmail from Synthetic Jordan and create a contact",
+                profile=run.profile,
+                configuration=run.config_snapshot["profile"],
+                revision=run.config_snapshot["revision"],
+                request_id=uuid4(),
+            ).id
         account = ExternalAccount(
             id=uuid4(),
             owner_id=owner_id,
@@ -453,6 +462,21 @@ def test_explicit_chat_mail_pull_reuses_scoped_session_and_rejects_foreign_input
     body = {"query": "from:jordan@example.test", "request_message_id": str(message_id)}
     with TestClient(create_app(settings)) as client:
         client.app.state.composio_actions = adapter
+        if steering:
+            unread = client.post(
+                "/api/v1/gmail/search",
+                headers=headers | {"Idempotency-Key": str(uuid4())},
+                json=body,
+            )
+            assert unread.status_code == 403, unread.text
+            search.assert_not_called()
+            create.assert_not_called()
+            with Session(engine) as db, db.begin():
+                # The worker persists this cursor before invoking tools planned
+                # from the newly consumed steering message.
+                db.get(AgentRun, run_id).consumed_sequence = db.get(
+                    AgentMessage, message_id
+                ).sequence
         key = str(uuid4())
         first = client.post(
             "/api/v1/gmail/search", headers=headers | {"Idempotency-Key": key}, json=body
@@ -471,7 +495,18 @@ def test_explicit_chat_mail_pull_reuses_scoped_session_and_rejects_foreign_input
         assert all(
             call.kwargs["session_id"] == "session-synthetic" for call in search.call_args_list
         )
-        for request_message_id in (None, str(uuid4())):
+        with Session(engine) as db, db.begin():
+            run = db.get(AgentRun, run_id)
+            conversation = db.get(AgentSession, run.session_id)
+            future = conversation.receive(
+                content="Another unread request",
+                profile=run.profile,
+                configuration=run.config_snapshot["profile"],
+                revision=run.config_snapshot["revision"],
+                request_id=uuid4(),
+            )
+            future_id = future.id
+        for request_message_id in (None, str(uuid4()), str(future_id)):
             denied = client.post(
                 "/api/v1/gmail/search",
                 headers=headers | {"Idempotency-Key": str(uuid4())},

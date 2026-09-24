@@ -68,7 +68,8 @@ class TraceContent:
                 return clean(message_content(item), depth + 1)
             if isinstance(item, dict):
                 # Structured reasoning can also occur inside tool responses.
-                if item.get("type") in {"reasoning", "thinking", "redacted_thinking"}:
+                kind = item.get("type")
+                if isinstance(kind, str) and kind in {"reasoning", "thinking", "redacted_thinking"}:
                     return "[omitted]"
                 truncated |= len(item) > 40
                 result = {}
