@@ -4,6 +4,12 @@
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
+## Bounded agent completion — 2026-09-24
+
+Agent runs now expose remaining lookup quotas before tool use, switch from research to requested saves before model exhaustion, and reserve the last model call for an answer without tools. Specialists obey their role cap and preserve two supervisor model calls, returning saved references when their budget runs out. The lead directly exposes core intake/research/document tools and handles one lead/research/reply workflow without unnecessary delegation. Model, tool, lookup, output-token and recursion caps are unchanged. [Agent efficiency](agent-efficiency.md#finish-within-the-existing-call-budget) documents the behavior and limits.
+
+Validation: all **973 backend tests** pass, including nine new completion regressions through the real graph and accounting boundaries. The original synthetic search loop reproduced `model_limit` before the fix; it now saves one or two outputs and answers within four calls, and the same boundary passes at the configured 16-call limit. Tests also cover catalog exhaustion, specialist receipts, concurrent reservations and restored role counters. Ruff lint/format and full Python type checking pass. Raw output is retained locally in `.local/run-completion-backend-final.log`. The schema test now mirrors production MCP registration and measures 6,917 characters for exposed domain schemas versus 34,361 for the complete registry. That is a schema-size measurement, not live token savings or model-quality evidence. No deployment or paid evaluation is claimed.
+
 ## Spaces and document decisions — local implementation 2026-09-24
 
 **Current delivery:** implemented locally; local integration checks pass. No deployment or live paid-model call is claimed. The earlier Briefing and Jev planning checkpoints below remain historical evidence rather than current scope limits.

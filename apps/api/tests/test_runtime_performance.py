@@ -328,7 +328,8 @@ def test_budget_guidance_keeps_the_system_prefix_and_original_history_unchanged(
         async def model(effective):
             assert effective.system_message is system
             assert effective.messages[0] is messages[0]
-            assert len(effective.messages) == (2 if control.tool_count else 1)
+            assert len(effective.messages) == 2
+            assert effective.messages[-1].name == "execution_budget"
             return "answer"
 
         await worker.awrap_model_call(request, model)

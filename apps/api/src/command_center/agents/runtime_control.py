@@ -14,7 +14,7 @@ from deepagents.graph import DeepAgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse, PrivateStateAttr
 from langchain_core.callbacks import AsyncCallbackHandler
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolCall, ToolMessage
 from langchain_core.outputs import LLMResult
 from langgraph.errors import GraphInterrupt
 from langgraph.prebuilt.tool_node import ToolCallRequest
@@ -22,7 +22,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from command_center.agents.config import AgentProfile
-from command_center.agents.progress import progress_text
+from command_center.agents.progress import progress_text, saved_findings
 from command_center.agents.read_cache import failed_tool_result, immutable_read_key
 from command_center.agents.spending import ModelSpendingGate, conservative_input_bound
 from command_center.agents.telemetry import current_trace
@@ -41,6 +41,22 @@ type ActivitySink = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 
 tool_identity: ContextVar[str] = ContextVar("agent_tool_identity", default="")
 
+# Leave one turn for local saves and one for the supervisor's final answer.
+SUPERVISOR_FINISH_CALLS = 2
+COMPLETION_TOOLS = frozenset(
+    {
+        "capture_lead_content",
+        "create_task",
+        "draft_artifact",
+        "save_record_work",
+        "save_application_material",
+        "suggest_application_answers",
+        "propose_profile_fact",
+        "ask_user",
+        "catalog_execute",
+    }
+)
+
 
 class WorkState(DeepAgentState):
     # Each graph must consume its own instructions. Child completion must not
@@ -50,6 +66,10 @@ class WorkState(DeepAgentState):
 
 class ExecutionStopped(ValueError):
     """A host-enforced limit or lost authority; never converted to a model tool error."""
+
+
+class SpecialistBudgetExhausted(ValueError):
+    """Return partial specialist work while preserving the supervisor's finish calls."""
 
 
 class RunControl:
@@ -67,6 +87,7 @@ class RunControl:
         self.parallel = asyncio.Semaphore(profile.max_parallel_tools)
         prior = prior_state or {}
         self.steps = int(prior.get("steps", 0))
+        self.role_steps: dict[str, int] = dict(prior.get("role_steps", {}))
         self.tool_count = int(prior.get("tool_count", 0))
         self.sequence = max(sequence, int(prior.get("instruction_sequence", 0)))
         self.initial_sequence = sequence
@@ -123,6 +144,7 @@ class RunControl:
             copy.deepcopy(
                 {
                     "steps": self.steps,
+                    "role_steps": self.role_steps,
                     "tool_count": self.tool_count,
                     "instruction_sequence": self.sequence,
                     "usage": self.usage,
@@ -145,9 +167,12 @@ class ModelAccounting(AsyncCallbackHandler):
         role: str,
         profile: AgentProfile,
         spending: ModelSpendingGate | None,
+        *,
+        nested: bool = False,
     ):
         self.control, self.role, self.profile = control, role, profile
         self.spending = spending
+        self.nested = nested
 
     async def on_chat_model_start(
         self,
@@ -163,9 +188,15 @@ class ModelAccounting(AsyncCallbackHandler):
         async with control.lock:
             if size > control.profile.max_context_chars:
                 raise ExecutionStopped("context_limit")
+            if self.nested and (
+                control.steps >= control.profile.max_steps - SUPERVISOR_FINISH_CALLS
+                or control.role_steps.get(self.role, 0) >= self.profile.max_steps
+            ):
+                raise SpecialistBudgetExhausted()
             if control.steps >= control.profile.max_steps:
                 raise ExecutionStopped("model_limit")
             control.steps += 1
+            control.role_steps[self.role] = control.role_steps.get(self.role, 0) + 1
             await control.emit()
         if self.spending is not None:
             try:
@@ -282,35 +313,86 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         )
         return max(0, min(limits) - used)
 
+    def model_remaining(self) -> int:
+        remaining = self.control.profile.max_steps - self.control.steps
+        if self.nested:
+            remaining -= SUPERVISOR_FINISH_CALLS
+            profile = self.control.profile.specialists.get(self.role)
+            if profile is not None:
+                remaining = min(
+                    remaining, profile.max_steps - self.control.role_steps.get(self.role, 0)
+                )
+        return max(0, remaining)
+
+    def completion_call(self, call: ToolCall) -> bool:
+        name = call["name"]
+        if name == "catalog_execute":
+            name = str(call["args"].get("tool_name", ""))
+            # Already-discovered API writes remain possible; catalog reads and
+            # network-backed research cannot bypass the save phase.
+            if name.startswith("cc_"):
+                return not safe_read(call)
+        return name in COMPLETION_TOOLS - {"catalog_execute"}
+
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
         control = self.control
-        if control.tool_count == 0:
-            return await handler(request)
         remaining = max(0, control.profile.max_tool_calls - control.tool_count)
+        model_remaining = self.model_remaining()
+        final_answer = model_remaining <= 1 or remaining == 0
+        finishing = model_remaining <= 2 or remaining <= 2
+        role_profile = control.profile.specialists.get(self.role)
+        limited_names = set(control.profile.tool_call_limits)
+        if role_profile is not None:
+            limited_names.update(role_profile.tool_call_limits)
         hint = (
             f"Shared remaining budget: {remaining} tool calls and "
             f"{max(0, control.profile.max_steps - control.steps)} model calls. "
-            "Give a brief public progress update before another batch of research; "
-            "state confirmed findings and what remains, never private reasoning. "
+            f"This agent has at most {model_remaining} model calls including this one. "
             "Reuse saved results. Prioritize requested saves over optional research."
         )
-        if remaining <= max(4, control.profile.max_tool_calls // 4):
+        if limited_names:
             hint += (
-                " Budget is nearly used: stop optional lookups, save supported work "
-                "and finish with a partial answer if needed."
+                " Remaining lookup quotas: "
+                + ", ".join(
+                    f"{name}={self.lookup_remaining(name)}" for name in sorted(limited_names)
+                )
+                + ". Never exceed a quota in a parallel batch or retry an exhausted tool."
             )
+        if final_answer:
+            hint += (
+                " Finish now with a final response using existing results and save receipts. "
+                "Do not call tools. Clearly identify any requested output that remains unsaved "
+                "or unsupported; do not claim the entire request is complete unless it is."
+            )
+        elif finishing:
+            hint += (
+                " Save-and-finish phase: stop lookups and delegation. Save all remaining "
+                "requested outputs from available evidence now, batching independent saves "
+                "within the remaining tool budget. For catalog_execute, use only already-known "
+                "save operations. Mark missing evidence explicitly. The next turn is for the "
+                "final response."
+            )
+        elif model_remaining <= 4 or remaining <= max(4, control.profile.max_tool_calls // 4):
+            hint += " Finish research now and prepare the requested saves; omit optional lookups."
+
+        def available(tool: Any) -> bool:
+            name = (
+                str(tool.get("function", tool).get("name", ""))
+                if isinstance(tool, dict)
+                else tool.name
+            )
+            return (
+                not final_answer
+                and self.lookup_remaining(name) != 0
+                and (not finishing or name in COMPLETION_TOOLS)
+                and (name != "task" or model_remaining > SUPERVISOR_FINISH_CALLS + 2)
+            )
+
         return await handler(
             request.override(
-                tools=[
-                    tool
-                    for tool in request.tools
-                    if self.lookup_remaining(
-                        str(tool.get("name", "")) if isinstance(tool, dict) else tool.name
-                    )
-                    != 0
-                ],
+                tools=[tool for tool in request.tools if available(tool)],
                 # Keep the long system prefix stable for provider prompt caching.
                 # This small, transient hint is not saved in canonical graph history.
                 messages=[*request.messages, HumanMessage(content=hint, name="execution_budget")],
@@ -344,6 +426,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
         )
         control = self.control
         limited = False
+        finishing_denied = False
         budget_name = (
             str(call["args"].get("tool_name", ""))
             if call["name"] == "catalog_execute"
@@ -355,6 +438,8 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                 if control.tool_count >= control.profile.max_tool_calls:
                     raise ExecutionStopped("tool_limit")
                 limited = self.lookup_remaining(budget_name) == 0
+                # The planning call has already been charged by ModelAccounting.
+                finishing_denied = self.model_remaining() <= 1 and not self.completion_call(call)
                 control.tool_count += 1
                 control.tools[call_id] = {
                     "id": call_id,
@@ -363,6 +448,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     "state": "input-available",
                     "output": None,
                     "budget_denied": limited,
+                    "finishing_denied": finishing_denied,
                     "attempts": 1,
                 }
                 if call["name"] == "task":
@@ -386,6 +472,7 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                 raise ExecutionStopped("tool_identity_conflict")
             else:
                 limited = bool(existing.get("budget_denied"))
+                finishing_denied = bool(existing.get("finishing_denied"))
         context = tool_identity.set(call_id)
         recoverable = safe_read(call)
 
@@ -479,8 +566,16 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
             return result.model_copy(update={"tool_call_id": original_id})
 
         try:
-            if limited:
+            if finishing_denied:
                 result: ToolMessage | Command[Any] = ToolMessage(
+                    "Research and discovery are closed for this run. Do not retry this call. "
+                    "Save the requested outputs with the evidence already available, then "
+                    "report saved references and any missing work.",
+                    tool_call_id=original_id,
+                    status="error",
+                )
+            elif limited:
+                result = ToolMessage(
                     "This tool's lookup budget is used. Continue with saved context and existing "
                     "results; omit unsupported claims and save a useful concise draft.",
                     tool_call_id=original_id,
@@ -494,7 +589,24 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                 )
             elif call["name"] == "task":
                 # A delegation must not occupy capacity needed by its own child tools.
-                result = await dispatch()
+                try:
+                    result = await dispatch()
+                except SpecialistBudgetExhausted:
+                    specialist = str(call["args"].get("subagent_type", ""))
+                    result = ToolMessage(
+                        "The specialist returned partial work to preserve your completion budget. "
+                        "Use the saved evidence below to finish the requested outputs; do not "
+                        "delegate again or imply missing outputs were saved.\n\n"
+                        + saved_findings(
+                            [
+                                item
+                                for item in control.tools.values()
+                                if item["role"] == specialist
+                                and item["state"] == "output-available"
+                            ]
+                        ),
+                        tool_call_id=original_id,
+                    )
             else:
                 async with control.parallel:
                     result = await dispatch()

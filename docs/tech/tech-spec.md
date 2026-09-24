@@ -669,6 +669,8 @@ The research script environment receives selected task files and controlled publ
 
 Optimize useful output per task, not merely prompt size. Preserve citations, constraints and exact record references while avoiding repeated full transcripts and source bodies.
 
+**Implemented completion control (2026-09-24):** existing call caps now reserve a save turn and a tool-free final answer. Specialists preserve two supervisor model calls, enforce their role cap and return available receipts on budget exhaustion; per-role counts survive checkpoint recovery. Per-tool quotas are visible before lookup, exhausted tools are removed, and research cannot bypass the completion phase through catalog execution. The lead directly exposes the common intake/research/document tools to avoid repeated discovery for one connected request. No cap was raised. See [agent efficiency](agent-efficiency.md#finish-within-the-existing-call-budget) for behavior and measurement limits.
+
 | Technique | Proposed behavior | Evidence to measure |
 | --- | --- | --- |
 | Deterministic work first | Fill known identity/profile fields and check required/schema constraints in code; use a model for semantic mapping or narrative generation when needed | Accuracy, model calls per page, invalid/unsupported answers |

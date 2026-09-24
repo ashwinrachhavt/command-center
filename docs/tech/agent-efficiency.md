@@ -24,6 +24,18 @@ These are design inputs, not evidence that this application meets published benc
 
 ## Implemented in this pass
 
+### Finish within the existing call budget
+
+The reported lead/research/reply run stopped at the **model-call cap**, after six allowed searches and four denied search attempts. That is distinct from LangGraph's recursion guard. A synthetic real-graph reproduction confirmed that an agent choosing research while it remained available could use every model call without saving its output. The old near-limit guidance considered tool calls, not the number of model calls needed to save and answer.
+
+`WorkMiddleware` now supplies shared and per-tool remaining quotas from the first model call. With two model calls left, it exposes completion tools and closes research/discovery, including research invoked through `catalog_execute`. The last model call has no tools and asks for an honest final answer based on actual receipts. A depleted tool budget likewise switches to an answer. These are dynamic tool filters using the [LangChain middleware API](https://docs.langchain.com/oss/python/langchain/tools#dynamic-tool-selection), backed by the existing dispatch/accounting gates; no additional model routes the request.
+
+Specialists leave two model calls for the supervisor and obey their configured role cap. Counts are shared under the existing lock and retained in checkpoints. A specialist hitting this reserve returns available save references and source excerpts to the supervisor; context, spending, cancellation and other failures still propagate. This preserves a chance to save remaining requested outputs and answer without silently starting another run. A partial result must identify unsaved work; bounded execution does not establish task success.
+
+The lead directly exposes the small intake/research/document tool set alongside catalog discovery for other operations. Its directive keeps one pasted lead, company research and reply in one connected workflow, with three explicit deliverables. It avoids unnecessary delegation, repeated discovery and unrelated workspace/memory reads. This trades a few initial schemas for fewer discovery turns; live net token savings remain unmeasured.
+
+The configured model-call, tool-call, search, output-token and recursion limits are unchanged. Synthetic regression coverage exercises two independent output saves, exhausted catalog quotas, specialist handoff, concurrent accounting and resumed counters. Paid model quality, cost per successful task and parity with another coding assistant still require matched outcome evaluations. Profile/directive changes apply to newly snapshotted runs after the updated API/worker is deployed; existing pinned runs retain their profile snapshots.
+
 ### Selective recovery
 
 `WorkMiddleware` owns automatic tool recovery. Eligibility comes from the host capability map: catalog discovery and tools mapped exclusively to GET routes, including eligible tools reached through `catalog_execute`. Remote `readOnlyHint` values never authorize retries. Network-backed search/capture/provider operations using POST and all writes remain outside this policy.

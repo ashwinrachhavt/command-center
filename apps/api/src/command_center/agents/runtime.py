@@ -118,7 +118,7 @@ def build_agent(
     # Model callbacks also cover framework-owned context compaction calls.
     callbacks = [
         *(model.callbacks if isinstance(model.callbacks, list) else []),
-        ModelAccounting(control, role, profile, spending),
+        ModelAccounting(control, role, profile, spending, nested=nested),
     ]
     model = model.model_copy(update={"callbacks": callbacks})
 
