@@ -45,14 +45,16 @@ import { useWorkspaceContext } from "./context";
 
 const maxBytes = 20 * 1024 * 1024;
 const supported =
-  ".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown";
+  ".pdf,.docx,.jpg,.jpeg,.png,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,text/plain,text/markdown";
 const supportedMediaTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "text/plain",
   "text/markdown",
+  "image/jpeg",
+  "image/png",
 ]);
-const supportedExtensions = /\.(pdf|docx|txt|md)$/i;
+const supportedExtensions = /\.(pdf|docx|jpg|jpeg|png|txt|md)$/i;
 
 type DocumentType = { id: string; name: string; slug?: string };
 
@@ -67,6 +69,21 @@ function sizeLabel(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type UploadEntry = {
+  key: string;
+  file: File;
+  title: string;
+  state: "ready" | "uploading" | "queued" | "failed";
+  error?: string;
+};
+
+function fileError(file: File) {
+  if (file.size > maxBytes) return "Documents must be 20 MiB or smaller.";
+  if (!supportedFile(file))
+    return "Choose a PDF, DOCX, JPEG, PNG, plain text, or Markdown file.";
+  return "";
 }
 
 export function DocumentUploadDialog({
@@ -87,76 +104,116 @@ export function DocumentUploadDialog({
 }) {
   const client = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File>();
-  const [title, setTitle] = useState(artifact?.title ?? "");
+  const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [documentTypeId, setDocumentTypeId] = useState(
     artifact?.documentTypeId ?? "",
   );
-  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [validation, setValidation] = useState("");
+  const started = entries.some((entry) => entry.state !== "ready");
   const documentTypes = useQuery({
     queryKey: ["document-types"],
     enabled: open && !artifact,
     queryFn: () => api<DocumentType[]>("document-types"),
   });
-  const changed = () => {
-    setRequestKey(crypto.randomUUID());
-    setValidation("");
-  };
+  const updateEntry = (key: string, change: Partial<UploadEntry>) =>
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.key === key ? { ...entry, ...change } : entry,
+      ),
+    );
   const upload = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error("Choose a document to upload.");
-      if (file.size > maxBytes)
-        throw new Error("Documents must be 20 MiB or smaller.");
-      if (!supportedFile(file))
-        throw new Error("Choose a PDF, DOCX, plain text, or Markdown file.");
-      if (!title.trim()) throw new Error("Add a title for this document.");
+      if (!entries.length) throw new Error("Choose documents to upload.");
       if (!documentTypeId) throw new Error("Choose a document type.");
-      const form = new FormData();
-      form.set("file", file);
-      form.set("title", title.trim());
-      form.set("document_type_id", documentTypeId);
-      if (artifact) {
-        form.set("artifact_id", artifact.id);
-        form.set("expected_version", String(artifact.rowVersion));
+      const results: DocumentImport[] = [];
+      let failures = 0;
+      setValidation("");
+      // One bounded request at a time, with a retained key for each file. A retry
+      // never resubmits a successful file or duplicates an uncertain response.
+      for (const entry of entries) {
+        if (entry.state === "queued") continue;
+        const error =
+          fileError(entry.file) ||
+          (!entry.title.trim() ? "Add a title for this document." : "");
+        if (error) {
+          updateEntry(entry.key, { error });
+          failures++;
+          continue;
+        }
+        updateEntry(entry.key, { state: "uploading", error: undefined });
+        const form = new FormData();
+        form.set("file", entry.file);
+        form.set("title", entry.title.trim());
+        form.set("document_type_id", documentTypeId);
+        if (artifact) {
+          form.set("artifact_id", artifact.id);
+          form.set("expected_version", String(artifact.rowVersion));
+        }
+        try {
+          const result = await apiForm<DocumentImport>(
+            "documents/imports",
+            form,
+            { key: entry.key },
+          );
+          results.push(result);
+          updateEntry(entry.key, { state: "queued" });
+          client.invalidateQueries({
+            queryKey: ["version-history", result.artifact_id],
+          });
+        } catch (error) {
+          failures++;
+          updateEntry(entry.key, {
+            state: "failed",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Upload failed. Retry this file.",
+          });
+        }
       }
-      return apiForm<DocumentImport>("documents/imports", form, {
-        key: requestKey,
-      });
+      return { results, failures };
     },
-    onSuccess: (result) => {
+    onSuccess: ({ results, failures }) => {
       client.invalidateQueries({ queryKey: ["document-imports"] });
       client.invalidateQueries({ queryKey: ["artifacts"] });
-      client.invalidateQueries({
-        queryKey: ["version-history", result.artifact_id],
-      });
+      if (failures) {
+        setValidation(
+          `${failures} file${failures === 1 ? " needs" : "s need"} attention. Successful uploads are saved; retry only the remaining files.`,
+        );
+        return;
+      }
       toast.success(
         artifact
           ? "New original version queued for conversion"
-          : "Document queued for conversion",
+          : entries.length === 1
+            ? "Document queued for conversion"
+            : `${entries.length} documents queued for conversion`,
       );
-      setRequestKey(crypto.randomUUID());
-      setFile(undefined);
+      setEntries([]);
       if (fileInput.current) fileInput.current.value = "";
-      if (!artifact) {
-        setTitle("");
-        setDocumentTypeId("");
-      }
+      if (!artifact) setDocumentTypeId("");
       onOpenChange(false);
-      onUploaded?.(result);
+      if (entries.length === 1 && results[0]) onUploaded?.(results[0]);
     },
     onError: (error) => setValidation(error.message),
   });
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        if (!upload.isPending) onOpenChange(value);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {artifact ? "Upload a new original version" : "Upload document"}
+            {artifact ? "Upload a new original version" : "Upload documents"}
           </DialogTitle>
           <DialogDescription>
-            PDF, DOCX, text, or Markdown up to 20 MiB. The original file stays
-            immutable while conversion runs in the background.
+            PDF, DOCX, JPEG, PNG, text, or Markdown up to 20 MiB per file.
+            Images can be up to 25 megapixels. Originals are preserved and
+            readable text is extracted in the background for review.
+            {!artifact ? " Select several files to upload them together." : ""}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -173,50 +230,91 @@ export function DocumentUploadDialog({
               ref={fileInput}
               type="file"
               accept={supported}
-              required
+              multiple={!artifact}
+              disabled={started || upload.isPending}
               onChange={(event) => {
-                const next = event.target.files?.[0];
-                setFile(next);
-                if (next && !artifact && !title)
-                  setTitle(next.name.replace(/\.[^.]+$/, ""));
-                changed();
-                if (next && next.size > maxBytes)
-                  setValidation("Documents must be 20 MiB or smaller.");
-                else if (next && !supportedFile(next))
-                  setValidation(
-                    "Choose a PDF, DOCX, plain text, or Markdown file.",
-                  );
-              }}
-            />
-            {file ? (
-              <p className="text-[11px] text-muted-foreground">
-                {file.name} · {sizeLabel(file.size)}
-              </p>
-            ) : null}
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="document-title">Title</FieldLabel>
-            <Input
-              id="document-title"
-              value={title}
-              required
-              maxLength={300}
-              disabled={!!artifact}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                changed();
+                const files = Array.from(event.target.files ?? []);
+                setEntries(
+                  (artifact ? files.slice(0, 1) : files).map((file) => ({
+                    key: crypto.randomUUID(),
+                    file,
+                    title:
+                      artifact?.title ??
+                      file.name.replace(/\.[^.]+$/, "").slice(0, 300),
+                    state: "ready",
+                    error: fileError(file),
+                  })),
+                );
+                setValidation("");
               }}
             />
           </Field>
+          <div
+            className="max-h-64 space-y-3 overflow-y-auto"
+            aria-live="polite"
+          >
+            {entries.map((entry, index) => (
+              <div key={entry.key} className="space-y-2 rounded-md border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 break-all text-xs">
+                    {entry.file.name} · {sizeLabel(entry.file.size)}
+                  </p>
+                  {!started && !upload.isPending ? (
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Remove ${entry.file.name}`}
+                      onClick={() =>
+                        setEntries((current) =>
+                          current.filter((item) => item.key !== entry.key),
+                        )
+                      }
+                    >
+                      <X />
+                    </Button>
+                  ) : null}
+                </div>
+                <Field>
+                  <FieldLabel htmlFor={`document-title-${index}`}>
+                    {entries.length === 1
+                      ? "Title"
+                      : `Title for ${entry.file.name}`}
+                  </FieldLabel>
+                  <Input
+                    id={`document-title-${index}`}
+                    value={entry.title}
+                    required
+                    maxLength={300}
+                    disabled={!!artifact || started || upload.isPending}
+                    onChange={(event) =>
+                      updateEntry(entry.key, { title: event.target.value })
+                    }
+                  />
+                </Field>
+                {entry.state === "uploading" ? (
+                  <p className="text-xs">Uploading…</p>
+                ) : null}
+                {entry.state === "queued" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Uploaded · queued for extraction
+                  </p>
+                ) : null}
+                {entry.error ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    {entry.error}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
           {!artifact ? (
             <Field>
               <FieldLabel htmlFor="document-type">Document type</FieldLabel>
               <Select
                 value={documentTypeId}
-                onValueChange={(value) => {
-                  setDocumentTypeId(value);
-                  changed();
-                }}
+                disabled={started || upload.isPending}
+                onValueChange={setDocumentTypeId}
               >
                 <SelectTrigger id="document-type" aria-label="Document type">
                   <SelectValue placeholder="Choose a type" />
@@ -231,6 +329,11 @@ export function DocumentUploadDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              {entries.length > 1 ? (
+                <p className="text-xs text-muted-foreground">
+                  Applies to all selected files.
+                </p>
+              ) : null}
               {documentTypes.error ? (
                 <p className="text-xs text-destructive" role="alert">
                   {documentTypes.error.message}
@@ -244,9 +347,23 @@ export function DocumentUploadDialog({
             </p>
           ) : null}
           <DialogFooter>
+            {started && !upload.isPending ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setEntries([]);
+                  setValidation("");
+                  if (fileInput.current) fileInput.current.value = "";
+                }}
+              >
+                Clear selection
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
+              disabled={upload.isPending}
               onClick={() => onOpenChange(false)}
             >
               Keep for later
@@ -254,15 +371,19 @@ export function DocumentUploadDialog({
             <Button
               disabled={
                 upload.isPending ||
-                !file ||
-                !title.trim() ||
+                !entries.length ||
                 !documentTypeId ||
-                file.size > maxBytes ||
-                !supportedFile(file)
+                entries.some(
+                  (entry) => !entry.title.trim() || !!fileError(entry.file),
+                )
               }
             >
               {upload.isPending ? <Spinner /> : <FilePlus2 />}
-              {validation ? "Retry upload" : "Upload original"}
+              {validation
+                ? "Retry upload"
+                : entries.length > 1
+                  ? `Upload ${entries.length} documents`
+                  : "Upload original"}
             </Button>
           </DialogFooter>
         </form>

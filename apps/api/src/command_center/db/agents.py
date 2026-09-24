@@ -63,10 +63,33 @@ class AgentRun(OwnedRecord, Base):
     input_sequence: Mapped[int] = mapped_column(Integer, default=0)
     consumed_sequence: Mapped[int] = mapped_column(Integer, default=0)
 
+    def require_user_request(self, session: Session, message_id: UUID | None) -> None:
+        """Bind an on-demand read to the current human input, never retrieved content.
+
+        Intent is interpreted by the agent directive; this validates provenance,
+        not the semantics of arbitrary natural language.
+        """
+        from command_center.db.conversations import AgentMessage
+
+        message = session.get(AgentMessage, message_id) if message_id else None
+        if (
+            message is None
+            or message.owner_id != self.owner_id
+            or message.session_id != self.session_id
+            or message.run_id != self.id
+            or message.author != "user"
+            or message.sequence != self.input_sequence
+        ):
+            raise ValueError("Pull email explicitly in the current chat request or workspace")
+
     def tool_steps(self) -> list[dict[str, Any]]:
         """Public execution evidence, without system instructions or hidden model reasoning."""
         if isinstance(self.checkpoint.get("tools"), list):
-            return list(self.checkpoint["tools"])
+            public_fields = {"id", "name", "role", "specialist", "summary", "state", "output"}
+            return [
+                {key: value for key, value in step.items() if key in public_fields}
+                for step in self.checkpoint["tools"]
+            ]
         steps: dict[str, dict[str, Any]] = {}
         for message in self.checkpoint.get("messages", []):
             data = message.get("data", {})

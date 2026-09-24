@@ -131,7 +131,11 @@ def build_agent(
     return create_deep_agent(
         model=model,
         system_prompt=profile.instructions,
-        tools=domain_tools(registry, role),
+        tools=[
+            tool
+            for tool in domain_tools(registry, role)
+            if profile.prompt_tools is None or tool.name in profile.prompt_tools
+        ],
         backend=StateBackend(),
         skills=[f"/skills/{role}/"] if profile.skill_files else None,
         permissions=[FilesystemPermission(operations=["write"], paths=["/skills/**"], mode="deny")],

@@ -66,8 +66,12 @@ class AccountSelection(s.Revision):
 
 class GmailSearchCreate(s.Contract):
     account_id: UUID | None = None
+    request_message_id: UUID | None = Field(
+        default=None,
+        description="Agents must cite input_user_message_id for the current explicit mail request.",
+    )
     query: str = Field(min_length=1, max_length=500)
-    max_results: int = Field(default=10, ge=1, le=20)
+    max_results: int = Field(default=5, ge=1, le=20)
 
 
 class GmailSearchRead(s.ResponseContract):
@@ -77,6 +81,7 @@ class GmailSearchRead(s.ResponseContract):
     messages: list[dict[str, Any]]
     next_page_token: str | None
     result_size_estimate: int | None
+    truncated: bool = False
 
 
 class ConnectedContextCreate(s.Contract):
@@ -655,6 +660,59 @@ def select_account(
     )
 
 
+def _gmail_session(
+    request: Request,
+    identity: Identity,
+    account: AccountMetadata,
+    *,
+    request_id: UUID,
+    task_id: UUID | None,
+    opportunity_id: UUID | None,
+) -> str:
+    """Retain one restricted provider session per run/account/policy, including resumes."""
+    operation = "INTERNAL:composio:gmail-session:v1"
+    payload = {
+        "connected_account_id": account.connected_account_id,
+        "auth_config_id": account.auth_config_id,
+    }
+    key = uuid5(identity.run_id or request_id, operation + json.dumps(payload, sort_keys=True))
+    claim_id, replay = _claim_connected(
+        request, actor_id=identity.id, key=key, operation=operation, payload=payload
+    )
+    if replay is not None:
+        return str(replay["session_id"])
+    try:
+        session_id = _adapter(request).create_gmail_session(
+            account,
+            user_id=str(identity.id),
+            operation_id=uuid5(claim_id, "create"),
+            reserve_budget=_budget(request, identity.id, task_id, opportunity_id, claim_id),
+        )
+
+        def retain(db: Session, record_id: UUID) -> dict[str, Any]:
+            fence_agent_write(request, db)
+            return {"session_id": session_id}
+
+        _finalize_connected(
+            request,
+            claim_id=claim_id,
+            actor_id=identity.id,
+            key=key,
+            operation=operation,
+            payload=payload,
+            change=retain,
+        )
+        return session_id
+    except Exception as exc:
+        _fail_connected(
+            request,
+            claim_id,
+            "composio_session_failed",
+            unknown=isinstance(exc, ProviderOutcomeUnknown),
+        )
+        raise
+
+
 @router.post("/gmail/search", response_model=GmailSearchRead)
 def search_gmail(
     body: GmailSearchCreate,
@@ -662,13 +720,17 @@ def search_gmail(
     identity: CurrentIdentity,
     key: WriteKey,
 ) -> dict[str, Any]:
-    if identity.run_id is not None:
-        raise HTTPException(
-            403, "Pull email explicitly from the workspace before using it in agent work"
-        )
     operation = "POST:/api/v1/gmail/search"
     payload = body.model_dump(mode="json")
     with Session(request.app.state.engine) as db:
+        if identity.run_id is not None:
+            run = db.get(AgentRun, identity.run_id)
+            if run is None or run.owner_id != identity.id:
+                raise HTTPException(403, "Agent run has no owned work scope")
+            try:
+                run.require_user_request(db, body.request_message_id)
+            except ValueError as exc:
+                raise HTTPException(403, str(exc)) from exc
         task_id, opportunity_id = _scope(db, identity)
         account = db.scalar(
             select(ExternalAccount).where(
@@ -721,6 +783,14 @@ def search_gmail(
             max_results=body.max_results,
             charge=ChargeContext(uuid5(claim_id, "search")),
             reserve_budget=budget,
+            session_id=_gmail_session(
+                request,
+                identity,
+                metadata,
+                request_id=claim_id,
+                task_id=task_id,
+                opportunity_id=opportunity_id,
+            ),
         )
     except SpendingDenied as exc:
         _deny_connected(request, claim_id, exc)
@@ -758,6 +828,7 @@ def search_gmail(
             messages=result["messages"],
             next_page_token=result["next_page_token"],
             result_size_estimate=result["result_size_estimate"],
+            truncated=bool(result.get("truncated")),
         ).model_dump(mode="json")
 
     return _finalize_connected(

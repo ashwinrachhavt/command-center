@@ -22,9 +22,10 @@ from command_center.agents.mcp_policy import POLICIES, coverage, local_api_allow
 from command_center.core.capabilities import issue_run_token
 from command_center.core.local_credentials import issue_client_api_token
 from command_center.db.agents import AgentRun
-from command_center.db.artifacts import Artifact, ArtifactVersion
+from command_center.db.artifacts import Artifact, ArtifactVersion, Document, DocumentType
 from command_center.db.base import utc_now
 from command_center.db.crm import Company
+from command_center.db.document_imports import DocumentImport
 from command_center.db.mcp_clients import MCPClientCredential
 from command_center.db.models import Actor, AuditEvent, Task
 from command_center.main import create_app
@@ -310,6 +311,43 @@ def test_progressive_catalog_preserves_grants_and_executes_owned_writes(agent_se
         actor = Actor(id=uuid4(), kind="human", display_name="Synthetic catalog owner")
         db.add(actor)
         db.flush()
+        artifact = Artifact(
+            id=uuid4(),
+            owner_id=actor.id,
+            created_by_id=actor.id,
+            title="Synthetic uploaded document",
+            kind="document",
+            sensitivity="private",
+        )
+        task = Task(id=uuid4(), owner_id=actor.id, title="Review synthetic upload")
+        db.add_all([artifact, task])
+        db.flush()
+        db.add(
+            Document(
+                artifact_id=artifact.id,
+                document_type_id=db.scalar(select(DocumentType.id).limit(1)),
+            )
+        )
+        version = artifact.append_text(
+            "Synthetic document contains the requested project summary.",
+            version_id=uuid4(),
+            request_id=uuid4(),
+        )
+        db.flush()
+        db.add(
+            DocumentImport(
+                owner_id=actor.id,
+                artifact_id=artifact.id,
+                source_version_id=version.id,
+                task_id=task.id,
+                filename="synthetic-notes.txt",
+                media_type="text/plain",
+                byte_size=60,
+                state="completed",
+                extraction_artifact_id=artifact.id,
+                extraction_version_id=version.id,
+            )
+        )
         run = AgentRun.enqueue(
             db,
             record_id=uuid4(),
@@ -340,6 +378,38 @@ def test_progressive_catalog_preserves_grants_and_executes_owned_writes(agent_se
         }
         found = rpc(http, token, "catalog_search", {"query": "create company"})
         assert any(item["name"] == "cc_workspace_create_company" for item in found["items"])
+        contacts = rpc(http, token, "catalog_search", {"query": "CRM contact-creation capability"})
+        assert any(item["name"] == "cc_workspace_create_contact" for item in contacts["items"])
+        for query in ("document vault", "most recent uploaded documents", "document contents"):
+            documents = rpc(http, token, "catalog_search", {"query": query})
+            assert {"cc_documents_list_imports", "document_read"} <= {
+                item["name"] for item in documents["items"]
+            }, documents
+        mail = rpc(http, token, "catalog_search", {"query": "search email"})
+        assert any(item["name"] == "gmail_search" for item in mail["items"])
+        imports = rpc(
+            http,
+            token,
+            "catalog_execute",
+            {
+                "tool_name": "cc_documents_list_imports",
+                "arguments": {"limit": 1},
+            },
+        )
+        assert imports["items"][0]["filename"] == "synthetic-notes.txt"
+        contents = rpc(
+            http,
+            token,
+            "catalog_execute",
+            {
+                "tool_name": "document_read",
+                "arguments": {
+                    "version_id": imports["items"][0]["extraction_version_id"],
+                    "limit": 100,
+                },
+            },
+        )
+        assert "requested project summary" in contents["text"]
         linkedin = rpc(http, token, "catalog_search", {"query": "LinkedIn"})
         linkedin_tools = {item["name"] for item in linkedin["items"]}
         assert {"connected_context", "propose_connected_action"} <= linkedin_tools

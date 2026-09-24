@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import quote
@@ -208,7 +209,40 @@ def add_catalog_tools(registry: ToolRegistry, openapi: dict[str, Any], *, local:
     add_api_tools(catalog, openapi, local=local)
 
     def search(args: dict[str, Any]) -> dict[str, Any]:
-        words = args.get("query", "").lower().split()
+        aliases = {
+            "creation": "create",
+            "creating": "create",
+            "contacts": "contact",
+            "companies": "company",
+            "tasks": "task",
+            "documents": "document",
+            "docs": "document",
+            "files": "document",
+            "uploads": "uploaded",
+            "contents": "content",
+            "emails": "email",
+            "mail": "email",
+        }
+        ignored = {
+            "crm",
+            "capability",
+            "capabilities",
+            "operation",
+            "operations",
+            "a",
+            "the",
+            "my",
+            "most",
+            "from",
+            "in",
+            "access",
+            "get",
+        }
+        words = [
+            aliases.get(word, word)
+            for word in re.findall(r"[a-z0-9]+", args.get("query", "").lower())
+            if word not in ignored
+        ]
         matches = [
             entry["function"]
             for entry in catalog.schemas
@@ -219,12 +253,18 @@ def add_catalog_tools(registry: ToolRegistry, openapi: dict[str, Any], *, local:
         ]
         offset = args.get("offset", 0)
         limit = args.get("limit", 3)
-        return {
+        result = {
             "items": matches[offset : offset + limit],
             "offset": offset,
             "total": len(matches),
             "next_offset": offset + limit if offset + limit < len(matches) else None,
         }
+        if not matches:
+            result["hint"] = (
+                "Try a short action/entity query: document vault, read document, Gmail search, "
+                "or create contact. No matches does not establish that access is unavailable."
+            )
+        return result
 
     def execute(args: dict[str, Any]) -> Any:
         name = args["tool_name"]

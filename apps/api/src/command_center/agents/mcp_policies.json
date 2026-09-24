@@ -287,12 +287,12 @@
   "GET /api/v1/documents/imports": {
     "name": "cc_documents_list_imports",
     "policy": "tool",
-    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+    "reason": "List uploaded documents in the Document Vault, newest/latest/recent first. Returns extraction status and exact extraction_version_id; read completed contents using document_read. Use a small limit."
   },
   "GET /api/v1/documents/imports/{import_id}": {
     "name": "cc_documents_get_import",
     "policy": "tool",
-    "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+    "reason": "Check an uploaded Document Vault import and its extraction status, original and extracted version references. Read completed contents with document_read."
   },
   "GET /api/v1/documents/versions/{version_id}/text": {
     "name": "document_read",
@@ -746,8 +746,8 @@
   },
   "POST /api/v1/gmail/search": {
     "name": "gmail_search",
-    "policy": "human",
-    "reason": "Mail import/search requires an explicit human pull in Command Center; no agent may impersonate that consent."
+    "policy": "tool",
+    "reason": "Search Gmail email only when the current user explicitly requests a mail pull. Agents must cite the current input_user_message_id as request_message_id. Uses the selected verified outreach account; no background sync or sending."
   },
   "POST /api/v1/integrations/composio/accounts/sync": {
     "name": "cc_reviewed_actions_sync_accounts",

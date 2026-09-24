@@ -63,12 +63,15 @@ class DoclingClient:
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
             "text/plain": "md",
             "text/markdown": "md",
+            "image/jpeg": "image",
+            "image/png": "image",
         }
         if media_type not in formats or not data or len(data) > 20 * 1024 * 1024:
             raise DoclingError("Unsupported source document")
         source_format = formats[media_type]
         # Only bytes are submitted. Filenames cannot select URLs or filesystem locations.
-        upload_name = f"document.{source_format}"
+        extension = {"image/jpeg": "jpg", "image/png": "png"}.get(media_type, source_format)
+        upload_name = f"document.{extension}"
         try:
             async with asyncio.timeout(CONVERSION_SECONDS):
                 versions = await self._json("GET", "/version")
@@ -89,6 +92,7 @@ class DoclingClient:
                         "include_images": "false",
                         "include_page_images": "false",
                         "do_ocr": "true",
+                        "force_ocr": "true" if source_format == "image" else "false",
                         "do_picture_description": "false",
                         "do_picture_classification": "false",
                         "do_chart_extraction": "false",
@@ -121,6 +125,11 @@ class DoclingClient:
                 text = exported.get("md_content")
                 document = exported.get("json_content")
                 if not isinstance(text, str) or not text.strip() or not isinstance(document, dict):
+                    raise DoclingError("Document conversion did not produce reviewable text")
+                if (
+                    source_format == "image"
+                    and not re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
+                ):
                     raise DoclingError("Document conversion did not produce reviewable text")
                 if len(text) > MAX_EXTRACTED_CHARS:
                     raise DoclingError("Extracted text exceeds the supported size")

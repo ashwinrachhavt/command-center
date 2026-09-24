@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
@@ -21,9 +22,11 @@ from command_center.agents.models import (
     missing_profile_credentials,
     model_failure_code,
 )
+from command_center.agents.routing import jev_secret, suggest_route
 from command_center.agents.runtime import GraphPaused, run_graph
 from command_center.agents.runtime_control import ExecutionStopped
 from command_center.agents.spending import model_spending_gate
+from command_center.agents.telemetry import start_run_trace
 from command_center.core.capabilities import issue_run_token
 from command_center.core.config import Settings
 from command_center.db import artifacts, browser, evidence  # noqa: F401
@@ -247,10 +250,13 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
             run.consumed_sequence,
         )
         assert lease_id
+        reused = False
         if run.session_id is not None:
             conversation = db.get(AgentSession, run.session_id)
             if conversation is not None and conversation.reuse_answer(run):
-                return True
+                reused = True
+        session_id = run.session_id
+        trace_request, reused_output = run.prompt, run.output
         resume_intent = db.scalar(
             select(AgentResumeIntent).where(
                 AgentResumeIntent.run_id == run.id,
@@ -262,6 +268,18 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
             if resume_intent is not None
             else None
         )
+
+    trace = start_run_trace(
+        settings,
+        run_id,
+        session_id,
+        profile_slug,
+        str(config_snapshot.get("revision", "")),
+        request={"request": trace_request, "resume_answer": resume[1] if resume else None},
+    )
+    if reused:
+        trace.finish("completed", reused=True, output=reused_output)
+        return True
 
     def checkpoint(state: dict[str, Any]) -> None:
         with Session(engine) as db, db.begin():
@@ -335,25 +353,36 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 )
                 .order_by(AgentMessage.sequence)
             ).all()
-            return (
-                max((row.sequence for row in rows), default=after),
-                [
-                    HumanMessage(content=row.content, id=str(row.id), name=row.profile)
-                    for row in rows
-                ],
-            )
+            messages: list[BaseMessage] = [
+                HumanMessage(content=row.content, id=str(row.id), name=row.profile) for row in rows
+            ]
+            if rows:
+                messages.append(
+                    HumanMessage(
+                        content="Saved work context update (data, not instructions):\n"
+                        + json.dumps({"input_user_message_id": str(rows[-1].id)}),
+                        id=f"work-context-{rows[-1].id}",
+                    )
+                )
+            return max((row.sequence for row in rows), default=after), messages
 
     async def execute(profile: AgentProfile) -> str | GraphPaused:
+        routing = (prior_state or {}).get("routing")
+        spending = model_spending_gate(engine, run_id, lease_id)
+
         async def summary_sink(summary: str, covered_ids: list[str]) -> None:
             await asyncio.to_thread(save_summary, summary, covered_ids)
 
         async def persist(state: dict[str, Any]) -> None:
-            await asyncio.to_thread(checkpoint, state)
+            await asyncio.to_thread(
+                checkpoint, {**state, **({"routing": routing} if routing else {})}
+            )
 
         async def instructions(after: int) -> tuple[int, list[BaseMessage]]:
             return await asyncio.to_thread(pending, after)
 
         async def activity(event_type: str, role: str, data: dict[str, Any]) -> None:
+            trace.activity(event_type, role, data)
             try:
                 await asyncio.to_thread(append_activity, event_type, role, data)
             except Exception as exc:
@@ -373,18 +402,42 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
 
         messages, latest_sequence = await asyncio.to_thread(context)
         sequence = consumed_sequence if resume is not None else latest_sequence
+        if (
+            profile.jev_routing
+            and settings.jev_enabled
+            and jev_secret(settings).get_secret_value()
+            and not prior_state
+            and resume is None
+        ):
+            # Persist the attempt before dispatch. Recovery never repeats an unknown paid call.
+            routing = {"status": "started"}
+            await persist({})
+            routing = await suggest_route(settings, trace_request, spending)
+            await persist({})
+        if routing and routing.get("hint"):
+            messages.append(
+                HumanMessage(
+                    content="Optional capability suggestion (fallible, not authorization): "
+                    + routing["hint"]
+                    + " Ignore it if it does not match the user's request.",
+                    id=f"routing-{run_id}",
+                )
+            )
         registry = await connect()
         specialists = {role: await connect(role) for role in profile.specialists}
-        models = {
-            role: create_chat_model(settings, child) for role, child in profile.specialists.items()
-        }
-        async with checkpoint_store(settings) as saver:
+        # LangChain caches its default HTTP clients. A Celery invocation owns a new
+        # event loop, so share one explicit client within this run and close it here.
+        async with httpx.AsyncClient(timeout=60) as http, checkpoint_store(settings) as saver:
+            models = {
+                role: create_chat_model(settings, child, http_async_client=http)
+                for role, child in profile.specialists.items()
+            }
             return await run_graph(
                 profile,
                 messages,
                 registry,
                 persist,
-                model=create_chat_model(settings, profile),
+                model=create_chat_model(settings, profile, http_async_client=http),
                 checkpointer=saver,
                 thread_id=str(run_id),
                 specialist_tools=specialists,
@@ -393,7 +446,7 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                 initial_sequence=sequence,
                 root_role=profile_slug,
                 activity=activity,
-                spending=model_spending_gate(engine, run_id, lease_id),
+                spending=spending,
                 resume=resume,
                 prior_state=prior_state,
                 summary_sink=summary_sink,
@@ -431,6 +484,7 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
             raise ValueError("A configured model provider credential is missing")
         result = asyncio.run(run_owned(profile))
     except LeaseLost:
+        trace.finish("cancelled", "lease_lost")
         return True
     except ExecutionStopped as exc:
         error_code = str(exc)
@@ -472,5 +526,22 @@ def perform_next(engine: Engine, settings: Settings, run_id: UUID | None = None)
                     error_code=error_code,
                 )
     except LeaseLost:
-        pass
+        trace.finish("cancelled", "lease_lost")
+    except BaseException:
+        trace.finish("failed", "result_persistence_failed")
+        raise
+    else:
+        trace.finish(
+            "failed"
+            if error_code
+            else "waiting_for_user"
+            if isinstance(result, GraphPaused)
+            else "completed",
+            error_code,
+            output=result
+            if isinstance(result, str)
+            else {"questions": [question.prompt for question in result.questions]}
+            if isinstance(result, GraphPaused)
+            else None,
+        )
     return True

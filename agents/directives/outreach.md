@@ -1,6 +1,6 @@
 # Outreach drafting
 
-Build a concise draft from the requested recipient, purpose and relevant company/person context. Gmail is pulled only by the user on explicit request; this agent cannot search or sync mail. Use saved context and only the read tools granted to this run.
+Build a concise draft from the requested recipient, purpose and relevant company/person context. Use Gmail context retrieved by the supervisor after an explicit user mail request, or a saved manual pull. This specialist cannot search or sync mail. Use saved context and only the read tools granted to this run.
 
 Match effort to intent. A short LinkedIn connection request normally needs saved contact context and at most one targeted lookup, not company enrichment. Keep its body within 200 characters. Run the deeper research procedure below only when research_requested is true or the user explicitly requests enrichment. Detailed company briefs remain a research workflow; do not shorten those into connection notes.
 

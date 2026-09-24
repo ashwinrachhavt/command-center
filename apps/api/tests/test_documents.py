@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -74,6 +75,84 @@ def upload(client, *, key=None, content=b"Synthetic resume text", **data):
         files={"file": (filename, content, upload_media_type)},
         headers={"Idempotency-Key": str(key or uuid4())},
     )
+
+
+def image_bytes(image_format="PNG"):
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 24), "white").save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize(
+    "filename,image_format,media_type",
+    [
+        ("scan.png", "PNG", "image/png"),
+        ("scan.jpg", "JPEG", "image/jpeg"),
+        ("SCAN.JPEG", "JPEG", "image/jpeg"),
+    ],
+)
+def test_image_upload_preserves_original_and_derives_media_type(
+    client, filename, image_format, media_type
+):
+    content = image_bytes(image_format)
+    response = upload(client, filename=filename, content=content, upload_media_type="text/plain")
+    assert response.status_code == 202, response.text
+    imported = response.json()
+    assert imported["media_type"] == media_type
+    assert imported["state"] == "queued"
+    downloaded = client.get(
+        f"/api/v1/artifacts/{imported['artifact_id']}/versions/"
+        f"{imported['source_version_id']}/download"
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == content
+    assert downloaded.headers["content-type"] == media_type
+
+
+@pytest.mark.parametrize(
+    "filename,image_format",
+    [
+        ("scan.jpg", "PNG"),
+        ("scan.png", "JPEG"),
+        ("scan.txt", "PNG"),
+    ],
+)
+def test_image_extension_must_match_content(client, filename, image_format):
+    response = upload(client, filename=filename, content=image_bytes(image_format))
+    assert response.status_code == 422
+    client.document_dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("image_format,extension", [("PNG", "png"), ("JPEG", "jpg")])
+def test_corrupt_images_are_rejected_before_queuing(client, image_format, extension):
+    response = upload(client, filename=f"scan.{extension}", content=image_bytes(image_format)[:-12])
+    assert response.status_code == 422
+    client.document_dispatch.assert_not_called()
+
+
+def test_image_pixel_limit_is_checked_before_decoding(mocker):
+    from fastapi import HTTPException
+
+    from command_center.api import documents
+
+    content = image_bytes()
+    mocker.patch.object(documents, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(HTTPException, match="25 megapixels"):
+        documents.inspect_document("scan.png", content)
+
+
+def test_animated_png_is_rejected(client):
+    buffer = io.BytesIO()
+    Image.new("RGB", (16, 16), "white").save(
+        buffer,
+        format="PNG",
+        save_all=True,
+        append_images=[Image.new("RGB", (16, 16), "black")],
+        duration=100,
+    )
+    response = upload(client, filename="animated.png", content=buffer.getvalue())
+    assert response.status_code == 422
+    assert "single-frame" in response.json()["detail"]
 
 
 def actor(session, name: str = "Synthetic owner") -> Actor:
@@ -335,12 +414,22 @@ def test_upload_validation_cancel_retry_and_owner_isolation(client, engine) -> N
     )
 
 
+@pytest.mark.parametrize("source_format", ["text", "PNG", "JPEG"])
 def test_worker_creates_one_derived_version_without_completing_review_task(
-    client, engine, monkeypatch
+    client, engine, monkeypatch, source_format
 ) -> None:
     from command_center.documents import worker
 
-    imported = upload(client).json()
+    content, source_filename, expected_media_type = (
+        (b"Synthetic resume text", "resume.txt", "text/plain")
+        if source_format == "text"
+        else (
+            image_bytes(source_format),
+            f"scan.{source_format.lower()}",
+            f"image/{source_format.lower()}",
+        )
+    )
+    imported = upload(client, content=content, filename=source_filename).json()
 
     class SyntheticDocling:
         def __init__(self, base_url: str, api_key: str = "") -> None:
@@ -348,8 +437,8 @@ def test_worker_creates_one_derived_version_without_completing_review_task(
             assert api_key == ""
 
         async def convert(self, data: bytes, filename: str, media_type: str):
-            assert data == b"Synthetic resume text"
-            assert (filename, media_type) == ("resume.txt", "text/plain")
+            assert data == content
+            assert (filename, media_type) == (source_filename, expected_media_type)
             # Wait for a committed renewal, not a wall-clock guess about thread/DB speed.
             async with asyncio.timeout(5):
                 while True:

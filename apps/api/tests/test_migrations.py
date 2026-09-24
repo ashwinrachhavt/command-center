@@ -248,6 +248,20 @@ def test_linkedin_upgrade_preserves_limits_and_immutable_default_rates(engine, m
             if default:
                 assert current.tool_rate("LINKEDIN_WHO_AM_I") == 10_000
                 assert current.tool_rate("LINKEDIN_CREATE_LINKED_IN_POST") == 10_000
+                assert current.tool_rate("COMPOSIO_SESSION_CREATE") == 10_000
+                assert current.tool_rate("GMAIL_FETCH_EMAILS") == 10_000
+                assert (
+                    current.model_rate("openai", "gpt-6-sol")["output_per_million_micros"]
+                    == 10_000_000
+                )
+                assert (
+                    current.model_rate("typesafe", "jev-1.13.0")["input_per_million_micros"]
+                    == 42_000
+                )
+                assert old.rates["models"] == []
+                for provider, model in (("gateway", "typesafe-ai/jev"), ("venice", "jev-latest")):
+                    assert current.model_rate(provider, model)["input_per_million_micros"] == 42_000
+                    assert current.model_rate(provider, model)["output_per_million_micros"] == 0
 
 
 def test_connection_note_downgrade_keeps_the_character_limit_contract(engine, migration_config):

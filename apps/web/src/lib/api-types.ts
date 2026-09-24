@@ -4611,11 +4611,16 @@ export interface components {
         GmailSearchCreate: {
             /** Account Id */
             account_id?: string | null;
+            /**
+             * Request Message Id
+             * @description Agents must cite input_user_message_id for the current explicit mail request.
+             */
+            request_message_id?: string | null;
             /** Query */
             query: string;
             /**
              * Max Results
-             * @default 10
+             * @default 5
              */
             max_results: number;
         };
@@ -4644,6 +4649,11 @@ export interface components {
             next_page_token: string | null;
             /** Result Size Estimate */
             result_size_estimate: number | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
         };
         /** GmailSendPayload */
         GmailSendPayload: {

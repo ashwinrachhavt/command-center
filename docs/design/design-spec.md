@@ -339,3 +339,8 @@ Show cached-answer provenance and an explicit fresh-answer option. Settings → 
 ### Home chat layout — confirmed 2026-09-23
 
 Navigation and conversation history collapse independently with visible controls; desktop choices persist across reloads. On mobile, history opens in a dismissible drawer and restores focus to its trigger. Home chat fills the available dynamic viewport: a compact toolbar, one message scroll region, and a bounded composer. Long pasted drafts scroll within the textarea, and long saved messages remain reachable without page or nested transcript scrolling. Changing panel visibility preserves the selected conversation and unsent text.
+
+
+### Chat activity capsules — 2026-09-23 maintenance
+
+Each run has a compact keyboard-accessible status capsule. Active work opens its activity; completion folds the activity away, and the user can reopen it. Each tool has its own compact capsule composed with the installed AI Elements Tool and shadcn Collapsible; tool transitions fold successful details and expose errors. Visible labels describe public activity, never private reasoning. Streamed/final answers, saved output links, errors and saved questions remain outside the collapsible activity. Cached event receipts remain visible during the final server refresh, deduplicated by tool-call ID. Reconnect, saved-question drafts, reduced motion and desktop/mobile layouts retain their existing contracts.

@@ -16,6 +16,36 @@ from .dataset import load_suite, reference_captures
 from .judge import BoundedJudge, EvaluatorError, evaluate_case
 
 
+def test_smoke_capture_reuse_rejects_stale_inputs_and_duplicate_cases(tmp_path):
+    from .chat_smoke import chat_suite, reusable_captures
+    from .contracts import Capture
+
+    suite = chat_suite()
+    capture = Capture(
+        case_id=suite.cases[0].id,
+        input_sha256=suite.cases[0].input_digest(),
+        actual_output="Hello!",
+        model={"provider": "openai", "model": "gpt-6-sol"},
+        prompt_sha256="a" * 64,
+        tools_sha256="b" * 64,
+        harness_revision="synthetic-test",
+        source_revision="synthetic-test",
+        elapsed_ms=1,
+    ).model_dump(mode="json")
+    path = tmp_path / "report.json"
+    prior = {"suite": suite.model_dump(mode="json"), "partial_captures": [capture]}
+    path.write_text(json.dumps(prior))
+    assert reusable_captures(path, suite)["greeting"].actual_output == "Hello!"
+    prior["partial_captures"] = [capture, capture]
+    path.write_text(json.dumps(prior))
+    with pytest.raises(ValueError, match="Duplicate"):
+        reusable_captures(path, suite)
+    prior["partial_captures"] = [{**capture, "input_sha256": "c" * 64}]
+    path.write_text(json.dumps(prior))
+    with pytest.raises(ValueError, match="inputs or model"):
+        reusable_captures(path, suite)
+
+
 @pytest.fixture(autouse=True)
 def no_network(mocker):
     mocker.patch.object(socket.socket, "connect", side_effect=AssertionError("Offline eval check"))
@@ -61,7 +91,7 @@ class OfflineJudge(BaseChatModel):
         raise AssertionError("This fixture only supports schema-bound evaluation")
 
     def with_structured_output(self, schema, **kwargs):
-        async def answer(_messages):
+        def answer(_messages):
             if self.fail:
                 raise TypeError("Synthetic provider failure")
             usage = (
@@ -200,6 +230,68 @@ def test_reports_never_overwrite_prior_attempts(tmp_path):
     first, second = report(tmp_path), report(tmp_path)
     assert first.path != second.path
     assert first.path.exists() and second.path.exists()
+
+
+def test_langfuse_scores_keep_judge_cost_and_errors_separate(plan, tmp_path, mocker):
+    from .langfuse_report import publish_report
+
+    suite = load_suite()
+    captures = reference_captures(suite).model_dump(mode="json")
+    # Mocked export contract only; this fixture is never sent to a real server.
+    captures["origin"] = "recorded_model"
+    captures["cases"] = captures["cases"][:1]
+    captures["cases"][0]["trace_id"] = "a" * 32
+    saved = RunReport(
+        tmp_path,
+        {
+            "suite": suite.model_dump(mode="json"),
+            "captures": captures,
+            "plan": plan.model_dump(mode="json"),
+        },
+    )
+    saved.result(
+        {
+            "case_id": suite.cases[0].id,
+            "metric": "grounding",
+            "state": "passed",
+            "score": 1.0,
+            "threshold": 1.0,
+            "reason": "Synthetic evidence",
+        }
+    )
+    saved.result(
+        {
+            "case_id": suite.cases[0].id,
+            "metric": "completion",
+            "state": "evaluator_error",
+            "error_type": "SyntheticError",
+        }
+    )
+    client = mocker.Mock()
+    client.create_trace_id.side_effect = lambda seed: (
+        __import__("hashlib").md5(seed.encode()).hexdigest()
+    )
+    published = publish_report(saved, client)
+    assert published[suite.cases[0].id] == "a" * 32
+    first, second = client.create_score.call_args_list
+    assert first.kwargs["data_type"] == "NUMERIC" and first.kwargs["value"] == 1.0
+    assert second.kwargs["data_type"] == "CATEGORICAL"
+    assert second.kwargs["value"] == "evaluator_error"
+    # Original traced generation isn't imported (and charged) a second time.
+    client.start_observation.return_value.start_observation.assert_not_called()
+    client.flush.assert_called_once()
+
+
+def test_langfuse_rejects_reference_quality_claims(tmp_path, mocker):
+    from .langfuse_report import publish_report
+
+    saved = RunReport(
+        tmp_path, {"captures": reference_captures(load_suite()).model_dump(mode="json")}
+    )
+    client = mocker.Mock()
+    with pytest.raises(ValueError, match="recorded synthetic"):
+        publish_report(saved, client)
+    client.start_observation.assert_not_called()
 
 
 def test_deepeval_reports_provider_errors_separately(plan, tmp_path):

@@ -10,7 +10,7 @@ test("restores branch questions and retries one answer without losing its draft"
     name: "Interview plan with saved questions activity",
   });
   await expect(
-    activity.getByText("Waiting for user", { exact: true }),
+    activity.getByText("Needs your answer", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Work is paused until you answer the saved question below."),
@@ -79,7 +79,9 @@ test("restores branch questions and retries one answer without losing its draft"
   await expect(
     application.getByRole("button", { name: "Answer", exact: true }),
   ).toBeDisabled();
-  await expect(activity.getByText("Queued", { exact: true })).toBeVisible();
+  await expect(
+    activity.getByText("Waiting to start", { exact: true }),
+  ).toBeVisible();
 
   await page.evaluate(async () => {
     await fetch("/api/backend/test/wait-for-next-question", { method: "POST" });

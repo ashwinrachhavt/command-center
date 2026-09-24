@@ -470,3 +470,130 @@ def test_calendar_context_rejects_malformed_success_and_preserves_local_paginati
     assert result.context["local_omitted_count"] > 0
     assert "smaller time window" in result.context["continuation_note"]
     assert len(json.dumps(result.context, ensure_ascii=False).encode()) <= 12_000
+
+
+def test_gmail_session_pins_one_account_and_executes_without_bulk_tools(mocker):
+    from composio_client.types.tool_router.session_execute_response import SessionExecuteResponse
+
+    client = ComposioActionClient(api_key="synthetic", timeout_seconds=17)
+    create = mocker.patch.object(
+        client.client.tool_router.session,
+        "create",
+        autospec=True,
+        return_value=SimpleNamespace(session_id="session-synthetic"),
+    )
+    execute = mocker.patch.object(
+        client.client.tool_router.session,
+        "execute",
+        autospec=True,
+        return_value=SessionExecuteResponse(
+            data={
+                "messages": [
+                    {
+                        "messageId": "synthetic-mail",
+                        "sender": "lead@example.test",
+                        "messageText": "Synthetic lead context",
+                        "private_extra": "omit",
+                    }
+                ]
+            },
+            error=None,
+            log_id="log-synthetic",
+        ),
+    )
+    legacy = mocker.patch.object(client.client.tools, "execute", autospec=True)
+    reserve, charges = budget_recorder()
+    session_id = client.create_gmail_session(
+        gmail_account(),
+        user_id="owner",
+        operation_id=uuid4(),
+        reserve_budget=reserve,
+    )
+    options = create.call_args.kwargs
+    assert options["connected_accounts"] == {"gmail": ["ca_synthetic"]}
+    assert options["auth_configs"] == {"gmail": "ac_synthetic"}
+    assert options["toolkits"] == {"enable": ["gmail"]}
+    assert options["tools"] == {"gmail": {"enable": ["GMAIL_FETCH_EMAILS"]}}
+    assert options["manage_connections"] == {"enable": False}
+    assert options["workbench"] == {"enable": False, "enable_proxy_execution": False}
+    assert options["execute"] == {"enable_multi_execute": False}
+    for _ in range(2):
+        result = client.gmail_search(
+            gmail_account(),
+            user_id="owner",
+            query="from:lead@example.test",
+            max_results=2,
+            charge=ChargeContext(uuid4()),
+            reserve_budget=reserve,
+            session_id=session_id,
+        )
+        assert result["messages"][0]["messageText"] == "Synthetic lead context"
+        assert "private_extra" not in result["messages"][0]
+    assert create.call_count == 1
+    assert execute.call_count == 2
+    assert execute.call_args.kwargs["session_id"] == session_id
+    assert execute.call_args.kwargs["account"] == "ca_synthetic"
+    legacy.assert_not_called()
+    assert [entry[0] for entry in charges] == [
+        "COMPOSIO_SESSION_CREATE",
+        "GMAIL_FETCH_EMAILS",
+        "GMAIL_FETCH_EMAILS",
+    ]
+    assert all(entry[2].settled == 1 for entry in charges)
+    client.close()
+
+
+@pytest.mark.parametrize("response", [RuntimeError("timeout"), {"data": {}, "error": "failed"}])
+def test_session_failure_never_falls_back_to_unrestricted_execution(response):
+    client, legacy = client_with()
+    sessions = ToolExecutor([response])
+    client.client.tool_router = SimpleNamespace(
+        session=SimpleNamespace(
+            execute=lambda **kwargs: sessions.execute(kwargs.pop("tool_slug"), **kwargs)
+        )
+    )
+    reserve, charges = budget_recorder()
+    with pytest.raises((ProviderFailure, ProviderOutcomeUnknown)):
+        client.gmail_search(
+            gmail_account(),
+            user_id="owner",
+            query="synthetic",
+            max_results=1,
+            charge=ChargeContext(uuid4()),
+            reserve_budget=reserve,
+            session_id="session-synthetic",
+        )
+    assert not legacy.calls
+    assert len(sessions.calls) == 1
+    assert len(charges) == 1
+
+
+def test_mail_results_keep_ids_and_explicit_truncation_with_large_bodies():
+    client, _ = client_with(
+        {
+            "successful": True,
+            "data": {
+                "messages": [
+                    {
+                        "messageId": f"mail-{index}",
+                        "sender": "lead@example.test",
+                        "messageText": "x" * 100_000,
+                    }
+                    for index in range(20)
+                ]
+            },
+        }
+    )
+    reserve, _ = budget_recorder()
+    result = client.gmail_search(
+        gmail_account(),
+        user_id="owner",
+        query="synthetic",
+        max_results=20,
+        charge=ChargeContext(uuid4()),
+        reserve_budget=reserve,
+    )
+    assert len(result["messages"]) == 20
+    assert result["truncated"] is True
+    assert all(item["messageId"] and item["content_truncated"] for item in result["messages"])
+    assert len(json.dumps(result)) < 25_000

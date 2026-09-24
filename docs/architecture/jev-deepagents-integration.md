@@ -168,6 +168,8 @@ Keep the TypeSafe client server-side. Do not put API credentials in the browser 
 
 ## First implementation PR
 
+For the 2026-09-23 cost investigation, [request costs and evaluation](../tech/request-costs.md#model-quality-and-optional-jev-routing) documents the implemented, bounded capability router, available server transports, Langfuse instrumentation and synthetic checks. The broader semantic gates described in this document remain proposed; net savings have not yet been measured.
+
 Start with "Add Jev semantic guardrails for Deep Agent tool calls."
 
 - Implement a `DecisionModel` protocol and server-side TypeSafe adapter.

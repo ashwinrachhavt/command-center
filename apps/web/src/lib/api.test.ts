@@ -5,6 +5,22 @@ import { api, ApiError, runFailureMessage } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
+it("turns a plain-text upstream failure into a recoverable API error", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        new Response("Internal Server Error", { status: 500 }),
+      ),
+  );
+  await expect(api("workspace", { retry: false })).rejects.toMatchObject({
+    status: 500,
+    message:
+      "The workspace service is temporarily unavailable. Try again shortly.",
+  });
+});
+
 it.each([
   "connected_request_failed",
   "connected_request_running",

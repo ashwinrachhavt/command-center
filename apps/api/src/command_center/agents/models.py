@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import httpx
 from cohere.core.api_error import ApiError as CohereAPIError
 from langchain_cohere import ChatCohere
 from langchain_core.exceptions import (
@@ -75,7 +76,9 @@ def missing_profile_credentials(settings: Settings, profile: AgentProfile) -> tu
     return tuple(name for name in PROVIDER_ENV.values() if name in missing)
 
 
-def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatModel:
+def create_chat_model(
+    settings: Settings, profile: AgentProfile, *, http_async_client: httpx.AsyncClient | None = None
+) -> BaseChatModel:
     if profile.provider == "cohere" and not cohere_tool_model(profile.model):
         raise UnsupportedToolModel("Choose a Cohere Command model with tool support for agent chat")
     api_key = provider_secret(settings, profile.provider)
@@ -85,6 +88,7 @@ def create_chat_model(settings: Settings, profile: AgentProfile) -> BaseChatMode
         return ChatOpenAI(
             model=profile.model,
             api_key=api_key,
+            http_async_client=http_async_client,
             timeout=60,
             max_retries=0,
             max_completion_tokens=profile.max_output_tokens,

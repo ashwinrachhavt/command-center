@@ -50,6 +50,27 @@ class EmptyTools:
         raise AssertionError("No tool should run")
 
 
+def test_run_steps_exclude_internal_checkpoint_fields(client, engine):
+    with Session(engine) as db, db.begin():
+        run = make_run(db, client.actor_id)
+        run.checkpoint = {
+            "tools": [
+                {
+                    "id": "synthetic-call",
+                    "name": "ask_user",
+                    "role": "lead",
+                    "state": "input-available",
+                    "output": None,
+                    "budget_denied": False,
+                }
+            ]
+        }
+        run_id = run.id
+    response = client.get(f"/api/v1/agent-runs/{run_id}/steps")
+    assert response.status_code == 200
+    assert "budget_denied" not in response.json()[0]
+
+
 class StreamingModel(BaseChatModel):
     @property
     def _llm_type(self) -> str:

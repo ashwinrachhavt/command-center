@@ -14,12 +14,14 @@ from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.outputs import LLMResult
+from langgraph.errors import GraphInterrupt
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from command_center.agents.config import AgentProfile
 from command_center.agents.spending import ModelSpendingGate, conservative_input_bound
+from command_center.agents.telemetry import current_trace
 from command_center.db.spending import SpendingDenied
 
 type ProgressSink = Callable[[dict[str, Any]], Awaitable[None]]
@@ -61,6 +63,7 @@ class RunControl:
         self.usage = {
             "input_tokens": int(usage.get("input_tokens", 0)),
             "output_tokens": int(usage.get("output_tokens", 0)),
+            "cached_input_tokens": int(usage.get("cached_input_tokens", 0)),
         }
         self.tools = {
             str(item["id"]): copy.deepcopy(item)
@@ -135,12 +138,32 @@ class ModelAccounting(AsyncCallbackHandler):
             except SpendingDenied as exc:
                 raise ExecutionStopped(exc.code) from exc
 
+        if trace := current_trace.get():
+            schemas = kwargs.get("invocation_params", {}).get("tools", [])
+            trace.model_start(
+                run_id,
+                self.role,
+                self.profile.provider,
+                self.profile.model,
+                sum(len(str(m.content)) for batch in messages for m in batch),
+                len(json.dumps(schemas, default=str)),
+                len(schemas),
+                messages=[message for batch in messages for message in batch],
+            )
+
     async def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
-        call_usage = {"input_tokens": 0, "output_tokens": 0}
+        call_usage = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
         async with self.control.lock:
             for generation in response.generations:
                 for output in generation:
                     usage = getattr(getattr(output, "message", None), "usage_metadata", None) or {}
+                    usage = {
+                        **usage,
+                        "cached_input_tokens": min(
+                            int(usage.get("input_tokens", 0)),
+                            max(0, int(usage.get("input_token_details", {}).get("cache_read", 0))),
+                        ),
+                    }
                     for name in self.control.usage:
                         count = int(usage.get(name, 0))
                         call_usage[name] += count
@@ -152,9 +175,20 @@ class ModelAccounting(AsyncCallbackHandler):
                     self.role,
                     {
                         **self.control.usage,
-                        "total_tokens": sum(self.control.usage.values()),
+                        "total_tokens": self.control.usage["input_tokens"]
+                        + self.control.usage["output_tokens"],
                     },
                 )
+        if trace := current_trace.get():
+            trace.model_end(
+                run_id,
+                call_usage,
+                output=[
+                    getattr(output, "message", None)
+                    for batch in response.generations
+                    for output in batch
+                ],
+            )
         if self.spending is not None:
             await self.spending.settle(
                 run_id,
@@ -163,6 +197,8 @@ class ModelAccounting(AsyncCallbackHandler):
             )
 
     async def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        if trace := current_trace.get():
+            trace.model_end(run_id, {}, error=True)
         if self.spending is not None:
             await self.spending.unknown(run_id, "spending_usage_unknown")
 
@@ -235,6 +271,8 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                         specialist=str(call["args"].get("subagent_type", ""))[:100],
                         summary=str(call["args"].get("description", ""))[:2000],
                     )
+                elif call["name"] == "catalog_execute":
+                    control.tools[call_id]["summary"] = str(call["args"].get("tool_name", ""))[:100]
                 await control.emit()
                 await control.emit_activity(
                     "tool-input-available",
@@ -309,6 +347,9 @@ class WorkMiddleware(AgentMiddleware[WorkState, Any, Any]):
                     ),
                 )
             return result
+        except GraphInterrupt:
+            # A durable human question is pending, not a failed tool execution.
+            raise
         except Exception:
             async with control.lock:
                 control.tools[call_id].update(state="output-error", output="Operation interrupted.")

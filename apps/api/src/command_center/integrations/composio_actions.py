@@ -43,9 +43,11 @@ IDENTITY_TOOLS = {
     "linkedin": "LINKEDIN_WHO_AM_I",
 }
 CONNECTED_ACCOUNTS_LIST_OPERATION = "COMPOSIO_CONNECTED_ACCOUNTS_LIST"
+SESSION_CREATE_OPERATION = "COMPOSIO_SESSION_CREATE"
 PRESIGNED_FILE_UPLOAD_OPERATION = "COMPOSIO_FILES_CREATE_PRESIGNED_URL"
 CONNECTED_OPERATION_LABELS = {
     CONNECTED_ACCOUNTS_LIST_OPERATION: "List connected accounts",
+    SESSION_CREATE_OPERATION: "Create restricted Composio session",
     PRESIGNED_FILE_UPLOAD_OPERATION: "Prepare connected attachment upload",
     "GMAIL_GET_PROFILE": "Verify Gmail identity",
     "GOOGLECALENDAR_GET_CURRENT_USER": "Verify Google Calendar identity",
@@ -406,6 +408,42 @@ class ComposioActionClient:
             raise ProviderFailure("Provider did not return a stable account identity")
         return VerifiedIdentity(display_name=display[:300], identity=identity)
 
+    def create_gmail_session(
+        self,
+        account: AccountMetadata,
+        *,
+        user_id: str,
+        operation_id: UUID,
+        reserve_budget: ReserveBudget,
+    ) -> str:
+        """Use the SDK's Sessions API with one pinned account and one read tool.
+
+        The caller durably retains the ID. No authentication management, proxy,
+        workbench, bulk execution or full catalog is exposed to the model.
+        """
+        if account.toolkit != "gmail" or account.status != "ACTIVE" or account.is_disabled:
+            raise ValueError("A Gmail session requires an active Gmail account")
+        response = self._connected_call(
+            SESSION_CREATE_OPERATION,
+            operation_id,
+            reserve_budget,
+            lambda: self.client.tool_router.session.create(
+                user_id=user_id,
+                toolkits={"enable": ["gmail"]},
+                tools={"gmail": {"enable": ["GMAIL_FETCH_EMAILS"]}},
+                connected_accounts={"gmail": [account.connected_account_id]},
+                auth_configs={"gmail": account.auth_config_id},
+                manage_connections={"enable": False},
+                workbench={"enable": False, "enable_proxy_execution": False},
+                execute={"enable_multi_execute": False},
+                timeout=float(self.timeout_seconds),
+            ),
+        )
+        session_id = getattr(response, "session_id", None)
+        if not isinstance(session_id, str) or not session_id:
+            raise ProviderFailure("Provider did not return a session ID")
+        return session_id
+
     def gmail_search(
         self,
         account: AccountMetadata,
@@ -415,6 +453,7 @@ class ComposioActionClient:
         max_results: int,
         charge: ChargeContext,
         reserve_budget: ReserveBudget,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         if not query.strip() or not 1 <= max_results <= 20:
             raise ValueError("Gmail search needs a query and 1 to 20 results")
@@ -434,6 +473,7 @@ class ComposioActionClient:
             charge=charge,
             reserve_budget=reserve_budget,
             write=False,
+            session_id=session_id,
         )
         data = result["data"]
         messages = data.get("messages", [])
@@ -442,25 +482,38 @@ class ComposioActionClient:
             for message in messages[:max_results]:
                 if not isinstance(message, dict):
                     continue
-                safe_messages.append(
-                    {
-                        key: message.get(key)
-                        for key in (
-                            "messageId",
-                            "threadId",
-                            "sender",
-                            "to",
-                            "subject",
-                            "messageTimestamp",
-                            "messageText",
-                            "display_url",
-                        )
-                    }
-                )
+                item: dict[str, Any] = {}
+                truncated = False
+                for key in (
+                    "messageId",
+                    "threadId",
+                    "sender",
+                    "to",
+                    "subject",
+                    "messageTimestamp",
+                    "messageText",
+                    "display_url",
+                ):
+                    value = message.get(key)
+                    limit = 16_000 // max_results if key == "messageText" else 200
+                    if isinstance(value, str):
+                        truncated = truncated or len(value) > limit
+                        item[key] = value[:limit]
+                    elif value is None or isinstance(value, (int, float)):
+                        item[key] = value
+                    else:
+                        # Bound nested provider fields as well as text bodies.
+                        text = json.dumps(value, ensure_ascii=False, default=str)
+                        truncated = truncated or len(text) > limit
+                        item[key] = text[:limit]
+                item["content_truncated"] = truncated
+                safe_messages.append(item)
         bounded_messages = _bounded({"items": safe_messages}, 80_000)
         return {
             "messages": bounded_messages.get("items", []),
             "messages_digest": bounded_messages.get("sha256"),
+            "truncated": bool(bounded_messages.get("truncated"))
+            or any(item["content_truncated"] for item in safe_messages),
             "next_page_token": data.get("nextPageToken") or None,
             "result_size_estimate": data.get("resultSizeEstimate"),
             "log_id": result.get("log_id"),
@@ -988,17 +1041,32 @@ class ComposioActionClient:
         reserve_budget: ReserveBudget,
         write: bool,
         toolkit_version: str | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
+        if session_id is not None and (
+            write or tool_slug != "GMAIL_FETCH_EMAILS" or account.toolkit != "gmail"
+        ):
+            raise ValueError("This session only supports the approved Gmail read")
         reservation = reserve_budget(tool_slug, charge.operation_id)
+        response: Any
         try:
-            response = self.client.tools.execute(
-                tool_slug,
-                arguments=arguments,
-                connected_account_id=account.connected_account_id,
-                user_id=user_id,
-                version=toolkit_version or TOOLKIT_VERSIONS[account.toolkit],
-                timeout=float(self.timeout_seconds),
-            )
+            if session_id is not None:
+                response = self.client.tool_router.session.execute(
+                    session_id=session_id,
+                    tool_slug=tool_slug,
+                    arguments=arguments,
+                    account=account.connected_account_id,
+                    timeout=float(self.timeout_seconds),
+                )
+            else:
+                response = self.client.tools.execute(
+                    tool_slug,
+                    arguments=arguments,
+                    connected_account_id=account.connected_account_id,
+                    user_id=user_id,
+                    version=toolkit_version or TOOLKIT_VERSIONS[account.toolkit],
+                    timeout=float(self.timeout_seconds),
+                )
         except Exception as exc:
             if definitive_client_failure(exc):
                 reservation.settle()
@@ -1011,7 +1079,8 @@ class ComposioActionClient:
         result = _plain(response)
         if not isinstance(result, dict):
             raise ProviderFailure("Provider returned an invalid tool response")
-        if result.get("successful") is not True or result.get("error"):
+        # Sessions use data/error/log_id; the legacy API additionally has successful.
+        if result.get("error") or (session_id is None and result.get("successful") is not True):
             raise ProviderFailure("Provider did not complete the tool request")
         data = result.get("data")
         if not isinstance(data, dict):
