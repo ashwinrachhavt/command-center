@@ -1,18 +1,70 @@
 # Command Center — Design Spec
 
-**Companion specs:** [Product](../product/product-spec.md) · [Tech](../tech/tech-spec.md). **Revision:** 2026-09-22-r25. **State:** full-page section navigation, contextual record inspection and appearance controls implemented locally; broader hardening remains tracked in Engineering. New agent interaction contracts below are documentation, not implemented UI. [Product Spec](../product/product-spec.md) owns product requirements.
+**Companion specs:** [Product](../product/product-spec.md) · [Tech](../tech/tech-spec.md). **Revision:** 2026-09-24-r29. **State:** full-page section navigation, contextual record inspection and appearance controls implemented locally; broader hardening remains tracked in Engineering. New agent interaction contracts below are documentation, not implemented UI. [Product Spec](../product/product-spec.md) owns product requirements.
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
 This is the canonical design specification for navigation, page composition, interactions, visual language and accessibility. Product Spec owns user outcomes and scope; Tech Spec owns data, runtime and API contracts; Engineering owns delivery evidence. Do not create competing design requirements in a root DESIGN.md. Requirements below describe the intended experience. [Engineering](../tech/engineering.md#accepted-workspace-hardening) distinguishes accepted fixes from implemented behavior; dated checks live there.
 
+## Briefing — first slice confirmed 2026-09-24
+
+**Status:** implemented and verified locally; deployment and the live database migration remain pending. Briefing is the default full section at `/`, with `/briefing` as an alias, replacing the earlier Home-as-chat default. Assistant at `/agents` keeps the general composer and conversation history; existing conversation links and the secondary `/overview` route remain available.
+
+Start with saved work: What matters today uses the existing daily-task view with a Waiting tab; questions/reviews, running work, recent outputs and saved activity use existing queues. Show record-backed status and dates, with independent loading, empty and retry states. Keep the calm workbench, shadcn controls and contextual record surfaces. Mark waiting and Resume are explicit task actions; opening a conversation is separate. Waiting means the user marked the task waiting, not that the system detected an unanswered message.
+
+Quick capture accepts a short intention or pasted material and saves a normal unscheduled task: the first line becomes its title and all original text remains in its rationale. Keep the draft on failure, announce a successful save and offer Open task. Upload document enters the existing upload flow. Reading or refreshing never initiates email retrieval or model work; pasted URLs are not fetched. Questions, exact reviews, pinned outputs and running work use their existing destinations and preserve focus on return.
+
+Use Briefing and Assistant as distinct navigation labels. Sidebar entries occupy the full workspace; mobile selection closes navigation, and capture/state controls remain keyboard reachable with textual status independent of color. Spaces and classifier/rename controls were not part of this first checkpoint and are implemented in the follow-on sections below. A five-outcome pinning interface and a separate Waiting card remain later scope.
+
+## Spaces — local implementation 2026-09-24
+
+Spaces is a full sidebar destination at `/spaces`. A searchable, paginated Active/Archived list opens the selected Space's purpose, capture and linked context. New/Edit uses a focused dialog. Archive is reversible through Restore; archived context remains readable while capture, linking and editing are disabled. On narrow screens, All Spaces returns to the list and title/actions stack without squeezing the heading.
+
+Group linked records under Next actions, Related work, People & organizations and Sources & decisions. Explicit linking offers saved tasks, artifacts, contacts, companies and opportunities with search and pagination. Unlink removes membership, preserving the underlying record. Linked records use the existing contextual inspector or document canvas, retaining the originating Space.
+
+Capture in a Space saves and links one task atomically. Briefing retains ordinary capture plus an optional active-Space selector; the selector currently shows the first 100 active Spaces. Keep the original draft after a failed save and offer Open task after success. Upload document still opens ordinary intake; the resulting artifact can be linked explicitly. Do not imply that selecting a Space starts an assistant or retrieves connected context.
+
+<a id="document-decisions-and-rename-review--proposed-2026-09-24"></a>
+
+## Document decisions and rename review — local implementation 2026-09-24
+
+**Status:** implemented and verified locally; deployment remains pending. [Product Spec](../product/product-spec.md#jev-document-classification-and-renaming--requested-2026-09-24) owns the request/defaults, [Tech Spec](../tech/tech-spec.md#typed-document-decisions--local-implementation-2026-09-24) owns the immutable evidence and mutation fences.
+
+Keep the Document Vault as a full section page and open classification inside its existing document canvas. Classification is a document action with linked work in Tasks, not a chatbot or new sidebar destination. The original and its extracted text stay together.
+
+1. **Upload:** the type control offers Unclassified and the configured document types. Retain the filename and user-editable display title. When enabled, explain “Suggest a type after text extraction” and identify the configured external model provider; do not imply extraction itself uses Jev.
+2. **Inspect:** show Accepted type and Proposed type separately. Present the purpose-bearing source excerpt beside the proposal. Primary actions are Confirm type, Choose another type and Request a better file. An existing manually selected type is never silently replaced.
+3. **Understand:** “Inspect this decision” expands exact source/version references, bounded state/excerpts, question text, typed answers and model identity/provenance. Show Choice selected probability and confidence with distinct labels; show each Noul as a probability for its named question. Avoid a universal confidence dial.
+4. **See policy:** a separate, plainly labeled Application policy area explains required human review, missing evidence and stale-input reasons. The action result is derived by code. Model output and permission are visually and semantically separate.
+5. **Rename:** when configured, accepted classification creates a linked Rename document task. Show Current title → Proposed title, the template and fields used. Apply name and Keep current name are explicit. An unchanged preview is a no-op; a stale preview asks the user to refresh/review, preserving their newer title.
+
+| State | Visible behavior and recovery |
+| --- | --- |
+| Automation off | Manual type selection and an explicit one-document Classify action remain available; explain external text processing before the latter. |
+| Provider not configured | Manual type review remains available after extraction without a model decision; the model action explains the provider prerequisite. |
+| Extracting | Show existing extraction status; no fabricated probabilities. |
+| Classifying | One quiet progress state; no token streaming or invented reasoning. Reading and other documents remain usable. |
+| Needs review / unknown / mixed | Explain the specific reason; preserve the current type; offer manual correction or a better file. |
+| Provider/budget unavailable | Say the assessment was not completed; retain extraction and offer manual classification or explicit retry. Never display a synthetic answer as live. |
+| Superseded | Explain which file/type/title/policy changed; retain history and require a fresh review. |
+| Rename off | No rename task or preview is created. |
+| Rename template incomplete | Show the missing/invalid template field with a settings link; do not guess a name. |
+
+Keep Automatic classification and Renaming settings together in Settings → Documents, with Off as the initial state, an external-text-processing disclosure, a validated template preview and a clear “new extractions only” scope. An explicit selected-document action handles historical files; enabling the setting is not a bulk backfill.
+
+The `document-type.v3` inspector presents one type Choice and six separately labelled Noul signals: sufficient evidence, incompatible purposes, processing instructions, explicit commitment, follow-up requested and deadline present. Display probability/confidence and saved provenance without generated reasoning. Commitment, follow-up and deadline signals do not create tasks, imply urgency or authorize action.
+
+**Add research or agent checks** expands five optional context fields: research query, claim, agent request, policy and proposed action (4,000 characters each, 12,000 total). Explain that their exact contents are saved privately with the selected source. Show only requested, returned checks: research relevance/evidence role, claim support, output quality, policy concern and action matching. Absent context has no question or score. Label 0–2 scores separately from probability/confidence and describe action matching as advisory. A stale current proposal must not expose unsafe review/apply controls; history remains inspectable. This flow is an explicit per-document request, not an inbox scan or automatic execution guard.
+
+Use installed shadcn dialog, select, alert, accordion and table primitives. Provide keyboard-operable controls, labeled selections, a focus-restoring dialog, polite status announcements, textual outcomes independent of color and reduced-motion behavior. On mobile, source evidence and decision details stack in reading order without horizontal overflow. Preserve document/list context when opening the linked task and returning.
+
 ## Calm workbench cleanup — confirmed 2026-09-22
 
-The user selected a calm workbench: spacious content and compact navigation, guided by the supplied Loan Labs and Perplexity screenshots. Home is the agent conversation workspace. Main navigation is Home, Opportunities, Tasks, Library, Document Vault, Contacts and Companies, followed by workspace tools. Applications and saved roles sit under Opportunities. Notes is a Library collection. Reviewed actions and Jobs are removed from the main sidebar; existing contextual flows and old links remain usable.
+The user selected a calm workbench: spacious content and compact navigation, guided by the supplied Loan Labs and Perplexity screenshots. At this checkpoint, Home was the agent conversation workspace; the 2026-09-24 Briefing direction above replaces that default and preserves Assistant. The remaining main destinations are Opportunities, Tasks, Library, Document Vault, Contacts and Companies, followed by workspace tools. Applications and saved roles sit under Opportunities. Notes is a Library collection. Reviewed actions and Jobs are removed from the main sidebar; existing contextual flows and old links remain usable.
 
 Library contains authored notes and saved outputs, including message drafts. All work, Notes and Agent outputs organize existing records. Review status always refers to the current immutable version; saving a new version restores Needs review. The Agent outputs collection uses recorded run provenance, never an inference from writing style. Document Vault contains uploaded originals, their type/metadata, and existing local extraction/retry controls. Extracted text stays with its original; it is not a second Library entry. This is an interface split over one artifact/version lifecycle.
 
-Document links open a centered, scrollable canvas up to 1152px wide, filling the viewport on mobile. Content opens first. The originating selection and filters remain underneath; Back, Close, Escape and browser history restore the context and trigger focus. Related non-document records retain the contextual inspector. Reading text uses a comfortable measure and larger line spacing. Home keeps its composer in the first desktop viewport; secondary controls and conversation history must not obscure the main action.
+Document links open a centered, scrollable canvas up to 1152px wide, filling the viewport on mobile. Content opens first. The originating selection and filters remain underneath; Back, Close, Escape and browser history restore the context and trigger focus. Related non-document records retain the contextual inspector. Reading text uses a comfortable measure and larger line spacing. Assistant keeps its composer in the first desktop viewport; secondary controls and conversation history must not obscure the main action.
 
 Structured artifacts display saved fields and nested values instead of a false empty state. Written artifacts keep the text primary and expose other saved fields under Saved details. Zero, false and missing values remain distinguishable. Stored data never creates executable markup or actions. Structured packages keep their existing domain-specific edit path rather than being rewritten through the text editor.
 
@@ -54,11 +106,13 @@ Career form answers show their section heading beside each field so repeated com
 
 ## Navigation and context contract
 
-**Confirmed user clarification:** full screen means the selected section occupies the main workspace with the persistent navigation/header; it does not request the browser fullscreen API or removal of navigation. Home opens agent conversations; the previous Overview remains available as a secondary route.
+**Reviewed email timing — 2026-09-24:** each contact offers Email & follow-ups in its existing contextual panel. The email brief and optional focused research action precede saved drafts; evidence and uncertainty remain outside copyable text. Review & send or schedule opens the shared durable editor with the exact saved draft and selected outreach account, then opens the exact review after saving. Delivery choices are Send after review, Schedule a date and time (explicit browser timezone), and Follow-up cadence (a confirmed previous send plus a user-entered day interval). Review shows the resulting absolute time and requires a fresh check of content and timing. Use Approve & send or Approve & schedule labels. Scheduled rows expose Edit proposal and Cancel scheduled email before delivery starts; edits require another review. Contact delivery history and Reviewed actions show timing and confirmed outcomes. Preserve originating contact position, keyboard focus, mobile layout and recovery of human edits.
+
+**Confirmed user clarification:** full screen means the selected section occupies the main workspace with the persistent navigation/header; it does not request the browser fullscreen API or removal of navigation. The 2026-09-24 first slice selects Briefing as the default; Assistant retains agent conversations and Overview remains available as a secondary route.
 
 | Entry/action | Required presentation | Context and exit |
 | --- | --- | --- |
-| Main sidebar: Home, Opportunities, Tasks, Library, Document Vault, Contacts, Companies, Agents, Browser companion, Activity or Settings | Navigate to that full section route; update the active item and page heading | No previous section or inspector pinned behind the destination; browser Back/Forward behaves normally |
+| Main sidebar: Briefing, Assistant, Opportunities, Tasks, Spaces, Library, Document Vault, Contacts, Companies, Agents, Browser companion, Activity or Settings | Navigate to that full section route; update the active item and page heading | No previous section or inspector pinned behind the destination; browser Back/Forward behaves normally |
 | Record row within a section | Existing adjacent detail pane, or responsive single detail pane | Retain the list/filter/selection context; Back to list on narrow screens |
 | Related record, body directory shortcut, task/output preview or contextual search result | Side inspector/drawer; modal when a short focused task fits better | Keep originating route and selection; explicit Back/Close and focus return |
 | Create/edit form, confirmation or bounded review | Labelled dialog or suitable contextual pane | Retain entered values on failure; dismiss without unintended mutation; nested Escape closes the active surface first |
@@ -331,7 +385,7 @@ and copy action remain visible.
 
 ## Generic Home conversations — 2026-09-23
 
-Home starts with the Command Center supervisor and a general-purpose composer; lead intake is an example rather than the identity of the chat. Session selection is URL-addressable. Searchable paginated conversation history stays separate from recent run activity, and selecting an existing conversation preserves its configured profile. Stream token/tool activity, show saved questions in place and distinguish waiting from cancellation. Load transcript deltas, defer older run detail and stop rapid polling when idle.
+Assistant starts with the Command Center supervisor and a general-purpose composer; lead intake is an example rather than the identity of the chat. Session selection is URL-addressable. Searchable paginated conversation history stays separate from recent run activity, and selecting an existing conversation preserves its configured profile. Stream token/tool activity, show saved questions in place and distinguish waiting from cancellation. Load transcript deltas, defer older run detail and stop rapid polling when idle.
 
 Show cached-answer provenance and an explicit fresh-answer option. Settings → Local AI clients creates named, revocable credentials and shows each token once, with copy/hide controls and setup instructions. Keep token values out of query caches, URLs and browser persistence. Lead-intake results link to the saved records and exact source version; private pasted-source identifiers are not external web links.
 

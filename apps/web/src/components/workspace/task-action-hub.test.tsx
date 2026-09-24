@@ -46,6 +46,7 @@ describe("task actions", () => {
   it.each([
     ["open", "Start task", "in_progress"],
     ["snoozed", "Resume task", "in_progress"],
+    ["waiting", "Resume task", "in_progress"],
     ["in_progress", "Complete task", "done"],
     ["done", "Reopen task", "open"],
     ["cancelled", "Reopen task", "open"],
@@ -66,13 +67,16 @@ describe("task actions", () => {
     }
   });
 
-  it.each(["open", "snoozed"])("can complete a %s task directly", (state) => {
-    const { onStatusChange } = mountHub({ state });
-    fireEvent.click(screen.getByRole("button", { name: "Complete task" }));
-    expect(onStatusChange).toHaveBeenCalledExactlyOnceWith("done");
-  });
+  it.each(["open", "snoozed", "waiting"])(
+    "can complete a %s task directly",
+    (state) => {
+      const { onStatusChange } = mountHub({ state });
+      fireEvent.click(screen.getByRole("button", { name: "Complete task" }));
+      expect(onStatusChange).toHaveBeenCalledExactlyOnceWith("done");
+    },
+  );
 
-  it.each(["open", "in_progress", "snoozed"])(
+  it.each(["open", "in_progress", "snoozed", "waiting"])(
     "can cancel a %s task without starting agent work",
     (state) => {
       const { onStatusChange, onOpenConversation } = mountHub({ state });
@@ -94,6 +98,16 @@ describe("task actions", () => {
     },
   );
 
+  it.each(["open", "in_progress", "snoozed"])(
+    "marks a %s task as waiting without opening agent work",
+    (state) => {
+      const { onStatusChange, onOpenConversation } = mountHub({ state });
+      fireEvent.click(screen.getByRole("button", { name: "Mark waiting" }));
+      expect(onStatusChange).toHaveBeenCalledExactlyOnceWith("waiting");
+      expect(onOpenConversation).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     "Draft outreach",
     "Research a company",
@@ -108,7 +122,9 @@ describe("task actions", () => {
         screen.getByRole("button", { name: "Start task" }),
       ).toBeInTheDocument();
       expect(
-        screen.queryByRole("button", { name: /Draft|Research|Prep|AI|Notes/i }),
+        screen.queryByRole("button", {
+          name: /Draft|Research|Prep|\bAI\b|Notes/i,
+        }),
       ).not.toBeInTheDocument();
       fireEvent.click(
         screen.getByRole("button", { name: "Open conversation" }),
@@ -118,7 +134,7 @@ describe("task actions", () => {
     },
   );
 
-  it.each(["open", "in_progress", "snoozed", "done", "cancelled"])(
+  it.each(["open", "in_progress", "snoozed", "waiting", "done", "cancelled"])(
     "disables every hub action while a %s task update is pending",
     (state) => {
       const callbacks = mountHub({ state }, true);
@@ -204,6 +220,38 @@ function mountInspector(patchHandlers: Array<() => Promise<void>> = []) {
 }
 
 describe("task inspector integration", () => {
+  it("marks waiting and resumes with the current record version without starting agent work", async () => {
+    const { patches, requests } = mountInspector();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark waiting" }),
+    );
+    const resume = await screen.findByRole("button", { name: "Resume task" });
+    expect(screen.getByText("Waiting")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Mark waiting" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(resume);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Resume task" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(patches.map((patch) => JSON.parse(String(patch.body)))).toEqual([
+      { state: "waiting", expected_version: 7 },
+      { state: "in_progress", expected_version: 8 },
+    ]);
+    expect(
+      requests
+        .filter(({ method }) => method !== "GET")
+        .map(({ method }) => method),
+    ).toEqual(["PATCH", "PATCH"]);
+    expect(
+      requests.some(({ path }) =>
+        /agent-runs|agent-sessions|agents\/profiles/.test(path),
+      ),
+    ).toBe(false);
+  });
+
   it("reuses the retained update identity after a lost reply and sends the next current record version", async () => {
     const lostResponse = async () => {
       throw new Error("Synthetic lost response");

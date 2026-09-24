@@ -156,7 +156,7 @@ class AgentSession(OwnedRecord, Base):
             )
             if target is None:
                 raise RecordNotFound("Record not found")
-            if target.state not in {"open", "in_progress", "snoozed"}:
+            if target.state not in {"open", "in_progress", "waiting", "snoozed"}:
                 raise ValueError("Conversation targets must be active")
             scope_name, scope_id = "task_id", task_id
         else:

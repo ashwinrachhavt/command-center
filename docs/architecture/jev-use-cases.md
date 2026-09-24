@@ -1,5 +1,7 @@
 # Jev Use Cases in Command Center
 
+**Status update, 2026-09-24:** this is a broad idea catalog, not an implementation inventory. The [source audit and ranked opportunities](../tech/jev-audit.md) supersede the historical phase order below. Optional capability routing and opt-in document decisions are implemented locally. The dedicated document worker supports `document-type.v3` classification and explicit research/agent checks for one extracted document, followed by human type review and separately configured display-title rename review. These advisory checks do not implement generic browser/tool guards or authorize execution. The three canonical specs own behavior, technical contracts and UX; [Engineering](../tech/engineering.md#spaces-and-document-decisions--local-implementation-2026-09-24) records delivery evidence.
+
 ## Decision-model role
 
 Jev should be used when Command Center needs a bounded semantic judgment that application code can combine with deterministic controls. It is not a general chat model, planner, or autonomous executor.
@@ -21,12 +23,14 @@ allow / replan / ask user / review / block
 
 ## Catalog
 
+Rows describe potential uses, including broader workflows beyond the implemented per-document checks. The current document slice covers type, evidence, commitment/follow-up/deadline signals and optional relevance, evidence role, claim support, output quality, policy concern and action matching. It does not sweep inboxes, gate every tool call or execute browser actions.
+
 | Area | Typed decision | Minimum state | Code-owned outcome |
 |---|---|---|---|
 | Tool selection | Is the selected tool relevant to the objective? | User request, plan step, proposed tool, tool catalog | Allow tool, replan, or ask user |
 | Tool arguments | Do arguments honor user constraints and policy? | Request, arguments, relevant context, policy | Execute, repair, or block |
-| Write-effect detection | Is an action read-only or externally consequential? | Tool description, arguments, target | Read path or reviewed-action path |
-| Approval routing | Does an operation require explicit review? | Proposed action, risk policy, target account | Review, safe execution, or stop |
+| Write-effect detection | Is there a semantic warning beyond the known tool effect? | Host-classified tool, arguments, target | Additional warning only; code owns read/write classification |
+| Approval routing | Is there an additional reason to ask for review? | Proposed action and bounded evidence | Can escalate; cannot remove required approval |
 | Plan-step verification | Does the next plan step advance the stated goal? | Objective, plan, current state | Continue, replan, or clarify |
 | Agent trace verification | Was a tool-use step appropriate in context? | Observation, chosen action, result | Continue, repair, terminate, escalate |
 | Completion verification | Did the workflow achieve its exact objective? | Goal, before/after state, postcondition | Complete, retry, or surface failure |
@@ -36,7 +40,8 @@ allow / replan / ask user / review / block
 | Extraction verification | Is a structured field grounded in source text? | Document, extracted value, supporting span | Accept, mark uncertain, review |
 | Contradiction detection | Does new evidence conflict with records? | Source, prior facts, revision history | Flag conflict and route to review |
 | Profile fact proposal | Should a candidate fact be promoted for review? | Document/source, proposed fact, current revision | Propose, merge, discard |
-| Document classification | Which workflow owns this record? | File text, metadata, user context | Route to resume, research, lead, artifact, etc. |
+| Document classification | Which eligible catalog type describes the text? | Exact extraction, catalog descriptions, weak filename evidence | Propose type or unknown/mixed; human acceptance changes metadata |
+| Configured document renaming | Can accepted metadata render the naming template? | Accepted type, upload date, stable ID, policy revision | Code renders a preview and creates a separate rename task; no Jev text generation |
 | Lead qualification | Is a lead aligned with criteria? | Job/company evidence, preferences, policy | Prioritize, watch, reject, review |
 | Outreach safety | Does draft outreach conform to campaign policy? | Recipient, relationship context, draft, constraints | Keep draft, revise, review, block |
 | Application answer fit | Does an approved response fit the exact question? | Field label/help, approved facts, answer | Fill, review, leave blank |
@@ -51,7 +56,7 @@ allow / replan / ask user / review / block
 | Spending justification | Is a proposed model/tool call warranted? | Task class, expected benefit, cost, budget | Reserve, cheaper fallback, ask |
 | Escalation routing | Should uncertainty go to human, specialist, or retry? | Probabilities, risk, workflow status, cost | Route by policy |
 | Review prioritization | Which items deserve scarce human attention first? | Ambiguity, materiality, evidence gap, risk | Rank queue deterministically |
-| Failure classification | Is an error transient, semantic, permission, or state drift? | Error, trace, state, tool metadata | Retry, replan, request access, stop |
+| Failure explanation | Is there a semantic mismatch beyond a known error? | Sanitized error and bounded task evidence | Explain or suggest replan; known transport retry eligibility stays in code |
 | Memory retrieval gate | Is retrieved memory relevant and authorized for this run? | Request, memories, work scope | Include, exclude, confirm |
 | Privacy minimization | Is each data field necessary for a decision? | Proposed state, data labels, question | Redact, minimize, block |
 | Evaluation labeling | Does output pass a scenario-specific rubric? | Fixture, expected policy, observed output | Repeatable offline signal |
@@ -141,6 +146,8 @@ Code accepts safe values or routes uncertain values to review
 **Code role:** authorization, expiration, source provenance, user/workspace scope, redaction, and final inclusion policy.
 
 ## Prioritization for Command Center
+
+The following phases are historical proposals. Use the [2026-09-24 audit](../tech/jev-audit.md#prioritized-opportunity-map) and [current Engineering delivery](../tech/engineering.md#spaces-and-document-decisions--local-implementation-2026-09-24) for current priorities. In every phase, model signals may add review; they cannot waive a deterministic review requirement.
 
 ### Phase 0: offline evaluation
 

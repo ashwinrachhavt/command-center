@@ -61,7 +61,7 @@ for (const viewport of [
       await page.getByRole("button", { name: "Toggle Sidebar" }).click();
     await page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Home", exact: true })
+      .getByRole("link", { name: "Briefing", exact: true })
       .click();
     await expect(page).toHaveURL(/\/$/);
     expect(errors).toEqual([]);

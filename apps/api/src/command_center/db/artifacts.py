@@ -616,6 +616,82 @@ class Document(Base):
     artifact_kind: Mapped[str] = mapped_column(String(20), default="document")
     document_type_id: Mapped[UUID] = mapped_column(ForeignKey("document_types.id"), index=True)
 
+    def correct_type(
+        self,
+        session: Session,
+        *,
+        owner_id: UUID,
+        document_type_id: UUID,
+        metadata_revision: int,
+        source_version_id: UUID,
+        extraction_version_id: UUID,
+        review_id: UUID,
+        request_id: UUID,
+    ) -> None:
+        """Correct current facets with a human review; immutable versions stay untouched."""
+        from command_center.db.crm import CandidateProfile, record_event
+        from command_center.db.document_decisions import (
+            DocumentClassificationReview,
+            DocumentPolicy,
+            catalog_for,
+            fence_document,
+        )
+        from command_center.db.errors import RecordConflict
+
+        artifact, imported = fence_document(
+            session,
+            self.artifact_id,
+            owner_id,
+            metadata_revision,
+            source_version_id,
+            extraction_version_id,
+        )
+        review = session.get(DocumentClassificationReview, review_id)
+        if (
+            review is None
+            or review.reviewer_id != owner_id
+            or review.artifact_id != artifact.id
+            or review.outcome != "accept"
+            or review.accepted_type_id != document_type_id
+            or review.metadata_revision != metadata_revision
+            or review.source_version_id != source_version_id
+            or review.extraction_version_id != extraction_version_id
+        ):
+            raise ValueError("An exact human classification review is required")
+        kind = session.get(DocumentType, document_type_id)
+        allowed = {row["id"] for row in catalog_for(session, session.get(DocumentPolicy, owner_id))}
+        if kind is None or (kind.slug != "unclassified" and str(kind.id) not in allowed):
+            raise ValueError("Choose a current catalog document type")
+        profile = session.scalar(
+            select(CandidateProfile).where(CandidateProfile.actor_id == owner_id).with_for_update()
+        )
+        if profile and profile.default_resume_version_id and kind.slug != "resume":
+            selected = session.get(ArtifactVersion, profile.default_resume_version_id)
+            if selected and selected.artifact_id == artifact.id:
+                raise RecordConflict(
+                    "Change the selected default resume before changing this document's type"
+                )
+        extracted = session.get(Document, imported.extraction_artifact_id)
+        if extracted is None:
+            raise RecordConflict("The current extraction facet is unavailable")
+        previous = self.document_type_id
+        self.document_type_id = document_type_id
+        extracted.document_type_id = document_type_id
+        artifact.updated_at = utc_now()
+        record_event(
+            session,
+            owner_id,
+            request_id,
+            "documents.type_corrected",
+            "artifacts",
+            artifact.id,
+            previous_type_id=str(previous),
+            document_type_id=str(document_type_id),
+            review_id=str(review.id),
+            source_version_id=str(source_version_id),
+            extraction_version_id=str(extraction_version_id),
+        )
+
 
 class ArtifactReview(Base):
     """Review history is append-only. A new version has no inherited review."""

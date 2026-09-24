@@ -44,7 +44,8 @@ class Task(Base):
             ["opportunity_id", "owner_id"], ["opportunities.id", "opportunities.owner_id"]
         ),
         CheckConstraint(
-            "state IN ('open', 'in_progress', 'snoozed', 'done', 'cancelled')", name="state"
+            "state IN ('open', 'in_progress', 'waiting', 'snoozed', 'done', 'cancelled')",
+            name="state",
         ),
         CheckConstraint("priority BETWEEN 0 AND 3", name="priority"),
         CheckConstraint("row_version >= 1", name="row_version"),
@@ -83,6 +84,7 @@ class Task(Base):
             raise ValueError("Unsupported task fields")
         if "title" in changes and not str(changes["title"] or "").strip():
             raise ValueError("Task title cannot be blank")
+        changed_fields = sorted(changes)
         state = changes.pop("state", self.state)
         if state != self.state:
             if state == "done":
@@ -108,13 +110,13 @@ class Task(Base):
                 subject_type="tasks",
                 subject_id=self.id,
                 request_id=request_id,
-                details={"fields": sorted(changes)},
+                details={"fields": changed_fields},
             )
         )
 
     def complete(self, *, actor_id: UUID, request_id: UUID) -> None:
         """Enqueue state and redacted audit in the caller's transaction; never commit here."""
-        if self.state not in {"open", "in_progress", "snoozed"}:
+        if self.state not in {"open", "in_progress", "waiting", "snoozed"}:
             raise ValueError("Only an active task can be completed")
         session = object_session(self)
         if session is None or self.id is None:

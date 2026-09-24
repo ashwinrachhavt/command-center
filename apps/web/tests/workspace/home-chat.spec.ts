@@ -9,7 +9,7 @@ for (const viewport of [
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/?session=session-opportunity-1&long_chat=1");
+    await page.goto("/agents?session=session-opportunity-1&long_chat=1");
     const messages = page.getByRole("region", {
       name: "Conversation messages",
       exact: true,
@@ -73,7 +73,7 @@ test("both desktop sidebars collapse independently and remember their state", as
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/?session=session-opportunity-1");
+  await page.goto("/agents?session=session-opportunity-1");
   const messages = page.getByRole("region", {
     name: "Conversation messages",
     exact: true,
@@ -114,7 +114,7 @@ test("mobile conversation history opens as a drawer and returns focus on close",
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?session=session-question");
+  await page.goto("/agents?session=session-question");
   const chats = page.getByRole("button", {
     name: "Toggle conversation history",
   });
@@ -133,7 +133,7 @@ test("mobile conversation history opens as a drawer and returns focus on close",
   ).toBeInViewport();
 });
 
-test("Home streams a URL-selected conversation while typing stays responsive", async ({
+test("Assistant streams a URL-selected conversation while typing stays responsive", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -150,10 +150,10 @@ test("Home streams a URL-selected conversation while typing stays responsive", a
       errors.push(message.text());
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/?session=session-stream&smooth_stream=1");
+  await page.goto("/agents?session=session-stream&smooth_stream=1");
   await expect(page).toHaveTitle(/Command Center/);
   await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
+    page.getByRole("heading", { name: "Assistant", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Steady reply" }),
@@ -173,10 +173,30 @@ test("Home streams a URL-selected conversation while typing stays responsive", a
   expect(errors).toEqual([]);
 });
 
-test("Home reopens saved questions and can cancel a paused run", async ({
+test("Assistant selects a saved conversation from the legacy conversation parameter", async ({
   page,
 }) => {
-  await page.goto("/?session=session-question");
+  await page.goto("/agents?conversation=session-question");
+  await expect(
+    page.getByRole("form", { name: "Research needs your answer" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Message your agent" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "New chat", exact: true }).click();
+  await expect(page).toHaveURL(/\/agents$/);
+  await expect(
+    page.getByRole("form", { name: "Research needs your answer" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("textbox", { name: "Message your agent" }),
+  ).toBeVisible();
+});
+
+test("Assistant reopens saved questions and can cancel a paused run", async ({
+  page,
+}) => {
+  await page.goto("/agents?session=session-question");
   await expect(
     page.getByRole("form", { name: "Research needs your answer" }),
   ).toBeVisible();

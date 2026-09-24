@@ -60,13 +60,13 @@ test("Notes ignores collection filters that are hidden in its writing view", asy
   ).toBeVisible();
 });
 
-test("Home opens agent work with a visible composer and consolidated navigation", async ({
+test("Assistant opens agent work with a visible composer and consolidated navigation", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
+  await page.goto("/agents");
   await expect(
-    page.getByRole("heading", { name: "Home", exact: true }),
+    page.getByRole("heading", { name: "Assistant", exact: true }),
   ).toBeVisible();
   const composer = page.getByRole("textbox", { name: "Message your agent" });
   await expect(composer).toBeVisible();

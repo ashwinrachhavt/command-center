@@ -11,6 +11,9 @@ export type Resources = {
 };
 export type Resource = keyof Resources;
 export type WorkspaceRecord = Resources[Resource];
+export type Space = Schema["SpaceRead"];
+export type SpaceDetail = Schema["SpaceDetail"];
+export type SpaceLink = Schema["SpaceLinkRead"];
 export type Page<T> = {
   items: T[];
   total: number;

@@ -11,12 +11,14 @@ from command_center.agents.spending import connected_tool_reserver
 from command_center.agents.worker import perform_next, recover_stale_questions
 from command_center.core.config import Settings
 from command_center.db.agents import AgentRun
+from command_center.db.document_decisions import DocumentDecision
 from command_center.db.document_imports import DocumentImport
 from command_center.db.pdf_exports import PdfExport
 from command_center.db.research_executions import ResearchExecution
 from command_center.db.reviewed_actions import ReviewedAction
 from command_center.db.session import create_database_engine
 from command_center.db.spending import SpendingReservation
+from command_center.documents.decision_worker import perform_document_decision
 from command_center.documents.pdf_worker import perform_pdf_export, reap_pdf_sandboxes
 from command_center.documents.worker import perform_document_import
 from command_center.research.worker import perform_research_execution, reap_research_sandboxes
@@ -39,6 +41,7 @@ celery.conf.update(
     task_routes={
         "command_center.execute_run": {"queue": "agents"},
         "command_center.execute_document_import": {"queue": "documents"},
+        "command_center.execute_document_decision": {"queue": "documents"},
         "command_center.execute_reviewed_action": {"queue": "actions"},
         "command_center.execute_research_execution": {"queue": "execution"},
         "command_center.execute_pdf_export": {"queue": "execution"},
@@ -69,6 +72,7 @@ def dispatch() -> int:
         with Session(engine) as db, db.begin():
             AgentRun.expire_stale(db)
             DocumentImport.expire_stale(db)
+            DocumentDecision.expire_stale(db)
             ReviewedAction.expire_stale(db)
             ResearchExecution.expire_stale(db)
             PdfExport.expire_stale(db)
@@ -92,6 +96,14 @@ def dispatch() -> int:
             pending_actions = list(
                 db.scalars(
                     ReviewedAction.dispatchable().with_only_columns(ReviewedAction.id).limit(20)
+                )
+            )
+            pending_decisions = list(
+                db.scalars(
+                    select(DocumentDecision.id)
+                    .where(DocumentDecision.state == "queued")
+                    .order_by(DocumentDecision.created_at)
+                    .limit(20)
                 )
             )
             pending_research = list(
@@ -120,6 +132,7 @@ def dispatch() -> int:
                 expires=60,
             )
         for task, ids, prefix in (
+            (execute_document_decision, pending_decisions, "document-decision"),
             (execute_reviewed_action, pending_actions, "reviewed-action"),
             (execute_research_execution, pending_research, "research-execution"),
             (execute_pdf_export, pending_exports, "pdf-export"),
@@ -131,7 +144,14 @@ def dispatch() -> int:
         return sum(
             map(
                 len,
-                (pending, pending_documents, pending_actions, pending_research, pending_exports),
+                (
+                    pending,
+                    pending_documents,
+                    pending_decisions,
+                    pending_actions,
+                    pending_research,
+                    pending_exports,
+                ),
             )
         )
     finally:
@@ -153,6 +173,15 @@ def execute_document_import(import_id: str) -> bool:
     engine = create_database_engine(settings.database_url, settings.database_pool_mode)
     try:
         return perform_document_import(engine, settings, UUID(import_id))
+    finally:
+        engine.dispose()
+
+
+@celery.task(name="command_center.execute_document_decision")
+def execute_document_decision(decision_id: str) -> bool:
+    engine = create_database_engine(settings.database_url, settings.database_pool_mode)
+    try:
+        return perform_document_decision(engine, settings, UUID(decision_id))
     finally:
         engine.dispose()
 

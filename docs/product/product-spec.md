@@ -1,6 +1,6 @@
 # Command Center — Product Spec
 
-**Revision:** 2026-09-23-r32. **Status:** product contract; implemented scope is distinguished below from the personal work OS revamp and later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
+**Revision:** 2026-09-24-r36. **Status:** product contract; implemented scope is distinguished below from the personal work OS revamp and later unattended workflows. First-release agent, application-assistance, reviewed-action, research/PDF and spending/recovery slices are implemented locally. Hands-on QA is deferred to the user.
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
@@ -22,9 +22,74 @@ A prepared draft alone does not satisfy the broader autonomous application outco
 
 ## 2. Confirmed scope and release boundary
 
+### Daily Briefing — first slice confirmed 2026-09-24
+
+**Status:** implemented and verified locally; deployment and the live database migration remain pending. This checkpoint superseded the earlier Home-as-chat default; the Spaces and document-decision increment below extends it.
+
+Briefing becomes the default `/` page, also available at `/briefing`, bringing saved daily tasks, questions and exact reviews, running work, recent outputs and activity into one daily workspace. Assistant remains available at `/agents`, preserving existing conversations and their links, including earlier conversation query links at `/`. `/overview` remains available. Sidebar destinations continue to open full section pages; suitable body actions retain their originating context.
+
+Quick capture creates an ordinary unscheduled task from a short intention or pasted material: the first line supplies a bounded title and the full original text becomes its rationale. Capture does not start an agent, classify material, fetch pasted URLs or infer an external action. Upload document opens the existing document-intake flow, with its original/extraction lifecycle unchanged. Opening or refreshing Briefing reads saved records only; it does not pull Gmail, call providers or run a model.
+
+Waiting is an explicit human-selected business-task state and a tab within the daily-task view. It is separate from a run waiting for an answer or approval, and is never inferred from an email send or a presumed reply. A waiting task can be resumed or completed; it stays out of Today, Upcoming and Unscheduled. Existing due-date/timezone, snooze/resume, review and saved-output semantics remain authoritative.
+
+Acceptance:
+
+- The default page shows real owned records and honest loading, empty and error states; no sample priorities or fabricated progress.
+- Capture preserves pasted text and creates one task through the existing idempotent mutation contract; a failed save retains the draft and a successful save offers Open task.
+- Waiting is persisted, filterable and audited, with explicit human state controls; it does not monitor people or inboxes.
+- Questions open their existing conversation, action proposals open their exact review, and outputs open their saved version.
+- Assistant history, old conversation links, `/overview` and the existing upload flow remain usable.
+
+First-class Spaces and document decisions were outside this first checkpoint and are implemented in the follow-on sections below. Five pinned daily outcomes, scheduled pulling and an analytics funnel remain later scope. Rename scope remains Vault display title only, preserving the original filename.
+
+### Spaces and connected capture — implemented locally 2026-09-24
+
+**Status:** implemented and verified locally; deployment remains pending. A Space is an owner-scoped purpose with a title, optional purpose text and active/archived state. The full `/spaces` section supports search, create/edit, archive/restore and browsing saved context. Archived Spaces remain inspectable and can be restored before changing their contents.
+
+Explicit links connect existing tasks, artifacts, contacts, companies and opportunities. Sources and decisions remain ordinary artifacts or notes with their existing immutable versions; a Space does not duplicate content or imply authority over a linked record. The page groups next actions, related work, people/organizations and sources/decisions, and opens linked records in the existing contextual surfaces.
+
+Space capture creates and links one task atomically, preserving the original text as rationale. Briefing can optionally choose an active Space while ordinary capture remains available. Its picker currently shows the first 100 active Spaces; the full section supports pagination. Retries retain their destination, expected Space version and idempotency identity after an ambiguous response. Uploads use the ordinary intake flow and can be linked explicitly afterward. Opening a Space or Briefing does not start model work, fetch a pasted URL or pull connected data.
+
+### Jev document classification and renaming — requested 2026-09-24
+
+**Confirmed request:** audit useful Jev applications across Command Center; introduce document classification and a document-renaming task when configured. **Current status:** capability routing, document classification, manual type review, owner settings and separate configured rename review are implemented and verified locally; deployment remains pending. The [source audit](../tech/jev-audit.md) ranks the opportunities and distinguishes code-owned checks from model judgments.
+
+**Implemented defaults:** automatic classification and renaming are Off. Classification can be requested for one document or enabled after extraction with external-text-processing acknowledgement. Human review is required before changing the accepted type; configured renaming creates a separate task and preview. These are implementation defaults, not a claim of additional user policy decisions.
+
+The user should be able to upload a poorly named document, see what type its contents support, inspect uncertainty, confirm or correct that type, and optionally review a useful name. Completing classification does not approve extracted personal facts, choose a default resume, prepare an application, send a message or publish anything.
+
+| Step | Product contract |
+| --- | --- |
+| Intake | Preserve original bytes, original filename and source history. Permit an explicitly unclassified upload; a manually selected type is recorded as the user's choice, not fabricated model output. |
+| Extract | Use the existing local Docling pipeline. Failed/unreadable extraction offers retry or a better file and does not invent a classification. |
+| Propose | Evaluate the exact completed extraction against a configured finite catalog with unknown/mixed outcomes. Show proposed type separately from accepted type. Source text is evidence, never an instruction or permission. |
+| Review | Reuse the upload's existing review task for classification. The owner can accept, choose another catalog type, retain the existing type, or request a better document. A correction records the reviewer and reason. Fact review remains separate. |
+| Rename, if configured | After type acceptance, create one linked rename task with the current and proposed display title. Code renders the configured template from allowed, known metadata. The user previews and applies it as a separate action; no second Jev call is needed just to assemble the name. |
+| Revalidate | Replacement original/extraction, changed catalog, edited title, archived document or changed rename policy invalidates the relevant pending proposal. Explain the conflict and offer a fresh proposal; do not overwrite newer work. |
+
+Implemented settings are owner-scoped: **Automatic classification: Off / Suggest after extraction**; **Renaming: Off / Create a rename task**; and a naming-template preview. A manual Classify action uses the same workflow and can request one assessment with automation off, after showing the external-text-processing disclosure. It requires a configured provider. Enabling automation affects new completed extractions; processing existing files requires an explicit selection. Configuration must explain that selected extracted text is sent to the configured Jev provider. Enabling the existing capability router does not opt documents into external classification.
+
+**Rename scope — confirmed 2026-09-24:** the user selected “Vault display title; preserve original filename.” For the first release, renaming changes only the mutable Vault/Library display title. The acquisition filename, blob/storage key and immutable versions remain preserved; download-filename changes, filesystem moves and external-drive renames are excluded. The separate review-task behavior is implemented. Supported template tokens are `{type}`, `{uploaded_date}` and `{short_id}`; document-stated dates, people and company names are excluded until verified metadata supports them. Dates are explicitly upload dates in the owner's saved timezone. Missing tokens or an invalid template leave a visible task needing correction.
+
+Acceptance:
+
+- A misleading filename does not outrank readable contents; unknown and multi-document files can remain unclassified.
+- A Choice answer's selected probability, distribution and confidence are distinct from Noul probabilities and application review requirements. No generic “AI confidence” badge implies permission.
+- Disabled/unavailable Jev does not break upload, extraction, reading or manual type review after a completed extraction. Manual review uses the exact source pair without requiring a Jev decision. Provider failure is visibly distinct from an unknown type.
+- A completed classifier does not silently close the extraction-review task. Renaming off creates no rename task; renaming on creates at most one task for the accepted classification and policy revision.
+- Accepting a type or rename rechecks ownership, expected metadata revision and exact source/extraction versions. Repeated requests are idempotent; stale requests cannot change current metadata.
+- Type correction cannot silently make an already selected resume or reviewed attachment eligible for a different purpose. Preserve pinned bytes and historical review while rechecking future use.
+- Every decision, human correction and metadata change is inspectable through the document and linked Tasks workflow, with source/model/question/catalog/policy provenance.
+
+The `document-type.v3` request batches one Choice for type with six independent Nouls: sufficient evidence, incompatible purposes, processing instructions, explicit commitment, follow-up requested and deadline present. Each question sees the same bounded extracted text. Commitment, follow-up and deadline outputs are inspectable signals only: they create no tasks, send nothing and grant no authority. A mentioned deadline does not establish urgency. No generated reasoning is presented as evidence.
+
+**All three research and agent-check packs — confirmed and implemented locally 2026-09-24:** Add research or agent checks accepts optional research query, claim, agent request, policy and proposed action. Each field allows at most 4,000 characters, with 12,000 total; the exact context is stored privately with its source snapshot. Supplied context adds only its applicable questions, up to 13 in the same batch: research relevance and evidence role, claim support, output quality, policy concern and action/request matching. Missing context produces no related question or invented score. Relevance and quality scores use 0–2, distinct from probability and confidence. Action matching remains advisory and cannot authorize a tool call. Requests are explicit for one extracted document; no inbox sweep or autonomous guard execution is implied. Local integration checks pass; live quality remains unmeasured.
+
+Evaluate broader use cases in this order: evidence selection/grounding, scoped memory relevance, then user-defined attention ranking for tasks and explicitly selected messages. Browser and tool semantic checks begin in shadow mode only after their expected benefit is demonstrated. Jev never decides account ownership, grants, known tool effects, required approval, retry eligibility or spending authority. Existing Q5–Q10 and exact external-action review remain binding.
+
 ### Usability consolidation — confirmed 2026-09-22
 
-Prioritize fixes to the existing product. Home is agent work. An opportunity is a possibility worth attention: employment, freelance work, writing, investment, learning, networking, a person, an event or a meeting. A useful long-term abstraction is the desired outcome, why it matters, its related records and a next task. This cleanup groups existing application/role work under Opportunities and broadens its presentation; new categories and universal lifecycle states are not implemented or silently decided.
+Prioritize fixes to the existing product. At this checkpoint, Home was agent work; the 2026-09-24 Briefing direction above replaces that default while retaining Assistant. An opportunity is a possibility worth attention: employment, freelance work, writing, investment, learning, networking, a person, an event or a meeting. A useful long-term abstraction is the desired outcome, why it matters, its related records and a next task. This cleanup groups existing application/role work under Opportunities and broadens its presentation; new categories and universal lifecycle states are not implemented or silently decided.
 
 Library is for user-written notes and saved agent artifacts, with an explicit audit/review path. Uploaded PDFs and other supported source files belong in a separate Document Vault that retains originals, metadata and extracted content. They share the established immutable artifact lifecycle. Contacts and Companies remain. Tasks stays prominent. Notes is consolidated into Library; Jobs and Reviewed actions leave the sidebar while old links and contextual workflows remain available. Agents exposes existing connectors, skills, workflows and memory in the supplied Perplexity-inspired organization. New scheduling/runtime features are deferred.
 
@@ -388,9 +453,15 @@ The user requests convenient per-contact public research and LinkedIn outreach f
 
 ## Shared tools and generic chat — confirmed 2026-09-23
 
-Home is a generic Command Center supervisor: use direct tools for simple requests and bounded specialists when decomposition helps. Local Claude Code/Codex and in-app chat share the complete classified tool catalog. Existing human approval and assigned-work provenance requirements remain in force. Natural-language intake accepts pasted content or saved page-text sources and creates linked companies, contacts and opportunities atomically, preserving private source evidence and checking duplicates. A job is optional. Missing company context and ambiguous people require a focused clarification.
+Assistant is a generic Command Center supervisor: use direct tools for simple requests and bounded specialists when decomposition helps. Local Claude Code/Codex and in-app chat share the complete classified tool catalog. Existing human approval and assigned-work provenance requirements remain in force. Natural-language intake accepts pasted content or saved page-text sources and creates linked companies, contacts and opportunities atomically, preserving private source evidence and checking duplicates. A job is optional. Missing company context and ambiguous people require a focused clarification.
 
 Conversation history remains saved and discoverable. Long conversations compact their model context without deleting original messages. Reuse must disclose its provenance, remain actor/configuration/context scoped and offer a fresh answer. The current cache only supports the immediate exact repeat of eligible tool-free first-turn text transformations for five minutes; live workspace answers and actions are excluded. Screenshot OCR, autonomous campaigns and new external-action authority are outside this increment.
+
+## Reviewed email timing — confirmed 2026-09-24
+
+The user requested researched AI email drafts and direct Composio sending or scheduling from Command Center, and explicitly chose review of **each email before it can send**. Contacts exposes an email drafting brief, bounded optional person/company research, evidence and editable saved drafts. Each exact proposal binds its sender, recipients, content, source/attachments and timing. Choose send after review, an explicit future date/time, or one follow-up a user-selected number of days after a confirmed prior send to the same recipients from the same account. No default interval is selected. Cadence days mean 24-hour intervals; this slice schedules one individually reviewed follow-up at a time.
+
+Editing a queued message or its timing clears approval; cancelling prevents an unclaimed send. Show proposed, scheduled, running and confirmed provider outcomes in contact context. Command Center must be running: overdue approved messages execute when service resumes, subject to expiry. If a proposed time passes before approval, the user must select a new time. Uncertain sends are not retried automatically. This does not authorize recurring sequences, automatic reply monitoring or fresh Gmail reads while drafting; existing acquisition rules remain in force. Implementation and validation are recorded in Engineering.
 
 ## Focused opportunity work — confirmed 2026-09-23
 

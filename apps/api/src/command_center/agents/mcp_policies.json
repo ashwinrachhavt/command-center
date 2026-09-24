@@ -958,5 +958,100 @@
     "name": "capture_lead_content",
     "policy": "tool",
     "reason": "Save private source content and linked lead records atomically. Uses owned records and immutable provenance; performs no external writes."
+  },
+  "GET /api/v1/spaces": {
+    "name": "cc_spaces_list_spaces",
+    "policy": "tool",
+    "reason": "List owner-scoped Spaces; archived contexts require an explicit filter."
+  },
+  "GET /api/v1/spaces/{space_id}": {
+    "name": "cc_spaces_get_space",
+    "policy": "tool",
+    "reason": "Inspect an owned Space and its existing owner-scoped record links."
+  },
+  "POST /api/v1/spaces": {
+    "name": "cc_spaces_create_space",
+    "policy": "tool",
+    "reason": "Create ordinary owner-scoped workspace context with idempotency and audit; no external execution."
+  },
+  "PATCH /api/v1/spaces/{space_id}": {
+    "name": "cc_spaces_update_space",
+    "policy": "tool",
+    "reason": "Edit an owned Space title or purpose with revision checks, idempotency and audit."
+  },
+  "POST /api/v1/spaces/{space_id}/archive": {
+    "name": "cc_spaces_archive_space",
+    "policy": "tool",
+    "reason": "Reversibly archive an owned Space with revision checks; linked records are preserved."
+  },
+  "POST /api/v1/spaces/{space_id}/restore": {
+    "name": "cc_spaces_restore_space",
+    "policy": "tool",
+    "reason": "Restore an owned archived Space with revision checks, idempotency and audit."
+  },
+  "POST /api/v1/spaces/{space_id}/links": {
+    "name": "cc_spaces_link_space_record",
+    "policy": "tool",
+    "reason": "Link an existing same-owner record to an active Space; no record copying or external execution."
+  },
+  "POST /api/v1/spaces/{space_id}/links/{link_id}/unlink": {
+    "name": "cc_spaces_unlink_space_record",
+    "policy": "tool",
+    "reason": "Remove an owned Space membership with revision checks while preserving the linked record."
+  },
+  "POST /api/v1/spaces/{space_id}/tasks": {
+    "name": "cc_spaces_create_space_task",
+    "policy": "tool",
+    "reason": "Atomically capture an ordinary owned task and its Space link; never dispatches agent work."
+  },
+  "GET /api/v1/documents/policy": {
+    "name": "cc_document_decisions_get_document_policy",
+    "policy": "tool",
+    "reason": "Inspect the owner's document classification and rename settings without changing consent or execution policy."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification": {
+    "name": "cc_document_decisions_get_classification",
+    "policy": "tool",
+    "reason": "Inspect an owned document's existing type assessment and pending human review without provider calls."
+  },
+  "GET /api/v1/documents/decisions/{decision_id}": {
+    "name": "cc_document_decisions_inspect_decision",
+    "policy": "tool",
+    "reason": "Read one existing owner-scoped document assessment and its recorded evidence; no execution authority."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification/history": {
+    "name": "cc_document_decisions_decision_history",
+    "policy": "tool",
+    "reason": "Read the paginated assessment history of an owned document without new inference."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification/reviews": {
+    "name": "cc_document_decisions_review_history",
+    "policy": "tool",
+    "reason": "Inspect an owned document's recorded human review history without approving or changing it."
+  },
+  "PUT /api/v1/documents/policy": {
+    "name": "cc_document_decisions_update_document_policy",
+    "policy": "human",
+    "reason": "External processing consent, automatic classification and rename policy require the human workspace owner."
+  },
+  "POST /api/v1/documents/{artifact_id}/classification": {
+    "name": "cc_document_decisions_request_classification",
+    "policy": "human",
+    "reason": "Sending extracted text and comparison context to a paid provider requires explicit human acknowledgement."
+  },
+  "POST /api/v1/documents/{artifact_id}/classification/review": {
+    "name": "cc_document_decisions_review_classification",
+    "policy": "human",
+    "reason": "Accepting or retaining a document type is an exact human review, never model approval."
+  },
+  "POST /api/v1/documents/renames/{rename_id}/apply": {
+    "name": "cc_document_decisions_apply_rename",
+    "policy": "human",
+    "reason": "Applying an exact reviewed document rename requires the human workspace owner."
+  },
+  "POST /api/v1/documents/renames/{rename_id}/cancel": {
+    "name": "cc_document_decisions_cancel_rename",
+    "policy": "human",
+    "reason": "Cancelling a pending reviewed document rename belongs to the human review workflow."
   }
 }

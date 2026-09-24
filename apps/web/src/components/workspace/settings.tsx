@@ -20,6 +20,7 @@ import { ErrorState, LoadingRows, PageHeading, Spinner } from "./primitives";
 import { ProfileFacts } from "./profile-facts";
 import { SpendingSettings } from "./spending";
 import { LocalAIClients } from "./local-ai-clients";
+import { DocumentSettings } from "./document-decisions";
 
 type ProfileValues = Pick<
   Profile,
@@ -264,6 +265,7 @@ export function Settings() {
         </section>
         <ProfileFacts />
         <SpendingSettings />
+        <DocumentSettings />
         <LocalAIClients />
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-6">
           <div>

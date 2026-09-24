@@ -1,10 +1,12 @@
 # Jev-Assisted Browser Use for Command Center
 
+**Status update, 2026-09-24:** proposed browser experiment, not implemented Jev browser control. Optional capability routing and the dedicated opt-in document-decision worker are implemented locally; the latter includes explicit per-document research/agent checks, human type review and separately configured rename review. Its semantic action-match signal does not execute or authorize a browser call. See the [current opportunity audit](../tech/jev-audit.md). The “First PR” below means a later browser-specific experiment if selected, not the current release.
+
 ## Purpose
 
-Jev can improve browser-agent speed and semantic action selection by evaluating a bounded page observation and a finite, application-constructed list of valid action candidates. It does not replace browser automation, DOM inspection, state management, or safety policy.
+This proposed experiment tests whether Jev can improve browser-agent speed and semantic action selection by evaluating a bounded page observation and a finite, application-constructed list of valid action candidates. It does not replace browser automation, DOM inspection, state management, or safety policy.
 
-The correct claim is not "Jev drives a browser autonomously." It is: **Jev can make a browser micro-loop faster and more controllable when the application owns candidate construction, execution, and verification.**
+The hypothesis is that Jev can improve a browser micro-loop while the application owns candidate construction, execution and verification. This note establishes neither autonomous browser operation nor a measured speed benefit.
 
 ## Conventional versus bounded loop
 

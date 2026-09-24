@@ -60,6 +60,7 @@ import { OpportunityResearch } from "./opportunity-research";
 import { DocumentUploadDialog } from "./document-intake";
 import { DocumentTasks, TaskDocuments } from "./document-tasks";
 import { DocumentOriginal } from "./document-original";
+import { DocumentDecisions } from "./document-decisions";
 import { PdfExportControl } from "./pdf-export";
 import { TaskActionHub } from "./task-action-hub";
 import { StructuredContent } from "./structured-content";
@@ -517,6 +518,12 @@ export function ArtifactContent({
               ) : null}
             </div>
           )}
+          {!editing &&
+            !pinnedVersionMissing &&
+            version &&
+            imports.data?.items[0]?.source_version_id === version.id && (
+              <DocumentDecisions key={record.id} artifactId={record.id} />
+            )}
           {!pinnedVersionMissing ? (
             <>
               <p

@@ -84,7 +84,8 @@ export function Agents() {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const selectedSessionId = params?.get("session") ?? undefined;
+  const selectedSessionId =
+    params?.get("session") ?? params?.get("conversation") ?? undefined;
   const legacyRunId = params?.get("run") ?? undefined;
   const [showLegacy, setShowLegacy] = useState(false);
   const [historyOpen, setHistoryOpen] = usePanelOpen("chat-history");
@@ -96,6 +97,7 @@ export function Agents() {
     setHistoryMobileOpen(false);
     const next = new URLSearchParams(params?.toString());
     next.delete("session");
+    next.delete("conversation");
     next.delete("run");
     if (sessionId) next.set("session", sessionId);
     else if (runId) next.set("run", runId);
@@ -415,7 +417,7 @@ export function Agents() {
           {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
           Chats
         </Button>
-        <h1 className="text-lg font-medium">Home</h1>
+        <h1 className="text-lg font-medium">Assistant</h1>
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant="outline"

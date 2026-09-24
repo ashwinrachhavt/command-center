@@ -324,7 +324,10 @@ def dashboard(identity: CurrentIdentity, db: Database) -> dict[str, Any]:
         db.scalar(
             select(func.count())
             .select_from(Task)
-            .where(Task.owner_id == identity.id, Task.state.in_(["open", "in_progress", "snoozed"]))
+            .where(
+                Task.owner_id == identity.id,
+                Task.state.in_(["open", "in_progress", "waiting", "snoozed"]),
+            )
         )
         or 0
     )
@@ -731,6 +734,8 @@ def update_task(
     key: WriteKey,
     request: Request,
 ) -> dict[str, Any]:
+    if body.state == "waiting" and identity.run_id is not None:
+        raise HTTPException(403, "Only the human owner can mark a task as waiting")
     return update_record(
         Task, record_id, body, db, identity.id, key, UUID(request.state.request_id)
     )

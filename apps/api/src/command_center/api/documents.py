@@ -39,6 +39,7 @@ from command_center.db.artifacts import (
 from command_center.db.crm import CandidateProfile
 from command_center.db.document_imports import DocumentImport
 from command_center.db.idempotency import RequestReceipt
+from command_center.db.models import Actor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["documents"])
@@ -459,6 +460,7 @@ def set_default_resume(
         raise HTTPException(403, "Only the workspace owner can select the default resume")
 
     def change(_: UUID) -> dict[str, Any]:
+        db.scalar(select(Actor).where(Actor.id == identity.id).with_for_update())
         profile = profile_row(db, identity.id, lock=True)
         check_version(profile, body.expected_version)
         profile.select_default_resume(body.version_id, request_id=UUID(request.state.request_id))

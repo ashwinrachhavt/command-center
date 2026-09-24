@@ -276,7 +276,7 @@ export function Records({ resource }: { resource: Resource }) {
                       All {resource === "tasks" ? "statuses" : "stages"}
                     </SelectItem>
                     {(resource === "tasks"
-                      ? ["open", "in_progress", "snoozed", "done", "cancelled"]
+                      ? ["open", "in_progress", "waiting", "snoozed", "done", "cancelled"]
                       : stages
                     ).map((v) => (
                       <SelectItem value={v} key={v}>

@@ -191,6 +191,8 @@ def test_attention_uses_current_conversation_run_and_open_questions_once(client,
         run_id,
     )
     assert "Private synthetic question" not in str(result)
+    assert client.get(f"/api/v1/tasks/{task_id}").json()["state"] == "open"
+    assert client.get("/api/v1/dashboard/tasks?view=waiting").json()["total"] == 0
 
 
 def test_action_and_run_lanes_preserve_exact_states_without_writes(client, engine):
@@ -413,6 +415,17 @@ def test_daily_tasks_use_local_calendar_days_and_dst_boundaries(client, engine, 
             "next_instant": task(db, client.actor_id, due_at=end),
             "unscheduled": task(db, client.actor_id),
             "snoozed": task(db, client.actor_id, state="snoozed", due_date=today),
+            "waiting_today": task(
+                db,
+                client.actor_id,
+                state="waiting",
+                due_date=today,
+                rationale="Waiting for a synthetic contact to confirm the meeting",
+            ),
+            "waiting_future": task(
+                db, client.actor_id, state="waiting", due_date=today + timedelta(days=1)
+            ),
+            "waiting_undated": task(db, client.actor_id, state="waiting"),
         }
         task(db, client.actor_id, state="done", completed_at=now, due_date=today)
         task(db, client.actor_id, state="cancelled", due_date=today)
@@ -420,12 +433,19 @@ def test_daily_tasks_use_local_calendar_days_and_dst_boundaries(client, engine, 
         db.add(other)
         db.flush()
         task(db, other.id, due_date=today)
+        task(db, other.id, state="waiting")
         ids = {key: str(row.id) for key, row in rows.items()}
     response = client.get("/api/v1/dashboard/tasks", params={"timezone": zone.key, "limit": 100})
     assert response.status_code == 200, response.text
     result = response.json()
     assert result["today"] == today.isoformat() and result["timezone"] == zone.key
-    assert result["counts"] == {"today": 4, "upcoming": 2, "unscheduled": 1, "snoozed": 1}
+    assert result["counts"] == {
+        "today": 4,
+        "upcoming": 2,
+        "unscheduled": 1,
+        "waiting": 3,
+        "snoozed": 1,
+    }
     assert [row["id"] for row in result["items"]] == [
         ids["overdue_date"],
         ids["today_date"],
@@ -442,6 +462,7 @@ def test_daily_tasks_use_local_calendar_days_and_dst_boundaries(client, engine, 
         ("upcoming", {ids["next_date"], ids["next_instant"]}),
         ("unscheduled", {ids["unscheduled"]}),
         ("snoozed", {ids["snoozed"]}),
+        ("waiting", {ids["waiting_today"], ids["waiting_future"], ids["waiting_undated"]}),
     ):
         page = client.get(
             "/api/v1/dashboard/tasks", params={"timezone": zone.key, "view": view}
@@ -449,6 +470,13 @@ def test_daily_tasks_use_local_calendar_days_and_dst_boundaries(client, engine, 
         assert page["total"] == len(expected)
         assert {row["id"] for row in page["items"]} == expected
         assert page["counts"] == result["counts"]
+        if view == "waiting":
+            waiting = next(row for row in page["items"] if row["id"] == ids["waiting_today"])
+            assert waiting["state"] == "waiting"
+            assert waiting["title"] == "Synthetic work"
+            assert waiting["rationale"] == (
+                "Waiting for a synthetic contact to confirm the meeting"
+            )
 
 
 def test_daily_tasks_paginate_due_priority_id_and_validate_human_timezone(client, engine, mocker):

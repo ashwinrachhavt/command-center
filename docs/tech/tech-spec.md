@@ -1,10 +1,88 @@
 # Command Center — Tech Spec
 
-**Revision:** 2026-09-23-r34. **Status:** connected workspace, Deep Agents conversations, reviewed facts/memory, application assistance, reviewed connected actions, isolated research/PDF jobs and spending/recovery controls implemented locally. The personal work OS revamp is in progress. Shared email drafting and explicit user-requested email pulls are implemented locally; dedicated Notes/Library, original/extraction reading, content search and linked tasks are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Hands-on platform/provider QA is deferred to the user; unattended campaigns remain later scope.
+**Revision:** 2026-09-24-r38. **Status:** connected workspace, Deep Agents conversations, reviewed facts/memory, application assistance, reviewed connected actions, isolated research/PDF jobs and spending/recovery controls implemented locally. The personal work OS revamp is in progress. Shared email drafting and explicit user-requested email pulls are implemented locally; dedicated Notes/Library, original/extraction reading, content search and linked tasks are implemented locally. Deep Agents supports OpenAI, Gemini, Mistral and Cohere per profile. Hands-on platform/provider QA is deferred to the user; unattended campaigns remain later scope.
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
 This is the single technical source, absorbing the former Planning Doc's architecture, the additional Notion technical section, agent plan and reference learnings. [Product Spec](../product/product-spec.md) owns behavior and release acceptance. [engineering.md](engineering.md) owns build sequence, file/test contracts and delivery evidence. [Design Spec](../design/design-spec.md) owns the interface. Historical copies are not competing specifications.
+
+## Briefing and explicit waiting tasks — first slice 2026-09-24
+
+**Status:** implemented and verified locally; deployment and the live database migration remain pending. Briefing at `/` and `/briefing` composes the existing owner-scoped daily-task and work-queue projections, saved outputs and activity. `/agents` remains the Assistant route and retains existing conversation identities/links. Root links carrying `session`, `run`, `agent` or `conversation` redirect there with the full query preserved; `/overview` remains supported. This first checkpoint was a presentation over existing records; the follow-on Space model is specified below.
+
+`waiting` extends the persisted business-task state, `GET /api/v1/dashboard/tasks?view=waiting` and `counts.waiting`. Migration `0037_task_waiting` updates the task-state CHECK after `0036_email_delivery`; existing rows retain their state. Waiting tasks are excluded from Today, Upcoming and Unscheduled; Resume moves them to `in_progress`, and they can also be completed. Marking waiting requires human identity rather than an agent-run identity. Model methods own transitions and atomic audit; routes retain authentication, transaction boundaries, idempotency and expected-version checks. Update Python and generated web contracts together.
+
+Task waiting is distinct from agent-run question/action waits, `snoozed`, delivery status and observed replies. Quick capture uses normal task creation: a bounded first-line title, full original text in `rationale`, and no due date. Preserve the draft on failure and the request identity on an ambiguous retry. The document action reuses existing upload/import. Capture does not dispatch agent work, classify input or fetch a pasted URL.
+
+Briefing reads and refreshes remain side-effect free: no provider/model calls, Gmail acquisition, background dispatch or recovery-state mutation. Rows link to the canonical question/conversation, exact action review, saved artifact version or persisted run activity. Existing APIs retain ownership, review, version and external-action boundaries. No scheduling, automatic reply inference, ranking model, analytics pipeline or document decision/rename worker is introduced by this slice.
+
+## Spaces and capture contracts — local implementation 2026-09-24
+
+Migration `0038_spaces` adds owner-scoped Space and explicit link records. `GET /api/v1/spaces` supports active/archived/all state, title search and pagination; detail returns its saved links. Create/update, archive/restore and link/unlink mutations use the existing UUID idempotency key and expected-version contracts. Links target owned tasks, artifacts, contacts, companies or opportunities. An archived Space is readable and rejects changes except restore. Model methods own membership, state validation and audit; routes own authentication and transaction boundaries.
+
+`POST /api/v1/spaces/{id}/tasks?expected_version=N` accepts the existing TaskCreate body and returns `{space, task}` after an atomic task-create/link transaction. It does not dispatch a run. The client retains the exact endpoint/version/key for an ambiguous retry; changing the destination creates a new request identity. Briefing still uses ordinary task creation when no Space is selected. Sources and decision notes remain artifacts; uploads enter normal intake and are linked explicitly afterward. The Briefing selector reads the first 100 active Spaces; the full Spaces view is paginated.
+
+<a id="typed-document-decisions--proposed-2026-09-24"></a>
+
+## Typed document decisions — local implementation 2026-09-24
+
+The classification/configured-renaming slice is **implemented and verified locally**; deployment remains pending. Migration `0039_document_decisions` follows `0038_spaces`; API readiness expects `0039_document_decisions`. [Product Spec](../product/product-spec.md#jev-document-classification-and-renaming--requested-2026-09-24) owns behavior and implemented defaults; [the audit](jev-audit.md) records the current source findings and optimization priorities.
+
+### Boundaries and data ownership
+
+Keep provider transport in `integrations/jev.py` (or a focused sibling), document behavior/validation/audit in domain models, and transaction/HTTP concerns in routes. A dedicated Celery document-decision job performs bounded provider I/O outside transactions. Do not add a general decision orchestration framework or repository layer. This workflow must not require a conversational Deep Agents or Strands run.
+
+Reuse Artifact, Document, immutable ArtifactVersion, DocumentImport, Task and audit events. Migration `0039_document_decisions` adds the domain records for owner-scoped classification/renaming settings, a durable classification job/decision, an exact human review and a rename proposal. These records reference content; they are not another content or document-version store.
+
+| Record / snapshot | Implemented contract |
+| --- | --- |
+| Owner document policy | Revision, enabled classification mode, eligible catalog IDs, rename mode and validated template. Separate from `CC_JEV_ENABLED`, which currently gates routing. Provider credentials remain server-only. |
+| Classification job | Owner, import/document/task IDs, original and extraction version IDs, expected document metadata revision, unique business key, state, attempt/lease and safe error. Persist dispatch intent before I/O. |
+| Decision | Immutable exact question/state hashes and bounded input manifest; catalog IDs/descriptions/hash; source/extraction IDs and excerpt ranges; truncation indicator; provider, requested/returned/resolved model IDs; question version; validated answers; usage, cost status, latency and evaluation provenance. Resolved model may explicitly be unavailable. |
+| Review | Decision ID, expected current metadata revision/source pair, human reviewer, accepted catalog ID or retain/request-better-file outcome, reason, timestamp and idempotency identity. Model output is never a human review. |
+| Rename proposal | Classification review ID, exact policy revision, expected metadata revision, before/after titles, render inputs, linked task, state and apply identity. Old proposals are retained as superseded, not overwritten. |
+
+The configured catalog is an allowlist over existing DocumentType IDs with nonempty descriptions, snapshotted per request. The explicit allowlist does not introduce a catalog administration surface or an `active` flag. The migration seeds an unclassified type for uploads; exclude it from ordinary type candidates and represent `unknown`/`mixed` as explicit model outcomes that leave accepted metadata unclassified or unchanged. Do not silently add mortgage/financial types to the career/workspace catalog because the portfolio demo uses them.
+
+### Provider contract and policy composition
+
+The `document-type.v3` contract sends one bounded batched request per selected extraction: Choice for document type and six independent Nouls named `sufficient_evidence`, `incompatible_purposes`, `processing_instructions`, `explicit_commitment`, `follow_up_requested` and `deadline_present`. Questions use the same state; none consumes another answer implicitly. Deterministically reject empty/failed extraction before spending. Mark filename as untrusted secondary evidence; pass only required text and catalog definitions. A size-limited sample records what was omitted and routes to review.
+
+The base batch has seven questions; optional `analysis_context` raises it to at most 13. Each supplied field is bounded to 4,000 characters and the total to 12,000. The exact context is snapshotted privately with the source and is included in request identity and provenance. Omitted context omits the associated questions, rather than emitting default scores.
+
+| Supplied context | Additional questions |
+| --- | --- |
+| `research_query` | Score `relevance` and Choice `evidence_role` |
+| `claim` | Noul `claim_supported` |
+| `agent_request` | Score `output_quality` |
+| `policy` | Noul `policy_concern` |
+| Both `agent_request` and `proposed_action` | Noul `action_matches_request` |
+
+Score values are bounded to 0–2 and remain distinct from probability and confidence. These are explicit checks of one extracted document, not an autonomous execution guard or collection/inbox scan. Semantic action matching cannot authorize a call or bypass code-owned permissions, approval, spending or retry policy.
+
+Use a separate validated document response contract rather than extending the routing `Route` literal. Require the exact question IDs/types, finite values in [0,1], the exact requested Choice keys, a normalized distribution within a documented tolerance and a selected option consistent with that distribution. Validate model identity according to each provider's contract; store the requested alias separately from the returned/resolved identity. Missing/extra/malformed answers yield unavailable, never a plausible classification. No raw provider error body enters user-visible output.
+
+Application policy produces a proposed type and reason codes, not a blanket action authorization. First release always requires human acceptance of a type change. Unknown/mixed, unreadable, insufficient, contradictory or suspicious inputs receive explicit review reasons. The instruction-detection Noul is advisory: even a false negative cannot grant tool access because source content is never executable authority. Decision thresholds are recorded with the policy version; production calibration remains unverified. The current routing thresholds are not a document policy. Commitment, follow-up and deadline answers remain inspectable signals: they create no tasks or authorization, and deadline presence does not establish urgency. No generated reasoning is displayed.
+
+Persist inspectable decision fields independently of optional tracing. Store raw private text only in the already-private artifact/input records; routine audit/telemetry uses references, bounded redacted material and reason codes. Mocked responses, locally simulated results, recorded provider fixtures and live inference have distinct provenance. A hand-authored number must never be called a recorded Jev response.
+
+### Execution, spending and mutation fences
+
+The classification lifecycle is queued → running → proposed / needs_review / unavailable / cancelled / superseded. Terminal result categories are distinct from an accepted document type. Duplicate dispatch cannot perform a second inference for the same completed business key. A lost lease prevents persistence; ambiguous provider completion records unknown usage and requires explicit retry instead of automatic replay. Retry is a new attempt with retained history and its own budget reservation.
+
+Reuse the spending ledger's reservation/settlement/unknown-cost semantics. Document jobs use a separate supported spending subject and lease, without creating a conversational agent run. No provider fallback or paid retry occurs implicitly. Reuse a saved decision only for identical owner, source/extraction, state, catalog, question and model identity; rerun current policy/ownership checks before applying it. Unresolved moving aliases preclude indefinite decision-cache reuse.
+
+Queue classification after extraction commit only when opted in. Record a durable dispatchable row in the same transaction as extraction completion; delivery/recovery may enqueue it idempotently. Provider failure must not roll back a completed extraction. Read and lock current ownership/version metadata in short claim/persist transactions, with provider I/O between them.
+
+Type correction is an explicit Document model method. Recheck human review, owner, archive state, current original/extraction pair, catalog membership and expected metadata revision. Update the original's current facet and the matching current extraction facet atomically; increment the metadata revision and audit old/new values with the decision/review/source references. Never rewrite immutable version content or historical classifications. Appending another original still cannot change type implicitly.
+
+If a type correction would contradict the exact current default-resume selection, reject it with a clear conflict until the user changes that selection. Existing immutable application packages and completed external receipts remain historical facts; any future use must revalidate type compatibility and the exact selected bytes. This behavior requires regression coverage for default resumes, cover letters and application uploads.
+
+Create a rename proposal/task only after accepted classification when the current policy enables it. The unique key includes document, accepted review and policy revision. Code renders only an allowlist of template tokens; prohibit arbitrary expressions, file paths and inferred personal fields. Validate the result against the current title length/control-character rules and produce a stable short-ID disambiguator. Duplicate display titles need not become a filesystem operation. Unchanged titles produce an audited no-op, not a redundant task.
+
+Applying the preview locks the document and rechecks owner, archive state, exact source pair, classification review, current title/metadata revision and current policy revision. An intervening edit invalidates the preview. Apply only the display title, audit before/after and complete only the rename task atomically. Disable/reconfigure invalidates pending renames; retries cannot overwrite subsequent manual changes. Original filename, blob hash/key, downloads and immutable content remain unchanged by this first slice.
+
+Owner policy is exposed through `GET/PUT /api/v1/documents/policy`, with classification/rename modes defaulting to `off`, an explicit catalog allowlist, validated template, timezone and external-processing acknowledgement. The API exposes document classification request/status/history, exact decision inspection, classification review/history and rename apply/cancel using existing idempotency and optimistic-concurrency conventions. Manual type review after extraction accepts no decision ID and does not depend on provider availability. The current classification GET hides unsafe stale proposal actions; historical records remain inspectable through `/documents/decisions/{id}`, `/documents/{id}/classification/history` and `/documents/{id}/classification/reviews` under the same owner checks. Agents may request or inspect proposals within their grants; human acceptance/apply stays on the existing human-authenticated boundary. Add generated web contracts together with any Python API changes using `make contracts`.
 
 ## Usability collection and reading contract — 2026-09-22
 
@@ -114,6 +192,8 @@ Companion 0.3 extends protocol v2 without new browser permissions or database ta
 Vercel AI Elements supplies generated Markdown, conversation and tool-result components over the existing API. Eve was evaluated on 2026-09-21; it would be a separate TypeScript durable-session runtime, so it is not installed alongside the selected LangGraph/Celery stack. The UI design review is recorded in `docs/design/design-spec.md`.
 
 ### Reviewed workflow implementation
+
+Email scheduling (2026-09-24) extends immutable reviewed-action revisions with typed `delivery` and indexed `scheduled_for`, via migration `0036_email_delivery`. The domain computes cadence only from a succeeded, owned same-account send receipt with matching To recipients. The API rejects naive/past times and expiry at/before delivery. Approval binds the revision, including timing; editing invalidates approval. A shared due-time query gates both the Celery dispatcher and locked worker claim, so future emails cannot starve due work or execute through early broker delivery. PostgreSQL retains schedules across restarts; Composio's pinned Gmail send executes only when due. Existing once-only attempts, account verification, spending reservations and unknown-outcome handling remain authoritative. A deselected or inactive sender fails before provider access. A follow-up artifact version is valid Gmail source provenance without changing Notion's source contract. Contact email history is owner-scoped, bounded and derived from local action receipts; it never reads the inbox. Research drafts reuse dated context and are instructed to search and capture at most two targeted email sources for individual review; the outreach profile retains its existing host-enforced overall quotas.
 
 Long-running agent work emits bounded public progress through the existing durable event stream without extra model calls. Middleware publishes shared remaining budgets and enforces research quotas across direct and catalog tools. Stopped work retains an explicit partial conversation reply with returned record identifiers and attributed source excerpts. A subsequent user message can read bounded receipts from the previous stopped run in the same owned session; primary record references are retained separately from source excerpts. This working context neither promotes reviewed memory nor authorizes automatic checkpoint replay. PostgreSQL checkpoints and the existing reviewed-memory store remain authoritative. See `request-costs.md` for the bounds and recovery behavior.
 
@@ -274,7 +354,7 @@ The table below includes future workflow vocabulary; implemented CRM, task, run 
 | Opportunity | researching, preparing, applied, interviewing, offer, closed; closing/reopening retains reason/history |
 | Application/attempt | draft, ready, running, submitted, failed_before_submit, outcome_unknown, withdrawn/rejected/offered; unknown blocks blind resubmission |
 | Artifact review | unreviewed, approved, rejected, revoked for an exact version |
-| Business task | open, in_progress, snoozed, done, cancelled; worker retries do not alter its meaning |
+| Business task | open, in_progress, waiting, snoozed, done, cancelled; waiting is explicit human task state, and worker retries do not alter its meaning |
 | Machine work | queued, leased/running, retry_wait, completed, failed_terminal, cancelled, needs_review; leased completion requires current ownership |
 | Authorization | proposed, active, expired, revoked, consumed, with applicable usage/reservation semantics |
 | Import | uploaded, inspected, staged, awaiting_review, promoting, completed/completed_with_exceptions, failed, cancelled |
@@ -690,6 +770,12 @@ Resolve the remaining [Product Spec decisions](../product/product-spec.md#7-open
 Still open: authenticated field/tenant coverage within the five selected application platforms, account configuration, numeric budgets and paid quality evidence, integration of the isolated daily-workspace projection, retention policy, and always-on host selection/recovery targets. Resume ingestion/versioning, reviewed fact/memory provenance, steering/questions, private byte storage, isolated execution, PDF derivation and reviewed publication are implemented locally. Importing the selected personal resume still requires its intended owner; do not guess between accounts. AR-17 fixes relevant Gmail searches on request in one account; AR-18 fixes work-first dashboard priority; AR-19 fixes task/opportunity conversation scope; AR-20 requires review of proposed long-term memories; AR-21 preserves existing application values; AR-22 selects the general portfolio resume by default; AR-23 defers spending amounts until benchmark-plan review; AR-24 selects steering at safe points; AR-25 selects the existing Docker stack on one always-on server; AR-26 selects editable cited Command Center documents, PDF export and optional reviewed Notion publication. Later campaign authority, autonomous navigation/submission and Slack remain separate. A completed review is not proof that its implementation tasks have shipped.
 
 Before each later slice, document migrations/constraints, transition effects, request/response/tool schemas, queue/execution semantics and acceptance fixtures. Distinguish user decisions from implementation choices and pending proposals. [engineering.md](engineering.md) defines the build contract and verification work; [Design Spec](../design/design-spec.md) defines screens and interaction questions.
+
+## Agent efficiency and recovery — 2026-09-24
+
+An optional `runtime = "strands"` worker adapter is implemented for single-agent experiments; the default remains Deep Agents. It shares scoped MCP, spending, bounded compaction/recovery and durable UI events. Unsupported delegation, skills, JEV routing, human-question resume and interrupted-run recovery fail closed. [Experiment contract](strands-experiment.md) and [matched benchmark](runtime-benchmark.md) define its limits. Evidence tools now return smaller retrievable previews with exact version references; source storage remains unchanged.
+
+Host-reviewed GET tools and catalog discovery now use bounded transient recovery in the existing work middleware, with shared/per-tool attempt accounting, stable call identity, jitter, server-directed delay, steering and cancellation. Writes and provider operations using POST remain excluded; model SDK retries remain disabled. MCP lookup constructs only the requested scoped tool. SSE clients flush terminal text immediately and reconnect only transient failures, honoring server delay and offline/visibility state. [Agent efficiency research and implementation](agent-efficiency.md) records sources, exact limits, measured contracts and remaining evaluation work.
 
 ## Supporting documents
 

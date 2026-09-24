@@ -11,7 +11,7 @@ for (const width of [1440, 390]) {
       reducedMotion: "reduce",
       colorScheme: width === 1440 ? "dark" : "light",
     });
-    await page.goto("/?session=session-stream");
+    await page.goto("/agents?session=session-stream");
     const activity = page.getByRole("region", {
       name: "Grounded application guidance activity",
     });

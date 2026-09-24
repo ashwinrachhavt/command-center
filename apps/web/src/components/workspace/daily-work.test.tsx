@@ -76,7 +76,7 @@ const daily = (items = [task], extra = {}) => ({
   offset: 0,
   timezone: "America/Los_Angeles",
   today: "2026-09-22",
-  counts: { today: 1, upcoming: 0, unscheduled: 0, snoozed: 0 },
+  counts: { today: 1, upcoming: 0, unscheduled: 0, waiting: 0, snoozed: 0 },
   ...extra,
 });
 const page = (items: WorkQueueItem[] = [], extra = {}) => ({
@@ -191,7 +191,13 @@ it("paginates tasks and resets to the first page when changing view", async () =
       ],
       {
         total: 8,
-        counts: { today: 8, upcoming: 1, unscheduled: 0, snoozed: 0 },
+        counts: {
+          today: 8,
+          upcoming: 1,
+          unscheduled: 0,
+          waiting: 0,
+          snoozed: 0,
+        },
       },
     );
   });
@@ -286,6 +292,66 @@ it("resumes snoozed tasks without claiming a timed reminder or starting an agent
     ),
   ).toBe(false);
   expect(screen.getByText(/Paused until you resume them/)).toBeInTheDocument();
+});
+
+it("keeps waiting tasks separate and resumes them without starting an agent", async () => {
+  let resumed = false;
+  const api = vi
+    .spyOn(apiModule, "api")
+    .mockImplementation(async (path, options) => {
+      if (options?.method === "PATCH") {
+        resumed = true;
+        return { ...task, state: "in_progress", row_version: 8 };
+      }
+      if (path.startsWith("dashboard/tasks?"))
+        return daily(
+          queryRoute(path).searchParams.get("view") === "waiting" && !resumed
+            ? [{ ...task, state: "waiting" }]
+            : [],
+          {
+            counts: {
+              today: 0,
+              upcoming: 0,
+              unscheduled: 0,
+              waiting: resumed ? 0 : 1,
+              snoozed: 0,
+            },
+          },
+        );
+      return defaults(path);
+    });
+  mount(<DailyTasks />);
+  await screen.findByText("No tasks due today");
+  fireEvent.mouseDown(screen.getByRole("tab", { name: /^Waiting\s*1/ }), {
+    button: 0,
+    ctrlKey: false,
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: `Resume ${task.title}` }),
+  );
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      `tasks/${task.id}`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: { state: "in_progress", expected_version: 7 },
+        key: expect.any(String),
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("button", { name: task.title }),
+    ).not.toBeInTheDocument(),
+  );
+  expect(api.mock.calls.filter(([, options]) => options?.method)).toHaveLength(
+    1,
+  );
+  expect(
+    api.mock.calls.some(([path]) =>
+      /agent-runs|conversations|gmail/.test(path),
+    ),
+  ).toBe(false);
 });
 
 it("opens questions in their conversation, outputs at their exact version and actions in the existing review", async () => {

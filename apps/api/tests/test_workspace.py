@@ -340,6 +340,67 @@ def test_company_labels_resolve_beyond_first_page_and_preserve_ownership(client,
     assert client.get("/api/v1/company-labels", params={"ids": company["id"]}).json() == []
 
 
+def test_waiting_task_requires_explicit_human_change_and_can_resume(client, engine):
+    task = post(
+        client,
+        "tasks",
+        {
+            "title": "Confirm the synthetic meeting",
+            "rationale": "Waiting for the contact to choose a time",
+        },
+    ).json()
+    path = "tasks/" + task["id"]
+    waiting = patch(client, path, {"state": "waiting", "expected_version": task["row_version"]})
+    assert waiting.status_code == 200, waiting.text
+    saved = waiting.json()
+    assert saved["state"] == "waiting"
+    assert saved["rationale"] == task["rationale"]
+    assert saved["completed_at"] is None
+    assert client.get("/api/v1/dashboard").json()["counts"]["tasks"] == 1
+    assert client.get("/api/v1/tasks?state=waiting").json()["total"] == 1
+    conversation = post(client, "agent-sessions", {"task_id": task["id"]})
+    assert conversation.status_code == 201, conversation.text
+    with Session(engine) as db:
+        audit = db.scalars(
+            select(AuditEvent).where(
+                AuditEvent.subject_id == task["id"], AuditEvent.action == "task.updated"
+            )
+        ).one()
+        assert audit.details == {"fields": ["state"]}
+    assert (
+        patch(client, path, {"state": "open", "expected_version": task["row_version"]}).status_code
+        == 409
+    )
+    resumed = patch(client, path, {"state": "open", "expected_version": saved["row_version"]})
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["state"] == "open"
+    assert client.get("/api/v1/dashboard/tasks?view=waiting").json()["total"] == 0
+    client.app.dependency_overrides[authenticate] = lambda: Identity(
+        client.actor_id, "synthetic-agent", run_id=uuid4()
+    )
+    assert (
+        patch(
+            client, path, {"state": "waiting", "expected_version": resumed.json()["row_version"]}
+        ).status_code
+        == 403
+    )
+    assert client.get("/api/v1/" + path).json()["state"] == "open"
+
+
+@pytest.mark.parametrize("terminal_state", ["done", "cancelled"])
+def test_finished_task_must_reopen_before_waiting(client, terminal_state):
+    task = post(client, "tasks", {"title": "Synthetic finished commitment"}).json()
+    path = "tasks/" + task["id"]
+    finished = patch(
+        client, path, {"state": terminal_state, "expected_version": task["row_version"]}
+    ).json()
+    rejected = patch(
+        client, path, {"state": "waiting", "expected_version": finished["row_version"]}
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert client.get("/api/v1/" + path).json()["state"] == terminal_state
+
+
 def test_task_completion_and_artifact_reviews(client):
     task = post(client, "tasks", {"title": "Review synthetic role"}).json()
     done = patch(

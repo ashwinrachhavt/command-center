@@ -39,6 +39,7 @@ class DailyTaskCounts(s.Contract):
     today: int
     upcoming: int
     unscheduled: int
+    waiting: int
     snoozed: int
 
 

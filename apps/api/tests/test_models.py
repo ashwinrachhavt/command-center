@@ -49,8 +49,11 @@ def version_for(artifact: Artifact, actor: Actor, **overrides) -> ArtifactVersio
     return ArtifactVersion(**(fields | overrides))
 
 
-def test_task_completion_and_audit_share_a_transaction(session: Session, actor: Actor) -> None:
-    task = Task(owner_id=actor.id, title="Review synthetic source")
+@pytest.mark.parametrize("initial_state", ["open", "waiting"])
+def test_task_completion_and_audit_share_a_transaction(
+    session: Session, actor: Actor, initial_state: str
+) -> None:
+    task = Task(owner_id=actor.id, title="Review synthetic source", state=initial_state)
     session.add(task)
     session.flush()
     task.complete(actor_id=actor.id, request_id=uuid4())
@@ -58,7 +61,7 @@ def test_task_completion_and_audit_share_a_transaction(session: Session, actor: 
     assert task.state == "done"
     assert task.completed_at is not None
     audit = session.scalars(select(AuditEvent).where(AuditEvent.subject_id == task.id)).one()
-    assert audit.details == {"from_state": "open", "to_state": "done"}
+    assert audit.details == {"from_state": initial_state, "to_state": "done"}
     assert task.title not in str(audit.details)
     with pytest.raises(ValueError, match="active task"):
         task.complete(actor_id=actor.id, request_id=uuid4())
