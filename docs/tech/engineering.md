@@ -4,6 +4,12 @@
 
 **Release integration (2026-09-22):** `frontend-redesign` now includes keyword coverage, career row expansion, the daily workspace and posting identity through `ed69ac1`, with companion `0.4.5`. Earlier isolated-branch/build references below record validation checkpoints and do not describe the current checkout. Hands-on browser/provider QA remains user-led.
 
+## Gmail chat search repair — 2026-09-23
+
+Reported inbox requests hit two separate failures: agent calls omitted the consumed human-message reference and received 403; subsequent authorized calls received 503 because Composio rejected the per-call `account` selector on a project without multi-account support. Gmail identity verification and restricted session creation had succeeded. Session execution now relies on its single pinned verified account. Agent tool schemas require non-null request provenance through both direct tools and the progressive catalog; human/local-client pulls retain their existing contract. Gmail failures receive static, specific guidance without exposing provider payloads or claiming a worker outage.
+
+Validation: the two initial regressions failed before the fix. The final focused suite passes 70 tests covering the adapter, tool schemas, authorization, real MCP transport, reviewed actions and existing application tools. Ruff lint/formatting and configured mypy pass. An intermediate broader backend run exposed an unrelated validation-message compatibility regression; it was corrected by limiting the new guidance to Gmail and verified in the final focused suite. That broader run was stopped, so this is not a full `make check` claim. The API image builds successfully. A live request through the deployed Gmail route, using a random synthetic RFC822 message-ID query, succeeded with zero messages and a saved observation. This verifies search connectivity without reading personal email content; it does not evaluate inbox prioritization or task/strategy quality. Logs remain in ignored `.local/gmail-*.log`.
+
 ## Calm workbench usability cleanup — 2026-09-22
 
 Home now opens agent conversations with a visible desktop composer. The sidebar keeps Opportunities, Tasks, Library, Document Vault, Contacts and Companies, with agent configuration and other tools below. Applications and saved roles remain accessible within Opportunities; legacy routes continue to work. Generated and authored artifacts open in a centered reading/review canvas, full width on mobile, with selected-version history, editing and export preserved.

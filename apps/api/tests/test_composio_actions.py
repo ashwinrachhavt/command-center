@@ -482,11 +482,11 @@ def test_gmail_session_pins_one_account_and_executes_without_bulk_tools(mocker):
         autospec=True,
         return_value=SimpleNamespace(session_id="session-synthetic"),
     )
-    execute = mocker.patch.object(
-        client.client.tool_router.session,
-        "execute",
-        autospec=True,
-        return_value=SessionExecuteResponse(
+
+    def execute_single_account(**kwargs):
+        if "account" in kwargs:
+            raise ValueError("Multi-account selection is not enabled")
+        return SessionExecuteResponse(
             data={
                 "messages": [
                     {
@@ -499,7 +499,13 @@ def test_gmail_session_pins_one_account_and_executes_without_bulk_tools(mocker):
             },
             error=None,
             log_id="log-synthetic",
-        ),
+        )
+
+    execute = mocker.patch.object(
+        client.client.tool_router.session,
+        "execute",
+        autospec=True,
+        side_effect=execute_single_account,
     )
     legacy = mocker.patch.object(client.client.tools, "execute", autospec=True)
     reserve, charges = budget_recorder()
@@ -532,7 +538,7 @@ def test_gmail_session_pins_one_account_and_executes_without_bulk_tools(mocker):
     assert create.call_count == 1
     assert execute.call_count == 2
     assert execute.call_args.kwargs["session_id"] == session_id
-    assert execute.call_args.kwargs["account"] == "ca_synthetic"
+    assert "account" not in execute.call_args.kwargs
     legacy.assert_not_called()
     assert [entry[0] for entry in charges] == [
         "COMPOSIO_SESSION_CREATE",

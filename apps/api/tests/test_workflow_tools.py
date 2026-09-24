@@ -73,6 +73,7 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
         "additionalProperties": False,
     }
     assert "request_message_id" in discovered["gmail_search"]["properties"]
+    assert "request_message_id" in discovered["gmail_search"]["required"]
     context = discovered["connected_context"]
     assert set(context["required"]) == {"account_id", "query"}
     assert set(context["properties"]) == {"account_id", "query"}
@@ -89,6 +90,75 @@ def test_workflow_tool_schemas_keep_account_and_scope_at_typed_boundaries(settin
     assert {"account_id", "payload", "reason"}.issubset(proposal["required"])
     assert {"task_id", "opportunity_id"}.issubset(proposal["properties"])
     assert proposal["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("catalog", [False, True])
+def test_mail_request_provenance_is_required_only_for_agents(settings, mocker, local, catalog):
+    from command_center.agents.mcp_catalog import add_catalog_tools
+    from command_center.main import create_app
+
+    registry = ToolRegistry(
+        settings,
+        workflow_profile(
+            tools=["catalog_search", "catalog_execute"] if catalog else ["gmail_search"]
+        ),
+        uuid4(),
+        uuid4(),
+        "synthetic-capability",
+        local=local,
+    )
+    request = mocker.patch.object(ToolRegistry, "request", return_value={"messages": []})
+    if catalog:
+        add_catalog_tools(registry, create_app(settings).openapi(), local=local)
+
+    for arguments in ({"query": "synthetic"}, {"query": "synthetic", "request_message_id": None}):
+        tool = "catalog_execute" if catalog else "gmail_search"
+        supplied = {"tool_name": "gmail_search", "arguments": arguments} if catalog else arguments
+        result = json.loads(registry.execute(tool, supplied, "synthetic-mail-read"))
+        if local:
+            assert result == {"messages": []}
+            request.assert_called_once_with("POST", "gmail/search", arguments)
+        else:
+            assert result["status_code"] == 422
+            assert "request_message_id" in result["error"]
+            request.assert_not_called()
+        request.reset_mock()
+
+    arguments = {"query": "synthetic", "request_message_id": str(uuid4())}
+    supplied = {"tool_name": "gmail_search", "arguments": arguments} if catalog else arguments
+    assert json.loads(registry.execute(tool, supplied, "synthetic-mail-read")) == {"messages": []}
+    request.assert_called_once_with("POST", "gmail/search", arguments)
+
+
+@pytest.mark.parametrize("status", [403, 503])
+def test_mail_errors_give_safe_specific_guidance(settings, mocker, status):
+    registry = ToolRegistry(
+        settings, workflow_profile(tools=["gmail_search"]), uuid4(), uuid4(), "synthetic"
+    )
+    response = httpx.Response(
+        status,
+        request=httpx.Request("POST", "https://synthetic.invalid"),
+        json={"detail": "private-provider-payload"},
+    )
+    mocker.patch.object(
+        registry,
+        "request",
+        side_effect=httpx.HTTPStatusError(
+            "private-provider-payload", request=response.request, response=response
+        ),
+    )
+    result = json.loads(
+        registry.execute(
+            "gmail_search",
+            {"query": "synthetic", "request_message_id": str(uuid4())},
+            "synthetic-mail-read",
+        )
+    )
+    assert result["status_code"] == status
+    assert "private-provider-payload" not in result["error"]
+    assert "worker" not in result["error"]
+    assert ("request_message_id" if status == 403 else "Gmail provider") in result["error"]
 
 
 def test_connected_context_tool_pins_call_identity_and_rejects_extra_authority(

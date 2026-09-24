@@ -1051,11 +1051,13 @@ class ComposioActionClient:
         response: Any
         try:
             if session_id is not None:
+                # Session creation already pins exactly one verified account.
+                # The per-call account selector requires Composio multi-account
+                # support and is rejected by projects without that feature.
                 response = self.client.tool_router.session.execute(
                     session_id=session_id,
                     tool_slug=tool_slug,
                     arguments=arguments,
-                    account=account.connected_account_id,
                     timeout=float(self.timeout_seconds),
                 )
             else:
