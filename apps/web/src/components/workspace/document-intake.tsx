@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -394,7 +395,9 @@ export function DocumentUploadDialog({
                 )
               }
             >
-              {upload.isPending ? <Spinner /> : <FilePlus2 />}
+              <AnimatedIcon state={upload.isPending}>
+                {upload.isPending ? <Spinner /> : <FilePlus2 />}
+              </AnimatedIcon>
               {validation
                 ? "Retry upload"
                 : entries.length > 1

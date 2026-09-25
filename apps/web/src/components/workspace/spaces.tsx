@@ -1,4 +1,5 @@
 "use client";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -210,14 +211,16 @@ function LinkRecordDialog({
 }) {
   const [kind, setKind] = useState<SpaceLink["record_type"]>("task");
   const [search, setSearch] = useState("");
+  const settledSearch = useDebouncedValue(search.trim());
   const [offset, setOffset] = useState(0);
   const save = useSpaceWrite();
   const resource = recordKinds[kind].resource;
   const records = useQuery({
-    queryKey: ["spaces", "candidates", resource, search, offset],
-    queryFn: () =>
+    queryKey: ["spaces", "candidates", resource, settledSearch, offset],
+    queryFn: ({ signal }) =>
       api<Page<WorkspaceRecord>>(
-        `${resource}?q=${encodeURIComponent(search)}&limit=20&offset=${offset}`,
+        `${resource}?q=${encodeURIComponent(settledSearch)}&limit=20&offset=${offset}`,
+        { signal },
       ),
   });
   return (
@@ -389,10 +392,10 @@ function LinkedRecords({
   const context = useWorkspaceContext();
   const unlink = useSpaceWrite();
   return (
-    <section className="rounded-xl border border-border bg-card p-5">
+    <section className="rounded-xl shadow-surface bg-card p-5">
       <h3 className="text-sm font-medium">
         {title}{" "}
-        <span className="ml-1 font-normal text-muted-foreground">
+        <span className="ms-1 font-normal text-muted-foreground">
           {links.length}
         </span>
       </h3>
@@ -412,7 +415,7 @@ function LinkedRecords({
           return (
             <li key={link.id} className="flex items-center gap-2 py-2">
               <button
-                className="group min-w-0 flex-1 rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group min-w-0 flex-1 rounded-md py-2 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() =>
                   context?.open(
                     recordKinds[link.record_type].resource,
@@ -484,7 +487,7 @@ function SpaceContent({
     !["done", "cancelled"].includes(String(link.record.state));
   return (
     <div className="min-w-0 space-y-5">
-      <section className="rounded-xl border border-border bg-card p-5 md:p-6">
+      <section className="rounded-xl shadow-surface bg-card p-5 md:p-6">
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:flex-wrap">
           <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -606,14 +609,16 @@ function SpaceContent({
 export function Spaces() {
   const [state, setState] = useState<"active" | "archived">("active");
   const [search, setSearch] = useState("");
+  const settledSearch = useDebouncedValue(search.trim());
   const [offset, setOffset] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<"new" | "edit" | null>(null);
   const list = useQuery({
-    queryKey: ["spaces", "list", state, search, offset],
-    queryFn: () =>
+    queryKey: ["spaces", "list", state, settledSearch, offset],
+    queryFn: ({ signal }) =>
       api<Page<Space>>(
-        `spaces?state=${state}&q=${encodeURIComponent(search)}&limit=25&offset=${offset}`,
+        `spaces?state=${state}&q=${encodeURIComponent(settledSearch)}&limit=25&offset=${offset}`,
+        { signal },
       ),
   });
   const detail = useQuery({
@@ -691,7 +696,7 @@ export function Spaces() {
                     onClick={() => setSelectedId(space.id)}
                     aria-pressed={selectedId === space.id}
                     className={cn(
-                      "block w-full rounded-xl border p-4 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+                      "block w-full rounded-xl border p-4 text-start outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
                       selectedId === space.id
                         ? "border-primary/50 bg-primary/5"
                         : "border-border bg-card",

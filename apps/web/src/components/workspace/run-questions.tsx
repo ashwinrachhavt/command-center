@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp } from "lucide-react";
@@ -217,7 +218,9 @@ export function RunQuestions({
                   answer.isPending
                 }
               >
-                {pending ? <Spinner /> : <ArrowUp />}
+                <AnimatedIcon state={pending}>
+                  {pending ? <Spinner /> : <ArrowUp />}
+                </AnimatedIcon>
                 {errors[question.id] ? "Retry answer" : "Answer"}
               </Button>
             </div>

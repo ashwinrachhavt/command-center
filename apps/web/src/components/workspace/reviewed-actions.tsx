@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -846,7 +847,10 @@ function ActionEditorForm({
                 writing.status === "conflict"
               }
             >
-              {save.isPending ? <Spinner /> : <FileCheck />}Save proposal
+              <AnimatedIcon state={save.isPending}>
+                {save.isPending ? <Spinner /> : <FileCheck />}
+              </AnimatedIcon>
+              Save proposal
             </Button>
           </fieldset>
         </form>
@@ -1011,7 +1015,7 @@ function ActionReview({
             <Button
               size="sm"
               variant="outline"
-              className="ml-auto"
+              className="ms-auto"
               onClick={() => setEditing(true)}
             >
               <Pencil />
@@ -1194,8 +1198,10 @@ function ActionReview({
               disabled={reconcile.isPending}
               onClick={() => reconcile.mutate()}
             >
-              {reconcile.isPending ? <Spinner /> : <RefreshCw />}Check provider
-              receipt
+              <AnimatedIcon state={reconcile.isPending}>
+                {reconcile.isPending ? <Spinner /> : <RefreshCw />}
+              </AnimatedIcon>
+              Check provider receipt
             </Button>
           </div>
         )}
@@ -1374,7 +1380,7 @@ export function ReviewedActions() {
                 <button
                   type="button"
                   key={action.id}
-                  className="flex w-full items-center justify-between gap-4 border-b border-border bg-card p-5 text-left last:border-0 hover:bg-muted/50"
+                  className="flex w-full items-center justify-between gap-4 border-b border-border bg-card p-5 text-start last:border-0 hover:bg-muted/50"
                   onClick={() => setSelected(action)}
                 >
                   <div className="min-w-0">

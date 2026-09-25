@@ -1,4 +1,5 @@
 "use client";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -320,7 +321,7 @@ export function Agents() {
               disabled={send.isPending}
               aria-current={sessionId === thread.id ? "true" : undefined}
               className={cn(
-                "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
+                "flex flex-col gap-2 rounded-lg p-3 text-start hover:bg-muted",
                 sessionId === thread.id && "bg-muted",
               )}
               onClick={() => {
@@ -371,7 +372,7 @@ export function Agents() {
                   <button
                     key={item.id}
                     disabled={send.isPending}
-                    className="rounded-lg p-3 text-left text-xs hover:bg-muted"
+                    className="rounded-lg p-3 text-start text-xs hover:bg-muted"
                     onClick={() => selectConversation(undefined, item.id)}
                   >
                     {item.title}
@@ -399,7 +400,7 @@ export function Agents() {
       aria-label="Chat workspace"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 md:px-6">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-3 md:px-6">
         <Button
           variant="ghost"
           size="sm"
@@ -414,11 +415,13 @@ export function Agents() {
               : setHistoryOpen(!historyOpen)
           }
         >
-          {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+          <AnimatedIcon state={historyExpanded}>
+            {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+          </AnimatedIcon>
           Chats
         </Button>
-        <h1 className="text-lg font-medium">Assistant</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <h1 className="min-w-0 break-words text-lg font-medium">Assistant</h1>
+        <div className="ms-auto flex max-w-full flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -468,7 +471,7 @@ export function Agents() {
           <aside
             id="chat-history"
             aria-label="Conversation history"
-            className="min-h-0 overflow-y-auto border-r border-border bg-card/40"
+            className="min-h-0 overflow-y-auto border-e border-border bg-card/40"
           >
             {history}
           </aside>
@@ -590,7 +593,7 @@ export function Agents() {
               </Conversation>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-6 text-center sm:justify-center">
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-6 text-center sm:justify-center-safe">
               <h2 className="text-2xl font-medium tracking-tight">
                 What would you like to work on?
               </h2>
@@ -622,7 +625,7 @@ export function Agents() {
                   <button
                     key={item.text}
                     onClick={() => setPrompt(item.prompt)}
-                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-start text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <item.icon className="size-3.5" />
                     {item.text}
@@ -633,7 +636,7 @@ export function Agents() {
           )}
           <form
             aria-label="Chat composer"
-            className="max-h-[50%] shrink-0 overflow-y-auto border-t border-border bg-background px-3 py-3 md:px-6"
+            className="flex max-h-[75%] shrink-0 flex-col overflow-y-auto border-t border-border bg-background px-3 py-3 md:px-6"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend)
@@ -647,7 +650,7 @@ export function Agents() {
                 });
             }}
           >
-            <div className="mb-3 flex flex-wrap items-center gap-2.5">
+            <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2.5">
               <Select
                 value={profile?.id ?? profileId}
                 disabled={!!run && activeRunStates.has(run.state)}
@@ -685,7 +688,7 @@ export function Agents() {
                 </Badge>
               ))}
             </div>
-            <div className="rounded-2xl border border-input bg-muted/20 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+            <div className="flex min-h-0 flex-col rounded-2xl border border-input bg-muted/20 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
               <Textarea
                 aria-label="Message your agent"
                 placeholder={
@@ -699,12 +702,12 @@ export function Agents() {
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={submitChatOnEnter}
                 rows={2}
-                className="max-h-40 min-h-20 resize-none overflow-y-auto rounded-t-2xl border-0 bg-transparent px-4 pt-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                className="max-h-40 min-h-12 resize-none overflow-y-auto rounded-t-2xl border-0 bg-transparent px-4 pt-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
               />
               <div
                 role="group"
                 aria-label="Message actions"
-                className="flex min-w-0 items-center justify-end gap-2 px-3 pb-3"
+                className="sticky bottom-0 z-10 flex min-w-0 shrink-0 items-center justify-end gap-2 rounded-b-2xl bg-background px-3 pt-1 pb-3"
               >
                 {profile && (
                   <ModelSwitcher
@@ -724,7 +727,9 @@ export function Agents() {
                   className="size-9 shrink-0 rounded-full"
                   disabled={!canSend}
                 >
-                  {send.isPending ? <Spinner /> : <ArrowUp />}
+                  <AnimatedIcon state={send.isPending}>
+                    {send.isPending ? <Spinner /> : <ArrowUp />}
+                  </AnimatedIcon>
                 </Button>
               </div>
             </div>

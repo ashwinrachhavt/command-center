@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -470,7 +471,9 @@ export function WorkConversation({
                 disabled={!canSend}
                 aria-label={activeRun ? "Send instruction" : "Send message"}
               >
-                {send.isPending ? <Spinner /> : <ArrowUp />}
+                <AnimatedIcon state={send.isPending}>
+                  {send.isPending ? <Spinner /> : <ArrowUp />}
+                </AnimatedIcon>
                 <span className="hidden sm:inline">
                   {sendError ? "Retry" : activeRun ? "Instruct" : "Send"}
                 </span>

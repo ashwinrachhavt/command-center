@@ -29,7 +29,7 @@
 }
 .cc-writer ul,
 .cc-writer ol {
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
   margin-block: 0.5em;
 }
 .cc-writer ul {
@@ -39,8 +39,8 @@
   list-style: decimal;
 }
 .cc-writer blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 1em;
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 1em;
   margin-block: 0.75em;
   color: var(--muted-foreground);
 }
@@ -62,7 +62,7 @@
 .cc-writer p.is-editor-empty:first-child::before {
   color: var(--muted-foreground);
   content: attr(data-placeholder);
-  float: left;
+  float: inline-start;
   height: 0;
   pointer-events: none;
 }
@@ -101,6 +101,13 @@
   --sidebar-accent-foreground: #25272d;
   --sidebar-border: #e1e3e7;
   --radius: 0.5rem;
+  --image-outline: oklch(0 0 0 / 0.1);
+  --surface-shadow:
+    0 0 0 1px oklch(0 0 0 / 0.06), 0 1px 2px -1px oklch(0 0 0 / 0.06),
+    0 2px 4px oklch(0 0 0 / 0.04);
+  --surface-shadow-hover:
+    0 0 0 1px oklch(0 0 0 / 0.08), 0 1px 2px -1px oklch(0 0 0 / 0.08),
+    0 2px 4px oklch(0 0 0 / 0.06);
   --status-neutral: #586575;
   --status-violet: #77499d;
   --status-blue: #2865a4;
@@ -110,6 +117,9 @@
 }
 .dark {
   color-scheme: dark;
+  --image-outline: oklch(1 0 0 / 0.1);
+  --surface-shadow: 0 0 0 1px oklch(1 0 0 / 0.08);
+  --surface-shadow-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
   --background: #151619;
   --foreground: #e9eaed;
   --card: #1a1c20;
@@ -156,6 +166,8 @@
   --primary: #c3a0f4;
 }
 @theme inline {
+  --shadow-surface: var(--surface-shadow);
+  --shadow-surface-hover: var(--surface-shadow-hover);
   --font-sans: var(--font-geist), sans-serif;
   --font-heading: var(--font-geist), sans-serif;
   --color-background: var(--background);
@@ -194,6 +206,20 @@
     @apply bg-background text-foreground font-sans antialiased;
     margin: 0;
     font-size: 14px;
+    --icon-stroke: 1.5;
+  }
+  :where(.font-normal, .font-medium) {
+    --icon-stroke: 1.5;
+  }
+  :where(.font-semibold, .font-bold, strong, b) {
+    --icon-stroke: 2;
+  }
+  .lucide {
+    stroke-width: var(--icon-stroke, 1.5);
+  }
+  img {
+    outline: 1px solid var(--image-outline);
+    outline-offset: -1px;
   }
   button,
   [role="button"] {
@@ -209,6 +235,45 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--input) transparent;
+  }
+}
+/* Radix Presence waits for this nonvisual timer before unmounting a surface.
+   Visible motion stays in CSS transitions, so reopening can reverse it. */
+@keyframes cc-presence {
+  from {
+    --cc-presence: 0;
+  }
+  to {
+    --cc-presence: 1;
+  }
+}
+@layer components {
+  .cc-surface-motion,
+  .cc-overlay-motion {
+    opacity: 1;
+    transition: opacity 150ms ease-out;
+  }
+  .cc-panel-motion {
+    transform: translateY(0);
+    transition-property: opacity, transform;
+  }
+  .cc-surface-motion[data-state="closed"],
+  .cc-overlay-motion[data-state="closed"] {
+    opacity: 0;
+    transition-duration: 100ms;
+    animation: cc-presence 100ms ease-out;
+  }
+  .cc-panel-motion[data-state="closed"] {
+    transform: translateY(4px);
+  }
+  @starting-style {
+    .cc-surface-motion,
+    .cc-overlay-motion {
+      opacity: 0;
+    }
+    .cc-panel-motion {
+      transform: translateY(8px);
+    }
   }
 }
 .stage-researching,
@@ -276,5 +341,28 @@
   [role="button"],
   [role="combobox"] {
     min-height: 44px;
+  }
+}
+
+/* Directional navigation icons follow the reading order, while media stays physical. */
+:dir(rtl)
+  :is(
+    .lucide-arrow-left,
+    .lucide-arrow-right,
+    .lucide-chevron-left,
+    .lucide-chevron-right,
+    .lucide-panel-left-open,
+    .lucide-panel-left-close
+  ) {
+  scale: -1 1;
+}
+
+@media (max-width: 767px) {
+  [data-slot="sidebar-inset"] > header {
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
+  }
+  [data-slot="sidebar-inset"] > main {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

@@ -1,8 +1,15 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ExternalLink, FileText, RefreshCw } from "lucide-react";
+import {
+  Sparkles,
+  AlertCircle,
+  ExternalLink,
+  FileText,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -127,7 +134,9 @@ export function OpportunityResearch({
             </p>
           </div>
           <Button onClick={runEnrich} disabled={enrich.isPending} size="sm">
-            {enrich.isPending ? <Spinner /> : <RefreshCw />}
+            <AnimatedIcon state={enrich.isPending}>
+              {enrich.isPending ? <Spinner /> : <RefreshCw />}
+            </AnimatedIcon>
             {enrich.error ? "Retry enrichment" : "Enrich from source"}
           </Button>
         </div>
@@ -245,7 +254,9 @@ export function OpportunityResearch({
           onClick={runDraft}
           disabled={!draftRequest.trim() || draft.isPending}
         >
-          {draft.isPending ? <Spinner /> : null}
+          <AnimatedIcon state={draft.isPending}>
+            {draft.isPending ? <Spinner /> : <Sparkles />}
+          </AnimatedIcon>
           {draft.error ? "Retry draft outreach" : "Draft outreach"}
         </Button>
       </section>

@@ -1,8 +1,9 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Check, Search } from "lucide-react";
+import { Plus, AlertCircle, Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,11 +18,7 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  api,
-  type CapturedLead,
-  type PublicSearchResult,
-} from "@/lib/api";
+import { api, type CapturedLead, type PublicSearchResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./primitives";
 
@@ -136,7 +133,9 @@ export function LeadDiscovery({
             placeholder="e.g. staff product engineer climate software"
           />
           <Button type="submit" disabled={!query.trim() || search.isPending}>
-            {search.isPending ? <Spinner /> : <Search />}
+            <AnimatedIcon state={search.isPending}>
+              {search.isPending ? <Spinner /> : <Search />}
+            </AnimatedIcon>
             Search
           </Button>
         </form>
@@ -158,7 +157,7 @@ export function LeadDiscovery({
                   key={result.url}
                   aria-pressed={active}
                   className={cn(
-                    "w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/50",
+                    "w-full rounded-lg border p-3 text-start transition-colors hover:bg-accent/50",
                     active && "border-primary bg-accent/60",
                   )}
                   onClick={() =>
@@ -182,7 +181,9 @@ export function LeadDiscovery({
                         {result.content || "No search excerpt was returned."}
                       </span>
                     </span>
-                    {active ? <Check className="mt-0.5 size-4 text-primary" /> : null}
+                    {active ? (
+                      <Check className="mt-0.5 size-4 text-primary" />
+                    ) : null}
                   </span>
                 </button>
               );
@@ -265,7 +266,9 @@ export function LeadDiscovery({
               capture.isPending
             }
           >
-            {capture.isPending ? <Spinner /> : null}
+            <AnimatedIcon state={capture.isPending}>
+              {capture.isPending ? <Spinner /> : <Plus />}
+            </AnimatedIcon>
             Capture to CRM
           </Button>
         </DialogFooter>

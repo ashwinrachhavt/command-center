@@ -128,14 +128,14 @@ export function Applications() {
             <div className="relative min-w-40 flex-1">
               <Search
                 aria-hidden
-                className="absolute left-3 top-2.5 size-4 text-muted-foreground"
+                className="absolute start-3 top-2.5 size-4 text-muted-foreground"
               />
               <Input
                 aria-label="Search applications"
                 placeholder="Search roles or sites…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="pl-9"
+                className="ps-9"
               />
             </div>
             <Select
@@ -173,7 +173,7 @@ export function Applications() {
               >
                 {list.data.total} application{list.data.total === 1 ? "" : "s"}
               </p>
-              <div className="overflow-hidden rounded-xl border bg-card">
+              <div className="overflow-hidden rounded-xl shadow-surface bg-card">
                 {list.data.items.map((item) => (
                   <button
                     type="button"
@@ -183,7 +183,7 @@ export function Applications() {
                     }
                     onClick={() => choose(item.task.id)}
                     className={cn(
-                      "flex w-full flex-col gap-3 border-b p-5 text-left last:border-0 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      "flex w-full flex-col gap-3 border-b p-5 text-start last:border-0 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       selected === item.task.id && "bg-primary/5",
                     )}
                   >
@@ -210,7 +210,7 @@ export function Applications() {
                   </button>
                 ))}
               </div>
-              <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <Button
                   variant="ghost"
                   disabled={!offset}
@@ -306,9 +306,9 @@ function ApplicationDetail({ id, back }: { id: string; back: () => void }) {
   return (
     <section
       aria-label="Application detail"
-      className="min-w-0 rounded-xl border bg-card p-5 md:p-6"
+      className="min-w-0 rounded-xl shadow-surface bg-card p-5 md:p-6"
     >
-      <Button variant="ghost" size="sm" className="mb-4 -ml-2" onClick={back}>
+      <Button variant="ghost" size="sm" className="mb-4 -ms-2" onClick={back}>
         <ArrowLeft />
         All applications
       </Button>
@@ -652,7 +652,7 @@ function SavedPackage({ taskId, item }: { taskId: string; item: Package }) {
         <button
           type="button"
           disabled={!item.resume_artifact_id}
-          className="mt-3 flex min-h-9 items-center gap-2 break-all text-left text-xs text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-3 flex min-h-9 items-center gap-2 break-all text-start text-xs text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() =>
             workspace?.open("artifacts", item.resume_artifact_id!, {
               tab: "content",
@@ -672,7 +672,7 @@ function SavedPackage({ taskId, item }: { taskId: string; item: Package }) {
       {item.cover_letter ? (
         <Button
           variant="link"
-          className="h-auto justify-start whitespace-normal px-0 text-left"
+          className="h-auto justify-start whitespace-normal px-0 text-start"
           disabled={!item.cover_letter_artifact_id}
           onClick={() =>
             workspace?.open("artifacts", item.cover_letter_artifact_id!, {

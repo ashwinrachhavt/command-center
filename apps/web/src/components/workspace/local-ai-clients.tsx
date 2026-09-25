@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { Input } from "@/components/ui/input";
 import { api, dateLabel } from "@/lib/api";
 import { ErrorState, LoadingRows, Spinner } from "./primitives";
@@ -78,7 +79,7 @@ export function LocalAIClients() {
 
   return (
     <section
-      className="rounded-xl border border-border bg-card p-6"
+      className="rounded-xl shadow-surface bg-card p-6"
       aria-labelledby="local-clients-title"
     >
       <h2
@@ -119,7 +120,10 @@ export function LocalAIClients() {
           type="submit"
           disabled={!name.trim() || create.isPending || !!credential}
         >
-          {create.isPending ? <Spinner /> : null}Create token
+          <AnimatedIcon state={create.isPending}>
+            {create.isPending ? <Spinner /> : <KeyRound />}
+          </AnimatedIcon>
+          Create token
         </Button>
       </form>
       {create.error ? (

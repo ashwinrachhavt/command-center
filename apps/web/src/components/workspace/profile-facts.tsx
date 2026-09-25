@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -195,7 +196,10 @@ function ResumeSelector({ selection }: { selection: ResumeSelection }) {
             save.isPending || versionId === (selection.version_id ?? "none")
           }
         >
-          {save.isPending ? <Spinner /> : <Check />} Save exact version
+          <AnimatedIcon state={save.isPending}>
+            {save.isPending ? <Spinner /> : <Check />}
+          </AnimatedIcon>{" "}
+          Save exact version
         </Button>
       </div>
       {selection.version_id ? (
@@ -561,7 +565,9 @@ function FactEditorDraft({
             }
             onClick={() => save.mutate()}
           >
-            {save.isPending ? <Spinner /> : <Plus />}{" "}
+            <AnimatedIcon state={save.isPending}>
+              {save.isPending ? <Spinner /> : <Plus />}
+            </AnimatedIcon>{" "}
             {writing.draft.hasCheckpoint
               ? "Recover saved proposal"
               : error
@@ -661,7 +667,7 @@ function FactCard({ fact }: { fact: ProfileFact }) {
                   Context: {fact.active.context}
                 </p>
               ) : null}
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-2 flex flex-wrap items-center gap-3">
                 <SourceLink revision={fact.active} />
                 <Button
                   variant="ghost"
@@ -699,7 +705,7 @@ function FactCard({ fact }: { fact: ProfileFact }) {
             </p>
           ) : null}
           {fact.current.source_excerpt ? (
-            <blockquote className="mt-2 border-l-2 border-primary/30 pl-3 text-xs leading-5 text-muted-foreground">
+            <blockquote className="mt-2 border-s-2 border-primary/30 ps-3 text-xs leading-5 text-muted-foreground">
               {fact.current.source_excerpt}
             </blockquote>
           ) : null}
@@ -798,7 +804,7 @@ export function ProfileFacts() {
   });
   return (
     <>
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className="rounded-xl shadow-surface bg-card p-6">
         {resume.error ? (
           <ErrorState error={resume.error} retry={() => resume.refetch()} />
         ) : resume.isPending ? (
@@ -810,7 +816,7 @@ export function ProfileFacts() {
           />
         )}
       </section>
-      <section className="rounded-xl border border-border bg-card p-6">
+      <section className="rounded-xl shadow-surface bg-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-medium">Reviewed candidate facts</h2>

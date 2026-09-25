@@ -222,7 +222,7 @@ export function ModelSwitcher({
                     disabled={!option.selectable}
                     onClick={() => select(option.id)}
                     className={cn(
-                      "flex w-full items-start justify-between gap-2 rounded-md p-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
+                      "flex w-full items-start justify-between gap-2 rounded-md p-2 text-start hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
                       provider === activeTab &&
                         model === option.id &&
                         "bg-muted",

@@ -402,7 +402,7 @@ export function ConnectedAccounts() {
               link your account.
             </DialogDescription>
           </DialogHeader>
-          <ol className="flex list-decimal flex-col gap-3 pl-5 text-sm leading-6">
+          <ol className="flex list-decimal flex-col gap-3 ps-5 text-sm leading-6">
             <li>
               In Composio, create an auth configuration for {setupApp?.name}{" "}
               with the access you want to grant.

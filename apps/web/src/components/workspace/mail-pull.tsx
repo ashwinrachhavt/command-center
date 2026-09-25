@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { MailSearch } from "lucide-react";
@@ -115,7 +116,10 @@ export function MailPull() {
               </p>
             </Field>
             <Button disabled={!account || pull.isPending || !query.trim()}>
-              {pull.isPending ? <Spinner /> : <MailSearch />}Pull email
+              <AnimatedIcon state={pull.isPending}>
+                {pull.isPending ? <Spinner /> : <MailSearch />}
+              </AnimatedIcon>
+              Pull email
             </Button>
           </form>
           {pull.error && (

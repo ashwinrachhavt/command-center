@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -200,14 +201,16 @@ export function RunActivity({
             }
             className="group flex min-h-10 min-w-0 max-w-full items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
-            <Icon
-              aria-hidden
-              className={cn(
-                "size-3.5 shrink-0",
-                thinking && "motion-safe:animate-pulse",
-                displayedState === "failed" && "text-destructive",
-              )}
-            />
+            <AnimatedIcon state={displayedState} className="size-3.5">
+              <Icon
+                aria-hidden
+                className={cn(
+                  "size-3.5 shrink-0",
+                  thinking && "motion-safe:animate-pulse",
+                  displayedState === "failed" && "text-destructive",
+                )}
+              />
+            </AnimatedIcon>
             <span
               role="status"
               className="truncate font-medium text-foreground"
@@ -215,7 +218,7 @@ export function RunActivity({
               {heading}
             </span>
             {tools.length > 0 ? (
-              <span className="shrink-0 border-l border-border pl-2 tabular-nums">
+              <span className="shrink-0 border-s border-border ps-2 tabular-nums">
                 {tools.length} {tools.length === 1 ? "step" : "steps"}
               </span>
             ) : null}
@@ -247,7 +250,7 @@ export function RunActivity({
           <div
             role="group"
             aria-label="Live activity"
-            className="ml-4 min-w-0 space-y-3 border-l border-border/70 pl-4"
+            className="ms-4 min-w-0 space-y-3 border-s border-border/70 ps-4"
           >
             <p
               className="truncate text-[11px] text-muted-foreground"

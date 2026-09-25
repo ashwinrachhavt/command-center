@@ -30,7 +30,7 @@ export function ActivityPage() {
         ) : (
           <ActivityList events={query.data.items} />
         )}
-        <div className="mt-4 flex justify-between">
+        <div className="mt-4 flex flex-wrap justify-between gap-3">
           <Button
             variant="outline"
             disabled={offset === 0}

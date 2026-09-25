@@ -50,7 +50,7 @@ export function Mark({
     <span
       aria-hidden
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tracking-tight transition-transform hover:scale-105",
+        "flex size-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold tracking-tight",
         className,
       )}
       style={{
@@ -79,7 +79,7 @@ export function Priority({ value }: { value: number }) {
           <span
             key={i}
             className={cn(
-              "w-1 rounded-sm transition-all",
+              "w-1 rounded-sm transition-[opacity,background-color] duration-150 ease-out",
               i <= value ? "opacity-100" : "opacity-20",
             )}
             style={{
@@ -102,7 +102,7 @@ export function LoadingRows() {
         <div className="flex gap-5" key={i}>
           <Skeleton className="size-8" />
           <Skeleton className="h-8 w-1/3" />
-          <Skeleton className="ml-auto h-8 w-1/5" />
+          <Skeleton className="ms-auto h-8 w-1/5" />
         </div>
       ))}
     </div>
@@ -167,8 +167,8 @@ export function PageHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-5 px-5 py-7 md:px-9 md:py-8">
-      <div>
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-5 px-5 py-7 md:px-9 md:py-8">
+      <div className="min-w-0 [overflow-wrap:anywhere]">
         {eyebrow && (
           <p className="mb-2 text-xs text-muted-foreground">{eyebrow}</p>
         )}

@@ -340,10 +340,10 @@ export function MemoryPage() {
                 return (
                   <article
                     key={memory.id}
-                    className="rounded-xl border border-border bg-card p-5"
+                    className="min-w-0 rounded-xl shadow-surface bg-card p-5"
                   >
                     <div className="flex items-start gap-3">
-                      <h2 className="flex-1 text-sm font-medium">
+                      <h2 className="min-w-0 flex-1 break-words text-sm font-medium">
                         {memory.current.title}
                       </h2>
                       <Button
@@ -402,12 +402,12 @@ export function MemoryPage() {
                       >
                         {scopeLabel(memory.current)}
                       </Badge>
-                      <span className="ml-auto text-[10px] text-muted-foreground">
+                      <span className="ms-auto text-[10px] text-muted-foreground">
                         {dateLabel(memory.updated_at)}
                       </span>
                     </div>
                     {proposed ? (
-                      <div className="mt-4 flex gap-2">
+                      <div className="mt-4 flex flex-wrap gap-2">
                         <Button
                           size="sm"
                           disabled={review.isPending}
@@ -445,12 +445,12 @@ export function MemoryPage() {
                 );
               })}
             </div>
-            <div className="mt-6 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>
                 {offset + 1}–{Math.min(offset + limit, page?.total ?? 0)} of{" "}
                 {page?.total ?? 0}
               </span>
-              <div className="flex gap-2">
+              <div className="flex max-w-full flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"

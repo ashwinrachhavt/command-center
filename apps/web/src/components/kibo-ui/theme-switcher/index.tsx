@@ -89,7 +89,8 @@ export const ThemeSwitcher = ({
                 layoutId="activeTheme"
                 transition={{
                   type: "spring",
-                  duration: reducedMotion ? 0 : 0.25,
+                  duration: reducedMotion ? 0 : 0.3,
+                  bounce: 0,
                 }}
               />
             )}

@@ -129,7 +129,7 @@ export function ContactFollowUps({
             type="button"
             aria-pressed={selected === item.artifact_id}
             onClick={() => setSelected(item.artifact_id)}
-            className={`w-full rounded-lg border p-4 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected === item.artifact_id ? "border-primary bg-accent/30" : "border-border"}`}
+            className={`w-full rounded-lg border p-4 text-start hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected === item.artifact_id ? "border-primary bg-accent/30" : "border-border"}`}
           >
             <span className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>
@@ -266,7 +266,7 @@ export function ContactFollowUps({
                   key={`${citation.source_version_id}-${index}`}
                   className="space-y-1 text-sm"
                 >
-                  <blockquote className="border-l-2 pl-3">
+                  <blockquote className="border-s-2 ps-3">
                     {citation.quote}
                   </blockquote>
                   <Button

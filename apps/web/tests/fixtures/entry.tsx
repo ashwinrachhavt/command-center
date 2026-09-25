@@ -5,6 +5,7 @@ import { WorkspaceShell } from "../../src/components/workspace/shell";
 import { isResource } from "../../src/components/workspace/context";
 import { Records } from "../../src/components/workspace/records";
 import { Overview } from "../../src/components/workspace/overview";
+import { ActivityPage } from "../../src/components/workspace/activity";
 import { Briefing } from "../../src/components/workspace/briefing";
 import { Spaces } from "../../src/components/workspace/spaces";
 import { spacesFixture } from "./spaces";
@@ -1052,6 +1053,7 @@ const fixtureFetch: typeof fetch = async (input, init) => {
   const method = init?.method ?? "GET";
   const idempotencyKey =
     new Headers(init?.headers).get("Idempotency-Key") ?? "";
+  if (route === "activity") return Response.json(page([]));
   if (route === "test/briefing-requests")
     return Response.json(briefingRequests);
   briefingRequests.push({
@@ -2454,6 +2456,8 @@ function Preview() {
           <Spaces />
         ) : path === "/overview" ? (
           <Overview />
+        ) : path === "/activity" ? (
+          <ActivityPage />
         ) : path === "/notes" ? (
           <Library key="notes" notes />
         ) : path === "/library" ? (

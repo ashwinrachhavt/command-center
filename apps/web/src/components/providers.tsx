@@ -5,21 +5,24 @@ import { useAuth } from "@clerk/nextjs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AppearanceProvider } from "@/components/appearance";
+import { DirectionProvider } from "@/components/direction-provider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const { isLoaded, userId } = useAuth();
   return (
-    <AppearanceProvider>
-      <QueryScope key={isLoaded ? (userId ?? "anonymous") : "resolving"}>
-        {isLoaded ? (
-          children
-        ) : (
-          <div role="status" className="p-6 text-sm text-muted-foreground">
-            Loading workspace…
-          </div>
-        )}
-      </QueryScope>
-    </AppearanceProvider>
+    <DirectionProvider>
+      <AppearanceProvider>
+        <QueryScope key={isLoaded ? (userId ?? "anonymous") : "resolving"}>
+          {isLoaded ? (
+            children
+          ) : (
+            <div role="status" className="p-6 text-sm text-muted-foreground">
+              Loading workspace…
+            </div>
+          )}
+        </QueryScope>
+      </AppearanceProvider>
+    </DirectionProvider>
   );
 }
 

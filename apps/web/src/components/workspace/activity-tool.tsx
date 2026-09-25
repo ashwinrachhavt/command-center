@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import {
   Check,
@@ -86,16 +87,18 @@ export function ActivityTool({
       <CollapsibleTrigger
         title={name}
         aria-label={[title, specialist, status].filter(Boolean).join(" ")}
-        className="flex min-h-9 w-full items-center gap-2 rounded-2xl px-3 py-1.5 text-left text-xs outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-h-9 w-full items-center gap-2 rounded-2xl px-3 py-1.5 text-start text-xs outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <Icon
-          aria-hidden
-          className={cn(
-            "size-3.5 shrink-0",
-            pending && "motion-safe:animate-spin",
-            failed ? "text-destructive" : "text-muted-foreground",
-          )}
-        />
+        <AnimatedIcon state={status} className="size-3.5">
+          <Icon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0",
+              pending && "motion-safe:animate-spin",
+              failed ? "text-destructive" : "text-muted-foreground",
+            )}
+          />
+        </AnimatedIcon>
         <span className="min-w-0 truncate font-medium">{title}</span>
         {specialist ? (
           <span className="truncate text-muted-foreground">{specialist}</span>
@@ -104,7 +107,7 @@ export function ActivityTool({
         <ChevronDown
           aria-hidden
           className={cn(
-            "ml-auto size-3 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+            "ms-auto size-3 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
             open && "rotate-180",
           )}
         />

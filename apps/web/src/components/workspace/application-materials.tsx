@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
@@ -266,8 +267,10 @@ function Materials({
             }
             onClick={() => start.mutate("cover-letter")}
           >
-            {start.isPending ? <Spinner /> : <Sparkles />}Recover{" "}
-            {title(writing.data.kind).toLowerCase()} request
+            <AnimatedIcon state={start.isPending}>
+              {start.isPending ? <Spinner /> : <Sparkles />}
+            </AnimatedIcon>
+            Recover {title(writing.data.kind).toLowerCase()} request
           </Button>
         ) : (
           <>

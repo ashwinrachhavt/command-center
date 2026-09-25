@@ -1,3 +1,4 @@
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -209,7 +210,9 @@ export function ConnectedAppCard({
             disabled={connectionPending}
             onClick={onConnect}
           >
-            {connecting ? <Spinner /> : <Plug data-icon="inline-start" />}
+            <AnimatedIcon state={connecting}>
+              {connecting ? <Spinner /> : <Plug data-icon="inline-start" />}
+            </AnimatedIcon>
             {connecting
               ? "Opening connection…"
               : active.length

@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,7 +123,7 @@ export function QuickCapture({ space }: { space?: Space }) {
   return (
     <section
       aria-labelledby="capture-heading"
-      className="rounded-xl border border-border bg-card p-5 md:p-6"
+      className="rounded-xl shadow-surface bg-card p-5 md:p-6"
     >
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -233,7 +234,10 @@ export function QuickCapture({ space }: { space?: Space }) {
             type="submit"
             disabled={!text.trim() || capture.isPending || unavailableSpace}
           >
-            {capture.isPending ? <Spinner /> : <Plus aria-hidden />} Create task
+            <AnimatedIcon state={capture.isPending}>
+              {capture.isPending ? <Spinner /> : <Plus aria-hidden />}
+            </AnimatedIcon>{" "}
+            Create task
           </Button>
         </div>
       </form>

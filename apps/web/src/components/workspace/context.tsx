@@ -204,7 +204,7 @@ export function WorkspaceContext({ children }: { children: React.ReactNode }) {
                 "flex flex-col border-border bg-background outline-none",
                 documentOpen
                   ? "fixed inset-0 z-40 m-auto h-dvh w-full shadow-2xl sm:inset-5 sm:h-auto sm:w-[calc(100%-2.5rem)] sm:max-w-6xl sm:rounded-xl sm:border"
-                  : "fixed top-14 right-0 bottom-0 z-30 w-full border-l shadow-xl sm:w-[380px] xl:sticky xl:top-14 xl:z-10 xl:h-[calc(100dvh-3.5rem)] xl:w-[360px] xl:shrink-0 xl:shadow-none",
+                  : "fixed top-14 end-0 bottom-0 z-30 w-full border-s shadow-xl sm:w-[380px] xl:sticky xl:top-14 xl:z-10 xl:h-[calc(100dvh-3.5rem)] xl:w-[360px] xl:shrink-0 xl:shadow-none",
               )}
             >
               <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -324,7 +324,7 @@ function RecordDirectory({ resource }: { resource: Resource }) {
               <Button
                 variant="ghost"
                 key={record.id}
-                className="h-auto w-full justify-start gap-3 rounded-none px-0 py-4 text-left"
+                className="h-auto w-full justify-start gap-3 rounded-none px-0 py-4 text-start"
                 onClick={() => context?.open(resource, record.id)}
               >
                 <Mark name={recordName(record)} />

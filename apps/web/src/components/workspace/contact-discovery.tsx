@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -309,8 +310,10 @@ export function ContactDiscovery({
               type="submit"
               disabled={busy || !selectedProvider?.configured || !domain.trim()}
             >
-              {search.isPending ? <Spinner /> : <Search />}Search{" "}
-              {provider === "apollo" ? "Apollo" : "Hunter"}
+              <AnimatedIcon state={search.isPending}>
+                {search.isPending ? <Spinner /> : <Search />}
+              </AnimatedIcon>
+              Search {provider === "apollo" ? "Apollo" : "Hunter"}
             </Button>
           )}
         </form>
@@ -436,7 +439,7 @@ export function ContactDiscovery({
               return (
                 <article
                   key={person.external_id}
-                  className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-card p-4"
+                  className="flex flex-wrap items-start justify-between gap-4 rounded-xl shadow-surface bg-card p-4"
                 >
                   <div className="min-w-0 flex-1 space-y-1">
                     <h3 className="break-words text-sm font-medium">
@@ -489,8 +492,10 @@ export function ContactDiscovery({
                               })
                             }
                           >
-                            {fill.isPending ? <Spinner /> : <UserPlus />}Fill
-                            missing details
+                            <AnimatedIcon state={fill.isPending}>
+                              {fill.isPending ? <Spinner /> : <UserPlus />}
+                            </AnimatedIcon>
+                            Fill missing details
                           </Button>
                           <p className="text-xs text-muted-foreground">
                             Add{" "}
@@ -642,7 +647,7 @@ export function ContactDiscoveryConnections() {
         {providers.data?.map((provider) => (
           <article
             key={provider.id}
-            className="space-y-4 rounded-xl border bg-card p-5"
+            className="space-y-4 rounded-xl shadow-surface bg-card p-5"
           >
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-medium">{provider.name}</h3>
@@ -685,7 +690,7 @@ export function ContactDiscoveryConnections() {
               API credits.
             </DialogDescription>
           </DialogHeader>
-          <ol className="list-decimal space-y-3 pl-5 text-sm leading-6">
+          <ol className="list-decimal space-y-3 ps-5 text-sm leading-6">
             <li>
               Get an API key with access to the discovery endpoints in your{" "}
               <a

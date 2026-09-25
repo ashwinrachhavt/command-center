@@ -50,8 +50,8 @@ export function OpportunityCard({
     <button
       onClick={onClick}
       className={cn(
-        "group relative flex w-full flex-col gap-3 rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-border/80 hover:shadow-sm",
-        isSelected && "border-primary/50 bg-accent/30 shadow-sm"
+        "group relative flex w-full flex-col gap-3 rounded-xl border border-transparent bg-card p-5 text-start shadow-surface transition-[color,background-color,border-color,box-shadow] duration-150 ease-out hover:shadow-surface-hover focus-visible:outline-2 focus-visible:outline-ring",
+        isSelected && "border-primary/50 bg-accent/30 shadow-sm",
       )}
     >
       <div className="flex items-start gap-3">
@@ -61,12 +61,10 @@ export function OpportunityCard({
             <h3 className="text-sm font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
               {title}
             </h3>
-            <ArrowUpRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            <ArrowUpRight className="size-4 shrink-0 text-muted-foreground" />
           </div>
           {companyName && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {companyName}
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{companyName}</p>
           )}
         </div>
       </div>
