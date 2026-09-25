@@ -1,12 +1,16 @@
 # Command Center Companion
 
-Companion `0.4.7` enters the same Ashby posting's Application tab when Autofill starts from Overview, captures its Yes/No button groups, and shows actionable failures beside Autofill. Choice filling updates the site's state, preserves existing or edited answers, rejects changed controls, and prevents native form submission. Reload the unpacked extension and refresh the job page after updating. The public Ashby form was inspected live; filling and recovery were verified with synthetic browser fixtures, not a submitted employer application.
+Companion `0.4.8` fixes capture from a side panel that stays open across tabs. It reads the selected tab's URL with the `tabs` permission and requests access only to that site's origin when you select Autofill or Share this form. Allow Chrome's site-access prompt to continue. Denied access and a changed active page stop capture with a recovery message. Optional website access is not granted to every site at installation.
+
+The installed `0.4.8` companion was verified in an existing Chrome session on a live Coframe Ashby application: four profile fields filled and the selected résumé attached. The searchable location dropdown and an unanswered onsite/relocation question remained manual. This application was not submitted. Fifty synthetic browser regressions also pass; this evidence does not establish coverage of every ATS.
+
+Version `0.4.7` added entry into the same Ashby posting's Application tab from Overview, captures its Yes/No button groups, and shows actionable failures beside Autofill. Choice filling updates the site's state, preserves existing or edited answers, rejects changed controls, and prevents native form submission. Reload the unpacked extension and refresh the job page after updating. The public Ashby form was inspected live; filling and recovery were verified with synthetic browser fixtures, not a submitted employer application.
 
 **This browser** remains the default for new installations. It reads the Chrome tab where you opened the extension and retains bounded employment/education row creation and recognized job continuity across supported application pages.
 
 Autofill uses active reviewed candidate facts. Uploading or selecting a résumé does not approve its contents as profile facts. Review source-linked proposals in Settings → Reviewed candidate facts, then use **Generate grounded drafts** for written questions and review the answers before filling. Missing eligibility or other personal answers remain questions. Broader authenticated ATS coverage and complete Simplify parity are unverified.
 
-If capture fails, open **Capture settings** and choose **This browser (recommended)**. An explicitly saved AgentBrowser preference is preserved across upgrades; that advanced mode needs its separate native helper and browser. Open the extension from a normal application page to grant access to that tab. Chrome settings, extension pages, and the Chrome Web Store cannot be captured.
+If capture fails, open **Capture settings** and choose **This browser (recommended)**. An explicitly saved AgentBrowser preference is preserved across upgrades; that advanced mode needs its separate native helper and browser. Select the application tab, press Autofill and allow access to its site if Chrome asks. Chrome settings, extension pages, and the Chrome Web Store cannot be captured.
 
 Start the API on localhost:8000 and web app on localhost:3001. In Chrome's Extensions page, enable Developer mode and Load unpacked → this directory. Open the workspace's Browser companion page, create a pairing code, and paste it into the extension popup.
 

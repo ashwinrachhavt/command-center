@@ -221,12 +221,39 @@ async function apiBytes(path) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-async function activeTab() {
+async function activeTab(requestAccess = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !/^https?:\/\//.test(tab.url ?? ""))
+  if (!Number.isInteger(tab?.id) || tab.id < 0)
     throw new Error(
-      "Open the application form in a website tab, then click the Command Center extension icon on that tab.",
+      "Open the application form in this Chrome window, then try Autofill again.",
     );
+  if (!tab.url)
+    throw new Error(
+      "Chrome has not shared this tab with the companion. Reload the updated extension in chrome://extensions, then reopen it on the application page.",
+    );
+  if (!/^https?:\/\//.test(tab.url))
+    throw new Error(
+      "Select an application website tab. Chrome settings and extension pages cannot be filled.",
+    );
+  if (requestAccess) {
+    const page = new URL(tab.url);
+    // A global side panel survives tab switches, but activeTab does not grant
+    // access to the newly selected tab. Ask for only this site's permission
+    // from the explicit button gesture, never from a background refresh.
+    const permission = { origins: [`${page.protocol}//${page.hostname}/*`] };
+    if (!(await chrome.permissions.contains(permission))) {
+      const granted = await chrome.permissions.request(permission);
+      if (!granted)
+        throw new Error(
+          `Allow access to ${page.hostname} in Chrome's permission prompt, then try Autofill again.`,
+        );
+      const current = await activeTab();
+      if (current.id !== tab.id || current.url !== tab.url)
+        throw new Error(
+          "The active page changed. Return to the application and try again.",
+        );
+    }
+  }
   return tab;
 }
 
@@ -1158,6 +1185,7 @@ async function inspectForm(useReader = false, openApplication = false) {
 
 element("share").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
+    await activeTab(true);
     clearTimeout(generationTimer);
     const { tab, snapshot } = await inspectForm();
     await api("snapshots", { method: "POST", body: snapshot });
@@ -1271,6 +1299,7 @@ async function runAutofill() {
   autofillBusy = true;
   syncAutofillControls();
   try {
+    await activeTab(true);
     // Keep the exact unfinished operation across popup closure and lost replies.
     if (!draft?.autofill || draft.autofill.stage === "done") {
       autofillStatus("Reading this application…");

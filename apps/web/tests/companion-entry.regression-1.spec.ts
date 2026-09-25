@@ -25,10 +25,25 @@ async function install(page: Page, url: string, mode = "empty") {
         captures: 0,
         pendingUrl: "",
         polls: 0,
+        granted: !mode.startsWith("access-"),
+        permissionRequests: [] as string[][],
       };
       Object.assign(window, {
         qaState: state,
         chrome: {
+          permissions: {
+            async contains() {
+              return state.granted;
+            },
+            async request({ origins }: { origins: string[] }) {
+              state.permissionRequests.push(origins);
+              if (mode === "access-denied") return false;
+              state.granted = true;
+              if (mode === "access-changed")
+                state.url = "https://example.test/other";
+              return true;
+            },
+          },
           storage: {
             local: {
               async setAccessLevel() {},
@@ -50,7 +65,13 @@ async function install(page: Page, url: string, mode = "empty") {
                 state.url = state.pendingUrl;
                 state.pendingUrl = "";
               }
-              return [{ id: 1, url: state.url, pendingUrl: state.pendingUrl }];
+              return [
+                {
+                  id: 1,
+                  url: mode === "hidden-url" ? undefined : state.url,
+                  pendingUrl: state.pendingUrl,
+                },
+              ];
             },
             async update(_id: number, options: { url: string }) {
               state.navigations.push(options.url);
@@ -93,6 +114,91 @@ async function install(page: Page, url: string, mode = "empty") {
   await page.addScriptTag({ type: "module", content: read("popup.js") });
   await expect(page.locator("#autofill")).toBeEnabled();
 }
+
+test("requests only the current site's access from a persistent panel, then continues capture", async ({
+  page,
+}) => {
+  await install(page, `${posting}/application?source=test`, "access-needed");
+  await page.locator("#autofill").click();
+  await expect(page.locator("#autofill-status")).toContainText(
+    "No application fields are ready",
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { qaState: unknown }).qaState,
+    ),
+  ).toMatchObject({
+    permissionRequests: [["https://jobs.ashbyhq.com/*"]],
+    injections: 1,
+    captures: 1,
+  });
+  await page.locator("#autofill").click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { qaState: { permissionRequests: string[][] } })
+          .qaState.permissionRequests,
+    ),
+  ).toHaveLength(1);
+});
+
+test("permission denial stops capture with a retry instruction", async ({
+  page,
+}) => {
+  await install(page, `${posting}/application`, "access-denied");
+  await page.locator("#autofill").click();
+  await expect(page.locator("#autofill-status")).toContainText(
+    "Allow access to jobs.ashbyhq.com",
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { qaState: unknown }).qaState,
+    ),
+  ).toMatchObject({ injections: 0, captures: 0 });
+});
+
+test("does not capture another page when the active page changes during permission approval", async ({
+  page,
+}) => {
+  await install(page, `${posting}/application`, "access-changed");
+  await page.locator("#autofill").click();
+  await expect(page.locator("#autofill-status")).toContainText(
+    "active page changed",
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { qaState: unknown }).qaState,
+    ),
+  ).toMatchObject({ injections: 0, captures: 0 });
+});
+
+test("distinguishes a hidden tab URL from an unsupported browser page", async ({
+  page,
+}) => {
+  await install(page, `${posting}/application`, "hidden-url");
+  await page.locator("#autofill").click();
+  await expect(page.locator("#autofill-status")).toContainText(
+    "Chrome has not shared this tab",
+  );
+  await install(page, "chrome://extensions/");
+  await page.locator("#autofill").click();
+  await expect(page.locator("#autofill-status")).toContainText(
+    "Chrome settings and extension pages cannot be filled",
+  );
+});
+
+test("declares tab metadata and optional site access without granting every website at install", () => {
+  const manifest = JSON.parse(read("manifest.json"));
+  expect(manifest.permissions).toContain("tabs");
+  expect(manifest.optional_host_permissions).toEqual([
+    "https://*/*",
+    "http://*/*",
+  ]);
+  expect(manifest.host_permissions).toEqual([
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*",
+  ]);
+});
 
 test("enters only the same Ashby posting's application and explains an empty form inline", async ({
   page,
