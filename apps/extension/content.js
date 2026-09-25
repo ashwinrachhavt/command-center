@@ -442,6 +442,67 @@
 
   function describeElement(element) {
     const view = element.ownerDocument.defaultView;
+    const buttonGroup = element.closest(".ashby-application-form-input-yesno");
+    if (buttonGroup && isVisible(buttonGroup)) {
+      // Ashby keeps a hidden checkbox for validation, but an unchecked box
+      // cannot distinguish an unanswered question from an explicit No.
+      const buttons = Array.from(buttonGroup.querySelectorAll("button"));
+      const field = buttonGroup.closest(".ashby-application-form-field-entry");
+      const label = trim(
+        field?.querySelector(":scope > label")?.textContent,
+        500,
+      );
+      if (isSensitive(element, label)) return null;
+      if (
+        !label ||
+        buttons.length !== 2 ||
+        buttons.some(
+          (button) =>
+            !isVisible(button) ||
+            button.disabled ||
+            button.getAttribute("aria-disabled") === "true" ||
+            !["true", "false"].includes(button.getAttribute("aria-pressed")),
+        ) ||
+        buttons
+          .map((button) => button.dataset.option)
+          .sort()
+          .join(",") !== "no,yes" ||
+        buttons.filter(
+          (button) => button.getAttribute("aria-pressed") === "true",
+        ).length > 1
+      )
+        return unsupportedEntry(
+          element,
+          "This Yes/No question needs manual selection; its choices could not be verified.",
+        );
+      return {
+        key: buttonGroup,
+        elements: buttons,
+        buttonGroup,
+        description: basicDescription(buttons[0], "radio", {
+          label,
+          required: Boolean(
+            buttonGroup.querySelector("input[required]") ||
+            field?.getAttribute("aria-required") === "true" ||
+            Array.from(
+              field?.querySelector(":scope > label")?.classList ?? [],
+            ).some((name) => name.startsWith("_required_")),
+          ),
+          options: buttons.map((button) => button.dataset.option),
+          option_labels: Object.fromEntries(
+            buttons.map((button) => [
+              button.dataset.option,
+              trim(button.textContent, 500),
+            ]),
+          ),
+          value_state: buttons.some(
+            (button) => button.getAttribute("aria-pressed") === "true",
+          )
+            ? "present"
+            : "empty",
+        }),
+      };
+    }
     if (!isVisible(element)) {
       if (
         element instanceof view.HTMLInputElement &&
@@ -1191,7 +1252,7 @@
     for (const context of snapshot.contexts) {
       watchDocument(context.document);
       for (const element of context.document.querySelectorAll(
-        'input,textarea,select,[role="combobox"],[contenteditable="true"]',
+        'input,textarea,select,[role="combobox"],[contenteditable="true"],.ashby-application-form-input-yesno button',
       )) {
         if (element.matches('[role="combobox"]') && isVisible(element))
           await captureSelect(element);
@@ -1296,6 +1357,10 @@
 
   function valuePresent(entry) {
     const element = entry.elements[0];
+    if (entry.buttonGroup)
+      return entry.elements.some(
+        (button) => button.getAttribute("aria-pressed") === "true",
+      );
     if (entry.customOptions)
       return Boolean(selectedLabel(element) || element.value);
     if (entry.description.type === "radio")
@@ -1307,6 +1372,10 @@
   }
 
   function localValues(entry) {
+    if (entry.buttonGroup)
+      return entry.elements.map((button) =>
+        button.getAttribute("aria-pressed"),
+      );
     if (entry.customOptions)
       return [selectedLabel(entry.elements[0]), entry.elements[0].value];
     if (entry.description.type === "file")
@@ -1378,6 +1447,7 @@
             ...(snapshot?.entries ?? []),
             ...expansionEntries,
           ]) {
+            if (entry.buttonGroup?.contains(event.target)) entry.edited = true;
             if (!entry.customOptions) continue;
             const container = selectContainer(entry.elements[0]);
             if (
@@ -1491,6 +1561,41 @@
       return {
         status: "outcome_unknown",
         detail: "The page changed while this choice was applied.",
+      };
+    return { status: "filled", detail: "Choice applied for review." };
+  }
+
+  async function fillButtonChoice(entry, value) {
+    const selected = entry.elements.find(
+      (button) => button.dataset.option === value,
+    );
+    if (!selected || !entry.description.options.includes(value))
+      return {
+        status: "rejected",
+        detail: "Choose one of the captured options.",
+      };
+    // The site's handler owns React state. Prevent a native default submission
+    // even when a custom option button omits type="button".
+    const preventSubmit = (event) => event.preventDefault();
+    selected.addEventListener("click", preventSubmit, { once: true });
+    selected.click();
+    selected.removeEventListener("click", preventSubmit);
+    await nextTurn();
+    if (
+      !currentPage() ||
+      !entry.elements.every(
+        (button) => button.isConnected && !button.disabled,
+      ) ||
+      !refreshEntry(entry)?.buttonGroup ||
+      entry.elements.some(
+        (button) =>
+          button.getAttribute("aria-pressed") !==
+          (button === selected ? "true" : "false"),
+      )
+    )
+      return {
+        status: "outcome_unknown",
+        detail: "The page did not retain this choice. Review it manually.",
       };
     return { status: "filled", detail: "Choice applied for review." };
   }
@@ -1709,6 +1814,8 @@
               entry.description.unsupported_reason ||
               "Enter this value manually.",
           };
+        } else if (entry.buttonGroup) {
+          fieldResults[id] = await fillButtonChoice(entry, command.fields[id]);
         } else if (entry.customOptions) {
           fieldResults[id] = await fillSelect(
             entry,
