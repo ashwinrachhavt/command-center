@@ -1068,8 +1068,53 @@ async function agentBrowserStructure(tab, allowEmpty = false) {
   }
 }
 
-async function inspectForm(useReader = false) {
+async function inspectForm(useReader = false, openApplication = false) {
   const tab = await activeTab();
+  const page = new URL(tab.url);
+  // The job's Overview is not an application step. Autofill may enter the
+  // same Ashby posting's form, but never advances Next or submits a form.
+  if (
+    openApplication &&
+    page.hostname === "jobs.ashbyhq.com" &&
+    /^\/[^/]+\/[0-9a-f-]{36}\/?$/i.test(page.pathname)
+  ) {
+    page.pathname = `${page.pathname.replace(/\/$/, "")}/application`;
+    autofillStatus("Opening this job's application form…");
+    await chrome.tabs.update(tab.id, { url: page.href });
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const current = await activeTab();
+      if (
+        current.id !== tab.id ||
+        (current.url !== page.href &&
+          current.url !== tab.url &&
+          current.pendingUrl !== page.href)
+      )
+        throw new Error(
+          "The active page changed. Return to the application and try again.",
+        );
+      if (current.url !== page.href) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      const ready = await chrome.scripting
+        .executeScript({
+          target: { tabId: tab.id },
+          func: () =>
+            Boolean(
+              document.querySelector(
+                ".ashby-application-form-field-entry input,.ashby-application-form-field-entry textarea",
+              ),
+            ),
+        })
+        .catch(() => []);
+      if (ready[0]?.result) return inspectForm(useReader);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(
+      "The application form is still loading. Select Autofill this page again when its fields appear.",
+    );
+  }
   await chrome.scripting
     .executeScript({
       target: { tabId: tab.id },
@@ -1093,10 +1138,13 @@ async function inspectForm(useReader = false) {
     !historyExpandable
   ) {
     const workday = /(^|\.)myworkdayjobs\.com$/.test(new URL(tab.url).hostname);
+    const ashby = new URL(tab.url).hostname === "jobs.ashbyhq.com";
     throw new Error(
       workday
         ? "Open the Workday application step after signing in, then share the form again. This page is not ready for filling."
-        : "No supported application controls were found. Open the application step, then share again.",
+        : ashby
+          ? "No application fields are ready. Open the Application tab, wait for the form to load, then select Autofill this page again."
+          : "No supported application controls were found. Open the application step, then share again.",
     );
   }
   const structure = useReader
@@ -1226,7 +1274,7 @@ async function runAutofill() {
     // Keep the exact unfinished operation across popup closure and lost replies.
     if (!draft?.autofill || draft.autofill.stage === "done") {
       autofillStatus("Reading this application…");
-      const { tab, snapshot, structure } = await inspectForm(true);
+      const { tab, snapshot, structure } = await inspectForm(true, true);
       clearTimeout(generationTimer);
       const observedIdentity = jobIdentity(structure?.job_identity);
       const previousIdentity = previousJobIdentity(draft);
@@ -1538,7 +1586,7 @@ async function runAutofill() {
     }
   } catch (error) {
     autofillStatus(
-      "Autofill needs attention. Your progress is saved; see the message below.",
+      error.message ?? "Autofill could not finish. Please try again.",
     );
     throw error;
   } finally {
