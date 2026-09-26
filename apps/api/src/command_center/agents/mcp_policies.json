@@ -1053,5 +1053,20 @@
     "name": "cc_document_decisions_cancel_rename",
     "policy": "human",
     "reason": "Cancelling a pending reviewed document rename belongs to the human review workflow."
+  },
+  "GET /api/v1/agent-sessions/{record_id}/checkpoints": {
+    "name": "cc_conversations_checkpoints",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
+  },
+  "PATCH /api/v1/agent-sessions/{record_id}": {
+    "name": "cc_conversations_rename_session",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
+  },
+  "POST /api/v1/agent-sessions/{record_id}/checkpoints": {
+    "name": "cc_conversations_create_checkpoint",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
   }
 }

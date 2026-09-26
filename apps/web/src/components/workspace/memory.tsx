@@ -39,7 +39,7 @@ type MemoryRevision = {
   title: string;
   content: string;
   kind: "note" | "preference";
-  scope_type: "global" | "task" | "opportunity";
+  scope_type: "global" | "task" | "opportunity" | "session";
   scope_id: string | null;
   valid_until: string | null;
   source: "human" | "agent" | "legacy_human" | "legacy_agent";
@@ -70,15 +70,18 @@ function sourceLabel(source: MemoryRevision["source"]) {
 
 function scopeLabel(revision: MemoryRevision) {
   if (revision.scope_type === "global") return "All work";
+  if (revision.scope_type === "session") return "This conversation";
   return `${revision.scope_type === "task" ? "Task" : "Opportunity"} scope`;
 }
 
 function MemoryEditor({
   record,
   close,
+  sessionId,
 }: {
   record?: Memory;
   close: () => void;
+  sessionId?: string;
 }) {
   const [title, setTitle] = useState(record?.current.title ?? "");
   const [content, setContent] = useState(record?.current.content ?? "");
@@ -92,8 +95,9 @@ function MemoryEditor({
         title: submission.title,
         content: submission.content,
         kind: record?.current.kind ?? "note",
-        scope_type: record?.current.scope_type ?? "global",
-        scope_id: record?.current.scope_id ?? null,
+        scope_type:
+          record?.current.scope_type ?? (sessionId ? "session" : "global"),
+        scope_id: record?.current.scope_id ?? sessionId ?? null,
         valid_until: record?.current.valid_until ?? null,
         source_artifact_id: record?.current.source_artifact_id ?? null,
         reason: null,
@@ -114,8 +118,9 @@ function MemoryEditor({
         title: submission.title,
         content: submission.content,
         kind: record?.current.kind ?? "note",
-        scope_type: record?.current.scope_type ?? "global",
-        scope_id: record?.current.scope_id ?? null,
+        scope_type:
+          record?.current.scope_type ?? (sessionId ? "session" : "global"),
+        scope_id: record?.current.scope_id ?? sessionId ?? null,
         valid_until: record?.current.valid_until ?? null,
         source_artifact_id: record?.current.source_artifact_id ?? null,
         reason: null,
@@ -175,9 +180,14 @@ function MemoryEditor({
             </Field>
           </FieldGroup>
           <p className="mt-4 text-xs leading-5 text-muted-foreground">
-            Scope: {record ? scopeLabel(record.current) : "All work"}. Editing
-            creates an immutable revision and makes this reviewed version
-            active.
+            Scope:{" "}
+            {record
+              ? scopeLabel(record.current)
+              : sessionId
+                ? "This conversation"
+                : "All work"}
+            . Editing creates an immutable revision and makes this reviewed
+            version active.
           </p>
           <Button className="mt-5" disabled={save.isPending}>
             Save and confirm memory
@@ -193,7 +203,7 @@ function MemoryEditor({
   );
 }
 
-export function MemoryPage() {
+export function MemoryPage({ sessionId }: { sessionId?: string } = {}) {
   const [editing, setEditing] = useState<Memory | "new">();
   const [offset, setOffset] = useState(0);
   const limit = 30;
@@ -201,9 +211,11 @@ export function MemoryPage() {
   const [reviewIntent] = useState(() => new RetainedRequestIntent());
   const [archiveIntent] = useState(() => new RetainedRequestIntent());
   const query = useQuery({
-    queryKey: ["memories", offset],
+    queryKey: ["memories", sessionId ?? "all", offset],
     queryFn: () =>
-      api<Page<Memory>>(`memories?limit=${limit}&offset=${offset}`),
+      api<Page<Memory>>(
+        `memories?limit=${limit}&offset=${offset}${sessionId ? `&session_id=${sessionId}` : ""}`,
+      ),
   });
   const review = useMutation({
     mutationFn: ({
@@ -294,8 +306,12 @@ export function MemoryPage() {
   return (
     <>
       <PageHeading
-        title="Workspace memory"
-        description="Reviewed notes and preferences available as scoped agent context."
+        title={sessionId ? "Conversation memory" : "Workspace memory"}
+        description={
+          sessionId
+            ? "Reviewed notes for this thread. Available to its next run within the context budget."
+            : "Reviewed notes and preferences available as scoped agent context."
+        }
         action={
           <Button onClick={() => setEditing("new")}>
             <Plus />
@@ -476,6 +492,7 @@ export function MemoryPage() {
       </div>
       {editing ? (
         <MemoryEditor
+          sessionId={sessionId}
           record={editing === "new" ? undefined : editing}
           close={() => setEditing(undefined)}
         />

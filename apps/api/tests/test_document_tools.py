@@ -153,14 +153,14 @@ def test_large_approved_fact_pages_keep_whole_records_and_correct_offset(setting
     )
     registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-capability")
     facts = [
-        {"id": str(uuid4()), "value": "x" * 4000, "source_excerpt": "y" * 4000} for _ in range(3)
+        {"id": str(uuid4()), "value": "x" * 4000, "source_excerpt": "y" * 4000} for _ in range(6)
     ]
     mocker.patch.object(
         registry,
         "request",
         return_value={
             "items": facts,
-            "total": 3,
+            "total": 6,
             "offset": 0,
             "limit": 10,
         },
@@ -168,6 +168,6 @@ def test_large_approved_fact_pages_keep_whole_records_and_correct_offset(setting
     encoded = registry.execute("approved_profile", {}, "facts")
     parsed = json.loads(encoded)
     assert len(encoded) <= 20000
-    assert parsed["items"] == facts[:2]
-    assert parsed["next_offset"] == parsed["limit"] == 2
-    assert parsed["total"] == 3
+    assert parsed["items"] == [{"id": fact["id"], "value": fact["value"]} for fact in facts[:4]]
+    assert parsed["next_offset"] == parsed["limit"] == 4
+    assert parsed["total"] == 6

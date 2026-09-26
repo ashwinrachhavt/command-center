@@ -21,7 +21,8 @@ class AgentProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
     description: str
-    runtime: Literal["deepagents", "strands"] = "deepagents"
+    runtime: Literal["deepagents", "strands", "langgraph_application"] = "deepagents"
+    application_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     provider: ModelProvider = "openai"
     model: str = Field(
         min_length=1,
@@ -54,6 +55,12 @@ class AgentProfile(BaseModel):
 
         if set(self.tools) - (set(CAPABILITIES) | catalog_tool_names() | {"ask_user"}):
             raise ValueError("Unknown tool grant")
+        if (self.runtime == "langgraph_application") != bool(self.application_preparation_id):
+            raise ValueError("The application workflow requires an exact preparation")
+        if self.runtime == "langgraph_application" and (
+            self.specialists or self.skills or self.skill_files or self.jev_routing
+        ):
+            raise ValueError("The application workflow cannot delegate or load agent skills")
         discovery_tools = {"catalog_search", "catalog_execute"}
         if self.runtime == "deepagents":
             discovery_tools.add("ask_user")

@@ -16,7 +16,9 @@ test("restores an opportunity conversation with specialist activity and outputs"
     page.getByRole("heading", { name: "Interview brief" }),
   ).toBeVisible();
   const continuedInstruction = page.getByText("Add compensation questions.");
-  await expect(continuedInstruction.locator("..")).toContainText("Applied");
+  await expect(
+    page.locator('[data-slot="message"]').filter({ has: continuedInstruction }),
+  ).toContainText("Applied");
   await page
     .getByRole("region", { name: "Prepare interview brief activity" })
     .getByRole("button", { name: "Show activity details" })

@@ -33,7 +33,7 @@ from command_center.db.errors import RecordConflict
 from command_center.db.models import Task
 
 MemoryKind = Literal["note", "preference"]
-MemoryScope = Literal["global", "task", "opportunity"]
+MemoryScope = Literal["global", "task", "opportunity", "session"]
 MemorySource = Literal["human", "agent", "legacy_human", "legacy_agent"]
 MemoryReviewState = Literal["proposed", "approved", "rejected", "revoked"]
 MemoryReviewDecision = Literal["approved", "rejected", "revoked"]
@@ -286,11 +286,14 @@ class MemoryItem(OwnedRecord, Base):
         task_id: UUID | None,
         opportunity_id: UUID | None,
         limit: int,
+        session_id: UUID | None = None,
     ) -> list[tuple["MemoryItem", "MemoryRevision"]]:
         if task_id is not None:
             cls._owned_scope(session, owner_id, "task", task_id)
         if opportunity_id is not None:
             cls._owned_scope(session, owner_id, "opportunity", opportunity_id)
+        if session_id is not None:
+            cls._owned_scope(session, owner_id, "session", session_id)
         revision = MemoryRevision
         search = query.strip()
         text_rank: ColumnElement[Any] = literal(0.0)
@@ -300,6 +303,8 @@ class MemoryItem(OwnedRecord, Base):
             filters.append(revision.search_vector.op("@@")(tsquery))
             text_rank = func.ts_rank_cd(revision.search_vector, tsquery)
         scopes = [revision.scope_type == "global"]
+        if session_id is not None:
+            scopes.append(and_(revision.scope_type == "session", revision.scope_id == session_id))
         if task_id is not None:
             scopes.append(and_(revision.scope_type == "task", revision.scope_id == task_id))
         if opportunity_id is not None:
@@ -310,6 +315,7 @@ class MemoryItem(OwnedRecord, Base):
                 )
             )
         scope_rank = case(
+            (and_(revision.scope_type == "session", revision.scope_id == session_id), 4),
             (and_(revision.scope_type == "task", revision.scope_id == task_id), 3),
             (
                 and_(
@@ -357,10 +363,10 @@ class MemoryItem(OwnedRecord, Base):
             raise ValueError("Memory content must contain 1 to 10000 characters")
         if kind not in {"note", "preference"}:
             raise ValueError("Unknown memory kind")
-        if scope_type not in {"global", "task", "opportunity"}:
+        if scope_type not in {"global", "task", "opportunity", "session"}:
             raise ValueError("Unknown memory scope")
         if (scope_type == "global") != (scope_id is None):
-            raise ValueError("Scoped memory requires exactly one task or opportunity")
+            raise ValueError("Scoped memory requires exactly one task, opportunity or session")
         if scope_id is not None:
             MemoryItem._owned_scope(session, owner_id, scope_type, scope_id)
         if valid_until is not None and valid_until <= utc_now():
@@ -398,7 +404,17 @@ class MemoryItem(OwnedRecord, Base):
 
     @staticmethod
     def _owned_scope(session: Session, owner_id: UUID, scope_type: str, scope_id: UUID) -> None:
-        if scope_type == "task":
+        if scope_type == "session":
+            from command_center.db.conversations import AgentSession
+
+            exists = session.scalar(
+                select(AgentSession.id).where(
+                    AgentSession.id == scope_id,
+                    AgentSession.owner_id == owner_id,
+                    AgentSession.archived_at.is_(None),
+                )
+            )
+        elif scope_type == "task":
             exists = session.scalar(
                 select(Task.id).where(Task.id == scope_id, Task.owner_id == owner_id)
             )
@@ -424,7 +440,9 @@ class MemoryRevision(Base):
         CheckConstraint("length(title) BETWEEN 1 AND 200", name="title_length"),
         CheckConstraint("length(content) BETWEEN 1 AND 10000", name="content_length"),
         CheckConstraint("kind IN ('note', 'preference')", name="kind"),
-        CheckConstraint("scope_type IN ('global', 'task', 'opportunity')", name="scope_type"),
+        CheckConstraint(
+            "scope_type IN ('global', 'task', 'opportunity', 'session')", name="scope_type"
+        ),
         CheckConstraint("(scope_type = 'global') = (scope_id IS NULL)", name="scope_id"),
         CheckConstraint(
             "source IN ('human', 'agent', 'legacy_human', 'legacy_agent')", name="source"

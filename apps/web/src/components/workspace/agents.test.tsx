@@ -10,6 +10,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { AgentMessage, AgentSession, Run, RunStep } from "@/lib/api";
 import { Agents } from "./agents";
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({ userId: "synthetic-chat-owner" }),
+}));
+
 vi.mock("next/navigation", async () => {
   const navigation = await import("../../../tests/fixtures/navigation");
   return {
@@ -160,6 +164,8 @@ function mount(
           currentSessions.find((item) => route.endsWith(item.id)) ?? session,
         ),
       );
+    if (route.endsWith("/checkpoints"))
+      return Promise.resolve(Response.json(page([])));
     if (route.endsWith("/messages")) {
       if (method === "POST") {
         const body = JSON.parse(String(init?.body));
@@ -294,6 +300,38 @@ it("defers historical details and retains cached steps across refresh errors", a
   expect(screen.getByText("Search")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("No saved steps for this run.")).toBeVisible();
+});
+
+it("opens failed timeline steps and keeps the run status visible when folded", async () => {
+  mount({
+    initialRun: { ...run, state: "failed", output: null },
+    steps: [
+      Response.json([
+        {
+          id: "failed-step",
+          name: "document_read",
+          role: "research",
+          state: "output-error",
+          output: "The saved document is unavailable.",
+        } satisfies Partial<RunStep>,
+      ]),
+    ],
+  });
+  expect(
+    await screen.findByText("The saved document is unavailable."),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Reading document Research Error" }),
+  ).toHaveAttribute("aria-expanded", "true");
+  const toggle = screen.getByRole("button", { name: "Hide activity details" });
+  expect(
+    document.getElementById(toggle.getAttribute("aria-controls")!),
+  ).toHaveAttribute("data-slot", "chain-of-thought-content");
+  fireEvent.click(toggle);
+  expect(
+    screen.queryByText("The saved document is unavailable."),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText("Work needs attention")).toBeVisible();
 });
 
 it("shows an initial profile failure and retries only that query", async () => {

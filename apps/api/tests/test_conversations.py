@@ -99,6 +99,76 @@ def create_session(client, *, task_id=None, opportunity_id=None):
     return response.json()
 
 
+def test_saved_checkpoint_is_idempotent_owned_and_does_not_truncate_chat(client, engine):
+    conversation = create_session(client)
+    target = f"agent-sessions/{conversation['id']}"
+    message = post(client, f"{target}/messages", {"content": "Keep this objective"}).json()
+    key = uuid4()
+    body = {"title": "Objective agreed", "expected_sequence": 1}
+    saved = post(client, f"{target}/checkpoints", body, key)
+    assert saved.status_code == 201, saved.text
+    assert post(client, f"{target}/checkpoints", body, key).json() == saved.json()
+    assert saved.json()["sequence"] == 1
+    assert saved.json()["kind"] == "saved"
+    assert client.get(f"/api/v1/{target}/checkpoints").json()["total"] == 1
+    assert client.get(f"/api/v1/{target}/messages").json()["items"][0]["id"] == message["id"]
+    assert (
+        post(client, f"{target}/checkpoints", {**body, "expected_sequence": 2}).status_code == 409
+    )
+    with Session(engine) as db, db.begin():
+        other = Actor(id=uuid4(), kind="human", display_name="Other synthetic owner")
+        db.add(other)
+        db.flush()
+        foreign = AgentSession.open_chat(
+            db, record_id=uuid4(), owner_id=other.id, title="Private", request_id=uuid4()
+        )
+        foreign_id = foreign.id
+    assert client.get(f"/api/v1/agent-sessions/{foreign_id}/checkpoints").status_code == 404
+
+
+@pytest.mark.parametrize("state", ["completed", "failed", "cancelled"])
+def test_continuing_terminal_thread_records_one_visible_boundary(client, engine, state):
+    conversation = create_session(client)
+    target = f"agent-sessions/{conversation['id']}"
+    first = post(client, f"{target}/messages", {"content": "Original objective"}).json()
+    with Session(engine) as db, db.begin():
+        previous = db.get(AgentRun, UUID(first["run_id"]))
+        previous.state = state
+    key = uuid4()
+    second = post(client, f"{target}/messages", {"content": "Continue this work"}, key)
+    assert second.status_code == 201, second.text
+    assert (
+        post(client, f"{target}/messages", {"content": "Continue this work"}, key).json()
+        == second.json()
+    )
+    checkpoints = client.get(f"/api/v1/{target}/checkpoints").json()["items"]
+    assert len(checkpoints) == 1
+    assert checkpoints[0]["kind"] == "continued"
+    assert checkpoints[0]["sequence"] == 1
+    assert checkpoints[0]["run_id"] == second.json()["run_id"]
+    assert client.get(f"/api/v1/{target}/messages").json()["total"] == 2
+
+
+def test_thread_rename_checks_revision_and_search_finds_saved_text(client):
+    conversation = create_session(client)
+    target = f"agent-sessions/{conversation['id']}"
+    post(client, f"{target}/messages", {"content": "A synthetic literal%marker."})
+    current = client.get(f"/api/v1/{target}").json()
+    body = {"title": "Renamed synthetic thread", "expected_version": current["row_version"]}
+    renamed = client.patch(
+        f"/api/v1/{target}", json=body, headers={"Idempotency-Key": str(uuid4())}
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["title"] == body["title"]
+    stale = client.patch(f"/api/v1/{target}", json=body, headers={"Idempotency-Key": str(uuid4())})
+    assert stale.status_code == 409
+    results = client.get("/api/v1/agent-sessions", params={"q": "literal%marker"}).json()
+    assert [item["id"] for item in results["items"]] == [conversation["id"]]
+    assert (
+        client.get("/api/v1/agent-sessions", params={"q": "literal_marker"}).json()["items"] == []
+    )
+
+
 def test_task_session_is_created_through_the_http_contract(client):
     task = post(client, "tasks", {"title": "Research a synthetic role"}).json()
 

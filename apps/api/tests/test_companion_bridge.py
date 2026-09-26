@@ -84,3 +84,24 @@ def test_cli_does_not_inherit_agentbrowser_daemon_environment_or_native_stdin(
     assert not any(key.startswith("AGENT_BROWSER_") for key in run.call_args.kwargs["env"])
     assert run.call_args.kwargs["stdin"] == subprocess.DEVNULL
     assert run.call_args.args[0] == ["/synthetic/ab", "clean", "tab", "list", "--json"]
+
+
+@pytest.mark.parametrize("output", ["null", "[]", "not json", '{"success":true,"data":[]}'])
+def test_cli_incompatible_output_has_an_actionable_error(mocker, monkeypatch, tmp_path, output):
+    monkeypatch.setattr(bridge, "LOCAL", tmp_path)
+    mocker.patch.object(bridge.shutil, "which", return_value="/synthetic/ab")
+    mocker.patch.object(
+        bridge.subprocess,
+        "run",
+        return_value=subprocess.CompletedProcess([], 0, output, ""),
+    )
+    with pytest.raises(ValueError, match="incompatible response"):
+        bridge.cli("tab", "list")
+
+
+@pytest.mark.parametrize("tabs", [None, {}, [None], [{"url": REQUEST["url"]}]])
+def test_invalid_tab_list_never_selects_or_reads_a_tab(mocker, tabs):
+    call = mocker.patch.object(bridge, "cli", return_value={"tabs": tabs})
+    with pytest.raises(ValueError, match="incompatible tab list"):
+        bridge.inspect(REQUEST)
+    assert call.call_count == 1

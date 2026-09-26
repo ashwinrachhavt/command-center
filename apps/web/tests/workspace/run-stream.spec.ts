@@ -111,6 +111,13 @@ test("replays a disconnected run stream without duplicating tools or mixing runs
   await expect(capsule).toHaveAttribute("aria-expanded", "false");
   await capsule.focus();
   await page.keyboard.press("Enter");
+  const expandedHeader = primary.getByRole("button", {
+    name: "Hide activity details",
+  });
+  await expect(expandedHeader).toHaveAttribute("aria-controls", /.+/);
+  const contentId = await expandedHeader.getAttribute("aria-controls");
+  const content = primary.locator('[data-slot="chain-of-thought-content"]');
+  await expect(content).toHaveAttribute("id", contentId!);
   await expect(primary).toContainText("150 tokens");
   await expect(primary.getByText("Duplicate should not render")).toHaveCount(0);
   await expect(
@@ -133,3 +140,57 @@ test("replays a disconnected run stream without duplicating tools or mixing runs
   expect(streamState.attempts["run-stream-b"]).toBe(1);
   expect(pageErrors).toEqual([]);
 });
+
+for (const dir of ["ltr", "rtl"] as const) {
+  test(`chat activity timeline remains keyboard accessible on a narrow ${dir} screen`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript((direction) => {
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          document.documentElement.setAttribute("dir", direction);
+        },
+        { once: true },
+      );
+    }, dir);
+    await page.goto("/agents?session=session-stream");
+    const activity = page.getByRole("region", {
+      name: "Grounded application guidance activity",
+    });
+    await expect(
+      activity.getByText("Work complete", { exact: true }),
+    ).toBeVisible();
+    const toggle = activity.getByRole("button", {
+      name: "Show activity details",
+    });
+    await toggle.focus();
+    await page.keyboard.press("Space");
+    const step = activity.locator('[data-slot="chain-of-thought-step"]');
+    await expect(step).toHaveCount(1);
+    await expect(step).toHaveAttribute("data-status", "complete");
+    await expect(step).toHaveCSS("direction", dir);
+    const tool = step.getByRole("button", {
+      name: "Reading document Completed",
+    });
+    await tool.focus();
+    await page.keyboard.press("Enter");
+    await expect(step).toContainText("resume-version-1");
+    await expect(step).toContainText("cited_versions");
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(320);
+    const bounds = await tool.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+    await activity
+      .getByRole("button", { name: "Hide activity details" })
+      .click();
+    await expect(tool).not.toBeVisible();
+    await expect(
+      activity.getByRole("heading", { name: "Streaming answer" }),
+    ).toBeVisible();
+  });
+}

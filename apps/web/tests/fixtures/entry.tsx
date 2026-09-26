@@ -193,6 +193,7 @@ const conversationBase = {
 const answeredQuestionIds = new Set<string>(
   JSON.parse(sessionStorage.getItem("answered-question-ids") ?? "[]"),
 );
+const sessionCheckpoints: Record<string, Record<string, unknown>[]> = {};
 const sessions: Record<string, unknown>[] = [
   {
     ...conversationBase,
@@ -1484,8 +1485,41 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     defaultResume.byte_size = selectedImport?.byte_size ?? null;
     return Response.json(defaultResume);
   }
-  if (route === "memories" && method === "GET")
-    return Response.json(page(memoryItems, 30));
+  if (route === "memories" && method === "GET") {
+    const sessionId = url.searchParams.get("session_id");
+    return Response.json(
+      page(
+        memoryItems.filter(
+          (item) =>
+            !sessionId ||
+            (item.current as Record<string, unknown>).scope_id === sessionId,
+        ),
+        30,
+      ),
+    );
+  }
+  if (route === "memories" && method === "POST") {
+    const body = JSON.parse(String(init?.body));
+    const current = {
+      ...body,
+      id: crypto.randomUUID(),
+      version: 1,
+      source: "human",
+      review_state: "approved",
+      created_at: base.created_at,
+    };
+    const memory = {
+      ...body,
+      id: crypto.randomUUID(),
+      row_version: 1,
+      source: "human",
+      updated_at: base.updated_at,
+      current,
+      active: current,
+    };
+    memoryItems.push(memory);
+    return Response.json(memory);
+  }
   const memoryReviewMatch = route.match(/^memories\/([^/]+)\/reviews$/);
   if (memoryReviewMatch && method === "POST") {
     const memory = memoryItems.find((item) => item.id === memoryReviewMatch[1]);
@@ -1933,11 +1967,17 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     const taskId = url.searchParams.get("task_id");
     const opportunityId = url.searchParams.get("opportunity_id");
     const standalone = url.searchParams.get("standalone") === "true";
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
     const filtered = sessions.filter(
       (item) =>
         (!taskId || item.task_id === taskId) &&
         (!opportunityId || item.opportunity_id === opportunityId) &&
-        (!standalone || (!item.task_id && !item.opportunity_id)),
+        (!standalone || (!item.task_id && !item.opportunity_id)) &&
+        (!query ||
+          String(item.title).toLowerCase().includes(query) ||
+          sessionMessages[String(item.id)]?.some((message) =>
+            String(message.content).toLowerCase().includes(query),
+          )),
     );
     const limit = Number(url.searchParams.get("limit") ?? 30);
     const offset = Number(url.searchParams.get("offset") ?? 0);
@@ -1949,6 +1989,58 @@ const fixtureFetch: typeof fetch = async (input, init) => {
     });
   }
   const sessionDetail = route.match(/^agent-sessions\/([^/]+)$/);
+  if (sessionDetail && method === "PATCH") {
+    const item = sessions.find((session) => session.id === sessionDetail[1])!;
+    const body = JSON.parse(String(init?.body));
+    item.title = body.title;
+    item.row_version = Number(item.row_version) + 1;
+    return Response.json(item);
+  }
+  const checkpointMatch = route.match(/^agent-sessions\/([^/]+)\/checkpoints$/);
+  if (checkpointMatch) {
+    const sessionId = checkpointMatch[1];
+    const items = (sessionCheckpoints[sessionId] ??= []);
+    if (method === "POST") {
+      const body = JSON.parse(String(init?.body));
+      const checkpoint = {
+        id: crypto.randomUUID(),
+        session_id: sessionId,
+        sequence: body.expected_sequence,
+        kind: "saved",
+        title: body.title,
+        run_id: null,
+        summary: null,
+        summary_revision: null,
+        created_at: base.created_at,
+      };
+      items.push(checkpoint);
+      return Response.json(checkpoint);
+    }
+    if (
+      url.searchParams.get("offset") === "0" &&
+      new URLSearchParams(location.search).has("context_checkpoint") &&
+      !items.length
+    ) {
+      items.push({
+        id: "synthetic-summary",
+        session_id: sessionId,
+        sequence: 1,
+        kind: "compacted",
+        title: "Context summarized",
+        run_id: null,
+        summary: "Retain the synthetic objective and its accepted constraints.",
+        summary_revision: 1,
+        created_at: base.created_at,
+      });
+    }
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    return Response.json({
+      items: items.slice(offset, offset + 100),
+      total: items.length,
+      limit: 100,
+      offset,
+    });
+  }
   if (sessionDetail && method === "GET") {
     const item = sessions.find((session) => session.id === sessionDetail[1]);
     return item
@@ -2029,8 +2121,21 @@ const fixtureFetch: typeof fetch = async (input, init) => {
         input_sequence: sequence,
         consumed_sequence: 0,
       };
-      if (!existingRun) (sessionRuns[sessionId] ??= []).unshift(run);
-      else {
+      if (!existingRun) {
+        (sessionRuns[sessionId] ??= []).unshift(run);
+        if (sequence > 1)
+          (sessionCheckpoints[sessionId] ??= []).push({
+            id: crypto.randomUUID(),
+            session_id: sessionId,
+            sequence: sequence - 1,
+            kind: "continued",
+            title: "Conversation continued",
+            run_id: run.id,
+            summary: null,
+            summary_revision: null,
+            created_at: base.created_at,
+          });
+      } else {
         existingRun.input_sequence = sequence;
         existingRun.row_version = Number(existingRun.row_version) + 1;
       }

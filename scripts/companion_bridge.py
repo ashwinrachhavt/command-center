@@ -75,12 +75,25 @@ def cli(*args: str) -> dict:
         raise ValueError(
             "AgentBrowser is unavailable. Run make companion-browser and use that window."
         )
-    response = json.loads(result.stdout)
+    incompatible = (
+        "AgentBrowser returned an incompatible response. "
+        "Update AgentBrowser and reopen make companion-browser, "
+        "or choose This browser in Capture settings."
+    )
+    try:
+        response = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError(incompatible) from exc
+    if not isinstance(response, dict):
+        raise ValueError(incompatible)  # noqa: TRY004 - preserve the protocol recovery message
     if not response.get("success"):
         raise ValueError(
             "AgentBrowser could not inspect this tab. Open it in the companion browser."
         )
-    return response.get("data", {})
+    data = response.get("data")
+    if not isinstance(data, dict):
+        raise ValueError(incompatible)  # noqa: TRY004 - preserve the protocol recovery message
+    return data
 
 
 def inspect(request: dict) -> dict:
@@ -95,7 +108,19 @@ def inspect(request: dict) -> dict:
     if not isinstance(nonce, str) or not re.fullmatch(r"[a-f0-9-]{36}", nonce):
         raise ValueError("Invalid tab binding.")
     # Fixed JS plus JSON literals only; page text cannot become executable instructions.
-    matches = cli("tab", "list").get("tabs", [])
+    matches = cli("tab", "list").get("tabs")
+    if not isinstance(matches, list) or any(
+        not isinstance(tab, dict)
+        or not isinstance(tab.get("url"), str)
+        or not isinstance(tab.get("tabId"), str)
+        or not tab["tabId"]
+        for tab in matches
+    ):
+        raise ValueError(
+            "AgentBrowser returned an incompatible tab list. "
+            "Update AgentBrowser and reopen make companion-browser, "
+            "or choose This browser in Capture settings."
+        )
     candidates = [tab for tab in matches if tab.get("url") == url]
     if not candidates:
         raise ValueError(

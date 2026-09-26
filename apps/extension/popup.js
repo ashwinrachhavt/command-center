@@ -2,14 +2,45 @@ const contracts = globalThis.CommandCenterContracts;
 const element = (id) => document.getElementById(id);
 const allowedApis = new Set(["http://localhost:8000", "http://127.0.0.1:8000"]);
 await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+const [panelTab] = await chrome.tabs.query({
+  active: true,
+  currentWindow: true,
+});
+const draftKey = Number.isInteger(panelTab?.id)
+  ? `applicationDraft:${panelTab.id}`
+  : null;
 const stored = await chrome.storage.local.get([
   "connection",
   "applicationDraft",
   "claimedCommands",
   "pageReader",
+  ...(draftKey ? [draftKey] : []),
 ]);
 let connection = stored.connection;
-let draft = stored.applicationDraft;
+let draft = draftKey ? stored[draftKey] : undefined;
+// Upgrade the old shared draft once, only into its actual application tab.
+// Web Locks serialize migration across side panels without a resident worker.
+if (draftKey && !draft && stored.applicationDraft) {
+  draft = await navigator.locks.request(
+    "command-center-draft-migration",
+    async () => {
+      const current = await chrome.storage.local.get([
+        draftKey,
+        "applicationDraft",
+      ]);
+      if (current[draftKey]) return current[draftKey];
+      const legacy = current.applicationDraft;
+      const url =
+        legacy?.pageUrl ??
+        legacy?.snapshot?.full_url ??
+        legacy?.snapshot?.page_url;
+      if (url !== panelTab.url) return undefined;
+      await chrome.storage.local.set({ [draftKey]: legacy });
+      await chrome.storage.local.remove("applicationDraft");
+      return legacy;
+    },
+  );
+}
 let claimedCommands = new Set(stored.claimedCommands ?? []);
 let generationTimer;
 let resumeChoice;
@@ -18,6 +49,14 @@ let autofillBusy = false;
 let actionBusy = false;
 element("page-reader").value = stored.pageReader ?? "direct";
 renderReaderChoice();
+
+chrome.tabs.onActivated?.addListener(({ tabId, windowId }) => {
+  if (windowId === panelTab?.windowId && tabId !== panelTab.id)
+    location.reload();
+});
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes.connection) location.reload();
+});
 
 function renderReaderChoice() {
   element("reader-status").textContent =
@@ -157,7 +196,9 @@ function renderGeneration() {
     queued:
       "Generation is queued. This popup will refresh the draft when it finishes.",
     running: "Generation is running. Your local edits remain unchanged.",
-    completed: "Grounded drafts are ready for review.",
+    completed: draft?.generationSavedAnswers
+      ? "Grounded drafts are ready for review."
+      : "Generation finished without saving new answers. Open the generation workspace for details, or try again.",
     failed: `Generation failed${draft?.generation?.error_code ? ` (${draft.generation.error_code})` : ""}.`,
     cancelled: "Generation was cancelled. Your current draft is unchanged.",
   };
@@ -227,6 +268,10 @@ async function activeTab(requestAccess = false) {
     throw new Error(
       "Open the application form in this Chrome window, then try Autofill again.",
     );
+  if (panelTab && tab.id !== panelTab.id)
+    throw new Error(
+      "The active tab changed. Reopen the companion on this application.",
+    );
   if (!tab.url)
     throw new Error(
       "Chrome has not shared this tab with the companion. Reload the updated extension in chrome://extensions, then reopen it on the application page.",
@@ -292,7 +337,9 @@ function receipt(kind) {
 }
 
 async function saveDraft() {
-  await chrome.storage.local.set({ applicationDraft: draft });
+  if (!draftKey)
+    throw new Error("Open the companion on an application tab first.");
+  await chrome.storage.local.set({ [draftKey]: draft });
 }
 
 function clearReceipt(kind) {
@@ -670,6 +717,14 @@ function scheduleGenerationPoll() {
   if (generationPending()) generationTimer = setTimeout(pollGeneration, 1000);
 }
 
+function suggestedAnswers(preparation) {
+  return JSON.stringify(
+    preparation.fields
+      .filter((field) => field.status === "suggested")
+      .map(({ field_id, value, evidence }) => ({ field_id, value, evidence })),
+  );
+}
+
 async function pollGeneration() {
   if (!draft?.preparation) return;
   const currentDraft = draft;
@@ -684,8 +739,15 @@ async function pollGeneration() {
         await api(`device/preparations/${draft.preparation.id}`),
       );
       if (draft !== currentDraft) return;
+      draft.generationBaseline ??= suggestedAnswers(draft.preparation);
+      draft.generationSavedAnswers =
+        suggestedAnswers(latest) !== draft.generationBaseline;
       mergePreparation(latest);
-      message("Grounded drafts are ready. Your local edits were kept.");
+      message(
+        draft.generationSavedAnswers
+          ? "Grounded drafts are ready. Your local edits were kept."
+          : "No new answers were saved. Your existing answers and local edits were kept. Open the generation workspace for details.",
+      );
     } else if (generation.state === "failed") {
       message(
         `Draft generation failed${generation.error_code ? ` (${generation.error_code})` : ""}. Review the conversation or try again.`,
@@ -980,10 +1042,12 @@ element("pair-form").addEventListener("submit", (event) => {
 
 element("disconnect").addEventListener("click", async () => {
   clearTimeout(generationTimer);
+  const keys = await chrome.storage.local.get(null);
   await chrome.storage.local.remove([
     "connection",
     "applicationDraft",
     "claimedCommands",
+    ...Object.keys(keys).filter((key) => key.startsWith("applicationDraft:")),
   ]);
   connection = undefined;
   draft = undefined;
@@ -1625,7 +1689,10 @@ async function runAutofill() {
 }
 
 element("autofill").addEventListener("click", (event) =>
-  action(event.currentTarget, runAutofill),
+  action(event.currentTarget, async () => {
+    autofillStatus("Waiting for the active autofill to finish…");
+    await navigator.locks.request("command-center-autofill", runAutofill);
+  }),
 );
 
 for (const [id, continueApplication] of [
@@ -1712,6 +1779,8 @@ element("generate").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     if (generationPending())
       throw new Error("Generation is already in progress.");
+    draft.generationBaseline = suggestedAnswers(draft.preparation);
+    draft.generationSavedAnswers = false;
     const result = await api(
       `device/preparations/${draft.preparation.id}/generate`,
       {
@@ -1900,7 +1969,7 @@ element("propose").addEventListener("click", (event) =>
 element("discard-draft").addEventListener("click", async () => {
   clearTimeout(generationTimer);
   draft = undefined;
-  await chrome.storage.local.remove("applicationDraft");
+  if (draftKey) await chrome.storage.local.remove(draftKey);
   element("preparation").hidden = true;
   element("application-title").textContent = "Your next opportunity.";
   element("page-location").hidden = true;
