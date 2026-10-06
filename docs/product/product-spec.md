@@ -474,3 +474,12 @@ Outreach should advance the recruiting process with an interested recruiter, dis
 Application material should match requirements to approved evidence, show gaps outside copyable text and preserve selected resumes and filled fields. Agents research, rank, draft and prepare; final messages/applications, including follow-ups, require user approval under the existing action contracts. Manual Next/Submit remains unchanged. Batch count, session duration, target-role exclusions, same-tier preferences and follow-up policy remain open; prompts must not turn recommendations into user decisions. No connector or browser integration expansion is included in this slice.
 
 Acceptance examples live in the synthetic productivity fixture set. They cover source conflict, partial dossier completion, source priority, a recent reply, referral tone, hiring-manager fit and unsupported application claims. Offline fixture checks establish harness integrity; actual agent quality and productivity improvement still require recorded-model evaluation and user use.
+
+
+## Session continuity and memory — confirmed 2026-09-24
+
+Continue any owned thread from its latest message, including completed, failed and cancelled work. Show durable context/checkpoint markers when work continues or earlier context is summarized; preserve the complete transcript. Earlier-checkpoint branching is outside this increment. Assistant history includes standalone and work-scoped sessions and supports search and renaming. Drafts remain separate per thread and recover within the current browser tab. Session context is automatic; reusable shared memory requires human review. Session notes remain scoped to that conversation and use the existing exact-revision review/revoke lifecycle.
+
+## Core application reliability — direction 2026-09-24
+
+After the chat layout trial, prioritize a reliable, trustworthy browser application flow. The user named AgentBrowser as the browser tool and requested free-to-use browser operation. This selects the local browser path; it does not settle whether all model calls must also be local. Build on the existing companion, approved facts, exact document versions and reviewed answers. Preserve the confirmed manual Next/Submit boundary. Native bridge and synthetic ATS checks establish a baseline; live portal coverage and authenticated end-to-end application verification remain required before claiming broad reliability.

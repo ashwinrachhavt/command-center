@@ -3,7 +3,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-SCHEMA_REVISION = "0039_document_decisions"
+SCHEMA_REVISION = "0040_session_checkpoints"
 
 
 def create_database_engine(database_url: str, pool_mode: str = "session") -> Engine:

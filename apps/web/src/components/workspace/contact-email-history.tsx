@@ -49,7 +49,7 @@ export function ContactEmailHistory({ recipient }: { recipient: string }) {
         <button
           key={action.id}
           type="button"
-          className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left hover:bg-muted/50"
+          className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-start hover:bg-muted/50"
           onClick={() => setSelected(action.id)}
         >
           <span className="min-w-0">

@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FileOutput, RotateCcw, X } from "lucide-react";
@@ -110,7 +111,9 @@ export function PdfExportControl({
         disabled={!editable || create.isPending}
         title={editable ? undefined : "Choose an editable text version"}
       >
-        {create.isPending ? <Spinner /> : <FileOutput />}
+        <AnimatedIcon state={create.isPending}>
+          {create.isPending ? <Spinner /> : <FileOutput />}
+        </AnimatedIcon>
         Export version {version} to PDF
       </Button>
     );
@@ -129,7 +132,9 @@ export function PdfExportControl({
           onClick={() => download.mutate()}
           disabled={download.isPending}
         >
-          {download.isPending ? <Spinner /> : <Download />}
+          <AnimatedIcon state={download.isPending}>
+            {download.isPending ? <Spinner /> : <Download />}
+          </AnimatedIcon>
           Download PDF
         </Button>
       ) : null}

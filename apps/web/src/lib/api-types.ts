@@ -1175,6 +1175,25 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** Rename Session */
+        patch: operations["rename_session_api_v1_agent_sessions__record_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/agent-sessions/{record_id}/checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Checkpoints */
+        get: operations["checkpoints_api_v1_agent_sessions__record_id__checkpoints_get"];
+        put?: never;
+        /** Create Checkpoint */
+        post: operations["create_checkpoint_api_v1_agent_sessions__record_id__checkpoints_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -3857,6 +3876,49 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** CheckpointCreate */
+        CheckpointCreate: {
+            /**
+             * Title
+             * @default Saved checkpoint
+             */
+            title: string;
+            /** Expected Sequence */
+            expected_sequence: number;
+        };
+        /** CheckpointRead */
+        CheckpointRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "saved" | "continued" | "compacted";
+            /** Title */
+            title: string;
+            /** Run Id */
+            run_id: string | null;
+            /** Summary */
+            summary: string | null;
+            /** Summary Revision */
+            summary_revision: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** ClaimResult */
         ClaimResult: {
             /**
@@ -5875,7 +5937,7 @@ export interface components {
              * @default global
              * @enum {string}
              */
-            scope_type: "global" | "task" | "opportunity";
+            scope_type: "global" | "task" | "opportunity" | "session";
             /** Scope Id */
             scope_id?: string | null;
             /** Valid Until */
@@ -5960,7 +6022,7 @@ export interface components {
              * Scope Type
              * @enum {string}
              */
-            scope_type: "global" | "task" | "opportunity";
+            scope_type: "global" | "task" | "opportunity" | "session";
             /** Scope Id */
             scope_id: string | null;
             /** Valid Until */
@@ -6006,7 +6068,7 @@ export interface components {
              * @default global
              * @enum {string}
              */
-            scope_type: "global" | "task" | "opportunity";
+            scope_type: "global" | "task" | "opportunity" | "session";
             /** Scope Id */
             scope_id?: string | null;
             /** Valid Until */
@@ -6297,6 +6359,17 @@ export interface components {
         Page_ArtifactRead_: {
             /** Items */
             items: components["schemas"]["ArtifactRead"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** Page[CheckpointRead] */
+        Page_CheckpointRead_: {
+            /** Items */
+            items: components["schemas"]["CheckpointRead"][];
             /** Total */
             total: number;
             /** Limit */
@@ -7365,7 +7438,7 @@ export interface components {
              * Scope Type
              * @enum {string}
              */
-            scope_type: "global" | "task" | "opportunity";
+            scope_type: "global" | "task" | "opportunity" | "session";
             /** Scope Id */
             scope_id: string | null;
             /** Valid Until */
@@ -7610,6 +7683,13 @@ export interface components {
             opportunity_id: string | null;
             /** Last Sequence */
             last_sequence: number;
+        };
+        /** SessionUpdate */
+        SessionUpdate: {
+            /** Expected Version */
+            expected_version: number;
+            /** Title */
+            title: string;
         };
         /** SnapshotCreate */
         SnapshotCreate: {
@@ -11176,6 +11256,114 @@ export interface operations {
             };
         };
     };
+    rename_session_api_v1_agent_sessions__record_id__patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    checkpoints_api_v1_agent_sessions__record_id__checkpoints_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CheckpointRead_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_checkpoint_api_v1_agent_sessions__record_id__checkpoints_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckpointRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     messages_api_v1_agent_sessions__record_id__messages_get: {
         parameters: {
             query?: {
@@ -13824,6 +14012,7 @@ export interface operations {
                 q?: string;
                 task_id?: string | null;
                 opportunity_id?: string | null;
+                session_id?: string | null;
                 limit?: number;
             };
             header?: never;
@@ -13856,6 +14045,7 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                session_id?: string | null;
                 limit?: number;
                 offset?: number;
             };

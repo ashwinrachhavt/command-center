@@ -1,10 +1,10 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
-  ChevronDown,
   CircleStop,
   FileText,
   LoaderCircle,
@@ -14,10 +14,11 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
 import { cn } from "@/lib/utils";
 import { ActivityTool, activityToolLabel } from "./activity-tool";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,8 @@ export function RunActivity({
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["agent-session-runs"] }),
       queryClient.invalidateQueries({ queryKey: ["agent-session-messages"] }),
+      queryClient.invalidateQueries({ queryKey: ["session-checkpoints"] }),
+      queryClient.invalidateQueries({ queryKey: ["agent-session"] }),
       queryClient.invalidateQueries({ queryKey: ["agent-run", run.id] }),
       queryClient.invalidateQueries({
         queryKey: ["agent-run-questions", run.id],
@@ -186,49 +189,51 @@ export function RunActivity({
 
   return (
     <section aria-label={`${run.title} activity`} className="min-w-0 py-2">
-      <Collapsible
+      <ChainOfThought
         open={detailsOpen}
         onOpenChange={(open) => {
           setExpanded({ state: displayedState, open });
           if (open) setVisited(true);
         }}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <CollapsibleTrigger
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <ChainOfThoughtHeader
             aria-label={
               detailsOpen ? "Hide activity details" : "Show activity details"
             }
-            className="group flex min-h-10 min-w-0 max-w-full items-center gap-2 rounded-full border border-border/60 bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            className="w-auto max-w-full flex-1 bg-muted/30 text-xs"
+            icon={
+              <AnimatedIcon state={displayedState} className="size-3.5">
+                <Icon
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    thinking && "motion-safe:animate-pulse",
+                    displayedState === "failed" && "text-destructive",
+                  )}
+                />
+              </AnimatedIcon>
+            }
           >
-            <Icon
-              aria-hidden
-              className={cn(
-                "size-3.5 shrink-0",
-                thinking && "motion-safe:animate-pulse",
-                displayedState === "failed" && "text-destructive",
-              )}
-            />
-            <span
-              role="status"
-              className="truncate font-medium text-foreground"
-            >
-              {heading}
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <span
+                role="status"
+                className="min-w-0 break-words font-medium text-foreground"
+              >
+                {heading}
+              </span>
+              {tools.length > 0 ? (
+                <span className="shrink-0 border-s border-border ps-2 tabular-nums">
+                  {tools.length} {tools.length === 1 ? "step" : "steps"}
+                </span>
+              ) : null}
+              {errors > 0 ? (
+                <span className="shrink-0 text-destructive">
+                  {errors} {errors === 1 ? "error" : "errors"}
+                </span>
+              ) : null}
             </span>
-            {tools.length > 0 ? (
-              <span className="shrink-0 border-l border-border pl-2 tabular-nums">
-                {tools.length} {tools.length === 1 ? "step" : "steps"}
-              </span>
-            ) : null}
-            {errors > 0 ? (
-              <span className="shrink-0 text-destructive">
-                {errors} {errors === 1 ? "error" : "errors"}
-              </span>
-            ) : null}
-            <ChevronDown
-              aria-hidden
-              className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none"
-            />
-          </CollapsibleTrigger>
+          </ChainOfThoughtHeader>
           {active && onCancel ? (
             <Button
               type="button"
@@ -243,11 +248,11 @@ export function RunActivity({
             </Button>
           ) : null}
         </div>
-        <CollapsibleContent className="min-w-0 pt-3">
+        <ChainOfThoughtContent>
           <div
             role="group"
             aria-label="Live activity"
-            className="ml-4 min-w-0 space-y-3 border-l border-border/70 pl-4"
+            className="min-w-0 space-y-3 px-2"
           >
             <p
               className="truncate text-[11px] text-muted-foreground"
@@ -291,10 +296,21 @@ export function RunActivity({
                 Loading saved steps…
               </p>
             ) : null}
-            <div className="flex min-w-0 flex-wrap items-start gap-2">
+            <div className="min-w-0 space-y-3">
               {tools.map((tool) => (
                 <ActivityTool key={tool.id} {...tool} />
               ))}
+              {thinking && !currentTool ? (
+                <ChainOfThoughtStep
+                  icon={Sparkles}
+                  label={
+                    <span className="flex min-h-8 items-center">
+                      Preparing a response…
+                    </span>
+                  }
+                  status="active"
+                />
+              ) : null}
             </div>
             {steps.data && tools.length === 0 && !thinking ? (
               <p className="text-xs text-muted-foreground">
@@ -312,8 +328,8 @@ export function RunActivity({
               </p>
             ) : null}
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+        </ChainOfThoughtContent>
+      </ChainOfThought>
 
       {displayedState === "waiting_for_user" ? (
         <p className="mt-3 text-xs text-muted-foreground">

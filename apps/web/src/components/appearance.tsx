@@ -5,6 +5,7 @@ import { ThemeProvider, useTheme } from "next-themes";
 import { Check, Palette } from "lucide-react";
 import { ThemeSwitcher } from "@/components/kibo-ui/theme-switcher";
 import { Button } from "@/components/ui/button";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import {
   Popover,
   PopoverContent,
@@ -19,6 +20,18 @@ const palettes = [
   { id: "violet", name: "Violet", color: "#8958d8" },
 ] as const;
 const storageKey = "command-center:palette";
+
+function applyPalette(palette: string) {
+  const root = document.documentElement;
+  if (root.dataset.palette === palette) return;
+
+  const style = document.createElement("style");
+  style.textContent = "*,*::before,*::after{transition:none !important}";
+  document.head.append(style);
+  root.dataset.palette = palette;
+  void root.offsetHeight;
+  requestAnimationFrame(() => requestAnimationFrame(() => style.remove()));
+}
 
 function currentPalette() {
   try {
@@ -51,7 +64,7 @@ export function AppearanceProvider({
     () => "graphite",
   );
   useEffect(() => {
-    document.documentElement.dataset.palette = palette;
+    applyPalette(palette);
   }, [palette]);
   return (
     <ThemeProvider
@@ -103,7 +116,7 @@ export function Appearance() {
                   palette === option.id && "bg-accent",
                 )}
                 onClick={() => {
-                  document.documentElement.dataset.palette = option.id;
+                  applyPalette(option.id);
                   try {
                     localStorage.setItem(storageKey, option.id);
                   } catch {
@@ -116,7 +129,12 @@ export function Appearance() {
                   className="flex size-7 items-center justify-center rounded-full text-white"
                   style={{ background: option.color }}
                 >
-                  {palette === option.id && <Check className="size-3.5" />}
+                  <AnimatedIcon
+                    state={palette === option.id}
+                    className="size-3.5"
+                  >
+                    {palette === option.id && <Check />}
+                  </AnimatedIcon>
                 </span>
                 {option.name}
               </Button>

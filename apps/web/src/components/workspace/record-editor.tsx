@@ -1,4 +1,5 @@
 "use client";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -253,14 +254,16 @@ function Lookup({
   companyId?: string;
 }) {
   const [q, setQ] = useState("");
+  const settledQuery = useDebouncedValue(q.trim());
   const query = useQuery({
-    queryKey: ["lookup", field.lookup, q, companyId],
-    queryFn: async () => {
+    queryKey: ["lookup", field.lookup, settledQuery, companyId],
+    queryFn: async ({ signal }) => {
       const result = await api<
         | Page<{ id: string; name?: string; title?: string }>
         | { id: string; name: string }[]
       >(
-        `${field.lookup}${field.lookup === "document-types" ? "" : `?limit=100&q=${encodeURIComponent(q)}${field.lookup === "jobs" && companyId ? `&company_id=${companyId}` : ""}`}`,
+        `${field.lookup}${field.lookup === "document-types" ? "" : `?limit=100&q=${encodeURIComponent(settledQuery)}${field.lookup === "jobs" && companyId ? `&company_id=${companyId}` : ""}`}`,
+        { signal },
       );
       return Array.isArray(result) ? result : result.items;
     },

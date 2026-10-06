@@ -247,7 +247,7 @@ export function DocumentSettings() {
     <section
       id="documents"
       aria-labelledby="document-settings-title"
-      className="rounded-xl border border-border bg-card p-6"
+      className="rounded-xl shadow-surface bg-card p-6"
     >
       <h2 id="document-settings-title" className="text-sm font-medium">
         Documents
@@ -370,7 +370,7 @@ function ModelJudgment({
           </p>
           <div>
             <h5 className="mb-2 text-xs font-medium">Evidence sent</h5>
-            <blockquote className="max-h-56 overflow-auto whitespace-pre-wrap break-words border-l-2 border-border pl-3 text-sm">
+            <blockquote className="max-h-56 overflow-auto whitespace-pre-wrap break-words border-s-2 border-border ps-3 text-sm">
               {decision.excerpt || "No excerpt available."}
             </blockquote>
           </div>

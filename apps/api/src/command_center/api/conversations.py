@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from pydantic import Field, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from command_center.api import schemas as s
 from command_center.api.agents import RunRead, available_profile
@@ -15,13 +15,14 @@ from command_center.api.workspace import (
     Limit,
     Offset,
     WriteKey,
+    check_version,
     owned,
     serialize,
     write,
 )
 from command_center.core.identity import CurrentIdentity
 from command_center.db.agents import AgentRun
-from command_center.db.conversations import AgentMessage, AgentSession
+from command_center.db.conversations import AgentMessage, AgentSession, SessionCheckpoint
 
 router = APIRouter(prefix="/api/v1", tags=["agent-sessions"])
 
@@ -51,6 +52,27 @@ class MessageCreate(s.Contract):
     provider: Literal["openai", "gemini", "mistral", "cohere"] | None = None
     model: str | None = Field(default=None, max_length=100)
     fresh_answer: bool = False
+
+
+class SessionUpdate(s.Revision):
+    title: str = Field(min_length=1, max_length=300)
+
+
+class CheckpointCreate(s.Contract):
+    title: str = Field(default="Saved checkpoint", min_length=1, max_length=200)
+    expected_sequence: int = Field(ge=1)
+
+
+class CheckpointRead(s.ResponseContract):
+    id: UUID
+    session_id: UUID
+    sequence: int
+    kind: Literal["saved", "continued", "compacted"]
+    title: str
+    run_id: UUID | None
+    summary: str | None
+    summary_revision: int | None
+    created_at: datetime
 
 
 class AnswerCacheRead(s.Contract):
@@ -128,7 +150,18 @@ def sessions(
         )
     if q:
         escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        statement = statement.where(AgentSession.title.ilike(f"%{escaped}%", escape="\\"))
+        statement = statement.where(
+            or_(
+                AgentSession.title.ilike(f"%{escaped}%", escape="\\"),
+                select(AgentMessage.id)
+                .where(
+                    AgentMessage.session_id == AgentSession.id,
+                    AgentMessage.owner_id == identity.id,
+                    AgentMessage.content.ilike(f"%{escaped}%", escape="\\"),
+                )
+                .exists(),
+            )
+        )
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(
         statement.order_by(AgentSession.updated_at.desc(), AgentSession.id.desc())
@@ -146,6 +179,72 @@ def sessions(
 @router.get("/agent-sessions/{record_id}", response_model=SessionRead)
 def session_detail(record_id: UUID, identity: CurrentIdentity, db: Database) -> AgentSession:
     return owned(db, AgentSession, record_id, identity.id)
+
+
+@router.patch("/agent-sessions/{record_id}", response_model=SessionRead)
+def rename_session(
+    record_id: UUID,
+    body: SessionUpdate,
+    identity: CurrentIdentity,
+    db: Database,
+    key: WriteKey,
+    request: Request,
+) -> dict[str, Any]:
+    def change(_: UUID) -> dict[str, Any]:
+        conversation = owned(db, AgentSession, record_id, identity.id)
+        check_version(conversation, body.expected_version)
+        conversation.revise(
+            {"title": body.title.strip()}, request_id=UUID(request.state.request_id)
+        )
+        db.flush()
+        return serialize(conversation)
+
+    return write(db, identity.id, key, f"PATCH:agent-sessions:{record_id}", body, change)
+
+
+@router.get("/agent-sessions/{record_id}/checkpoints", response_model=s.Page[CheckpointRead])
+def checkpoints(
+    record_id: UUID,
+    identity: CurrentIdentity,
+    db: Database,
+    limit: Limit = 100,
+    offset: Offset = 0,
+) -> dict[str, Any]:
+    owned(db, AgentSession, record_id, identity.id)
+    statement = select(SessionCheckpoint).where(
+        SessionCheckpoint.session_id == record_id, SessionCheckpoint.owner_id == identity.id
+    )
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    rows = db.scalars(
+        statement.order_by(SessionCheckpoint.created_at, SessionCheckpoint.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return {"items": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@router.post(
+    "/agent-sessions/{record_id}/checkpoints", response_model=CheckpointRead, status_code=201
+)
+def create_checkpoint(
+    record_id: UUID,
+    body: CheckpointCreate,
+    identity: CurrentIdentity,
+    db: Database,
+    key: WriteKey,
+    request: Request,
+) -> dict[str, Any]:
+    def change(checkpoint_id: UUID) -> dict[str, Any]:
+        conversation = owned(db, AgentSession, record_id, identity.id)
+        checkpoint = conversation.save_checkpoint(
+            record_id=checkpoint_id,
+            title=body.title,
+            expected_sequence=body.expected_sequence,
+            request_id=UUID(request.state.request_id),
+        )
+        return CheckpointRead.model_validate(checkpoint).model_dump(mode="json")
+
+    return write(db, identity.id, key, f"POST:agent-sessions:{record_id}:checkpoints", body, change)
 
 
 @router.get("/agent-sessions/{record_id}/messages", response_model=s.Page[MessageRead])

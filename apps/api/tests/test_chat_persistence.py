@@ -13,7 +13,7 @@ from command_center.agents.config import AgentProfile
 from command_center.agents.worker import conversation_messages, perform_next
 from command_center.db.agents import AgentRun
 from command_center.db.base import utc_now
-from command_center.db.conversations import AgentMessage, AgentSession
+from command_center.db.conversations import AgentMessage, AgentSession, SessionCheckpoint
 from command_center.db.errors import RecordConflict
 from command_center.db.models import Actor
 
@@ -108,6 +108,14 @@ def test_summary_preserves_full_history_and_rehydrates_a_bounded_tail(session, c
     )
     assert chat.context_summary["covered_sequence"] == 260
     assert chat.context_summary["source_digest"]
+    checkpoint = session.scalar(
+        select(SessionCheckpoint).where(
+            SessionCheckpoint.session_id == chat.id, SessionCheckpoint.kind == "compacted"
+        )
+    )
+    assert checkpoint.summary == "Synthetic objective and accepted constraints."
+    assert checkpoint.sequence == 260
+    assert checkpoint.summary_revision == revision
     with pytest.raises(RecordConflict):
         chat.save_summary(
             run=run,
@@ -128,6 +136,54 @@ def test_cancelled_worker_cannot_publish_summary(session, conversation):
             run=run, lease_id=lease, expected_revision=0, summary="Forbidden", covered_ids=[]
         )
     assert chat.context_summary is None
+
+
+def test_session_memory_is_automatic_revocable_and_disables_answer_reuse(session, conversation):
+    from command_center.db.memory import MemoryItem
+
+    chat, source, profile = conversation
+    memory = MemoryItem.propose(
+        session,
+        record_id=uuid4(),
+        owner_id=chat.owner_id,
+        title="Thread context",
+        content="Keep the synthetic blue constraint.",
+        kind="note",
+        scope_type="session",
+        scope_id=chat.id,
+        valid_until=None,
+        source="human",
+        source_run_id=None,
+        source_artifact_id=None,
+        reason=None,
+        request_id=uuid4(),
+    )
+    memory.review(
+        revision_id=memory.current_revision_id,
+        reviewer_id=chat.owner_id,
+        reviewer_is_human=True,
+        decision="approved",
+        reason=None,
+        request_id=uuid4(),
+    )
+    session.flush()
+    run = repeat(session, chat, profile)
+    messages, _ = conversation_messages(session, run)
+    assert "Keep the synthetic blue constraint." in str(messages[0].content)
+    assert chat.cache_candidate(source) is None
+    assert chat.reuse_answer(run) is False
+    memory.review(
+        revision_id=memory.current_revision_id,
+        reviewer_id=chat.owner_id,
+        reviewer_is_human=True,
+        decision="revoked",
+        reason=None,
+        request_id=uuid4(),
+    )
+    session.flush()
+    refreshed, _ = conversation_messages(session, run)
+    assert "Keep the synthetic blue constraint." not in str(refreshed[0].content)
+    assert chat.cache_candidate(source) is None
 
 
 def test_cache_hit_keeps_durable_provenance_and_consumes_new_message(session, conversation):

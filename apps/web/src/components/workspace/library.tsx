@@ -209,10 +209,10 @@ export function Library({
             <div className="relative min-w-[160px] flex-1">
               <Search
                 aria-hidden
-                className="absolute top-3 left-3 size-4 text-muted-foreground"
+                className="absolute top-3 start-3 size-4 text-muted-foreground"
               />
               <Input
-                className="pl-9"
+                className="ps-9"
                 aria-label={
                   vault
                     ? "Search vault"
@@ -321,7 +321,7 @@ export function Library({
                 <li key={record.id}>
                   <button
                     className={cn(
-                      "group flex w-full min-w-0 items-start gap-3 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      "group flex w-full min-w-0 items-start gap-3 p-4 text-start transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       selected === record.id && "bg-primary/5",
                     )}
                     aria-current={selected === record.id ? "page" : undefined}
@@ -354,7 +354,7 @@ export function Library({
                         )?.name ?? label(record.kind)}{" "}
                         · {dateLabel(record.updated_at)}
                         {!vault && !notes && (
-                          <span className="ml-2 inline-block rounded bg-muted px-2 py-0.5">
+                          <span className="ms-2 inline-block rounded bg-muted px-2 py-0.5">
                             {!record.review_status ||
                             record.review_status === "unreviewed"
                               ? "Needs review"
@@ -543,7 +543,7 @@ function NoteCanvas({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <section
       aria-label="Note workspace"
-      className="min-w-0 rounded-xl border border-border bg-card p-5 md:p-7"
+      className="min-w-0 rounded-xl shadow-surface bg-card p-5 md:p-7"
     >
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack}>
@@ -553,7 +553,7 @@ function NoteCanvas({ id, onBack }: { id: string; onBack: () => void }) {
         <Button
           variant="ghost"
           size="sm"
-          className="ml-auto"
+          className="ms-auto"
           onClick={() => workspace?.open("artifacts", id, { tab: "content" })}
         >
           <History />

@@ -71,7 +71,7 @@ export function AgentSettings() {
       />
       <nav
         aria-label="Agent configuration"
-        className="flex gap-6 overflow-x-auto border-b border-border px-5 md:px-9"
+        className="flex flex-wrap gap-x-6 gap-y-1 border-b border-border px-5 md:px-9"
       >
         {tabs.map((item) => (
           <Link
@@ -111,13 +111,13 @@ export function AgentSettings() {
           </p>
           {tab !== "workflows" && (
             <div className="relative my-6">
-              <Search className="absolute left-3 top-3 size-4 text-muted-foreground" />
+              <Search className="absolute start-3 top-3 size-4 text-muted-foreground" />
               <Input
                 aria-label={`Search ${tab}`}
                 placeholder={`Search ${tab}…`}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="pl-9"
+                className="ps-9"
               />
             </div>
           )}
@@ -140,7 +140,7 @@ export function AgentSettings() {
                     <button
                       key={profile.id}
                       onClick={() => setSelected(profile)}
-                      className="rounded-xl border border-border bg-card p-6 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="min-w-0 rounded-xl shadow-surface bg-card p-6 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <Bot className="mb-6 size-6 text-muted-foreground" />
                       <h3 className="font-medium">{profile.name}</h3>
@@ -159,7 +159,7 @@ export function AgentSettings() {
                 skills.filter(matches).map((skill) => (
                   <article
                     key={skill}
-                    className="rounded-xl border border-border bg-card p-6"
+                    className="min-w-0 rounded-xl shadow-surface bg-card p-6"
                   >
                     <Puzzle className="mb-6 size-6 text-muted-foreground" />
                     <h3 className="font-medium">{label(skill)}</h3>
@@ -206,7 +206,7 @@ export function AgentSettings() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="rounded-xl border border-border bg-card p-6 transition-colors hover:bg-muted/40"
+                    className="min-w-0 rounded-xl shadow-surface bg-card p-6 transition-colors hover:bg-muted/40"
                   >
                     <item.icon className="mb-6 size-6 text-muted-foreground" />
                     <h3 className="font-medium">{item.title}</h3>

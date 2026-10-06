@@ -8,7 +8,7 @@ export function OpportunityNavigation() {
   return (
     <nav
       aria-label="Opportunity views"
-      className="flex gap-6 overflow-x-auto border-b border-border px-5 md:px-9"
+      className="flex min-w-0 flex-wrap gap-x-6 gap-y-1 border-b border-border px-5 md:px-9"
     >
       {[
         { href: "/opportunities", label: "All opportunities" },
@@ -20,7 +20,7 @@ export function OpportunityNavigation() {
           href={item.href}
           aria-current={path === item.href ? "page" : undefined}
           className={cn(
-            "shrink-0 border-b-2 py-3 text-sm",
+            "max-w-full border-b-2 py-3 text-sm",
             path === item.href
               ? "border-foreground font-medium"
               : "border-transparent text-muted-foreground hover:text-foreground",

@@ -4,16 +4,42 @@ import * as React from "react";
 import { cn } from "cn";
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
+  const viewport = React.useRef<HTMLDivElement>(null);
+  const [scrollable, setScrollable] = React.useState(false);
+  const hintId = React.useId();
+  React.useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const update = () =>
+      setScrollable(element.scrollWidth > element.clientWidth + 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    update();
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div
-      data-slot="table-container"
-      className="relative w-full overflow-x-auto"
-    >
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props}
-      />
+    <div className="min-w-0">
+      {scrollable ? (
+        <p id={hintId} className="px-3 py-2 text-xs text-muted-foreground">
+          Scroll horizontally to see all columns.
+        </p>
+      ) : null}
+      <div
+        ref={viewport}
+        data-slot="table-container"
+        tabIndex={scrollable ? 0 : undefined}
+        role={scrollable ? "region" : undefined}
+        aria-label={scrollable ? "Scrollable table" : undefined}
+        aria-describedby={scrollable ? hintId : undefined}
+        className="relative w-full overflow-x-auto focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <table
+          data-slot="table"
+          className={cn("w-full caption-bottom text-sm", className)}
+          {...props}
+        />
+      </div>
     </div>
   );
 }
@@ -69,7 +95,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        "h-10 px-2 text-start align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pe-0",
         className,
       )}
       {...props}
@@ -82,7 +108,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pe-0",
         className,
       )}
       {...props}

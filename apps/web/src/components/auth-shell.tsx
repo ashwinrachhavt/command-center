@@ -3,7 +3,7 @@ import { Command, ArrowUpRight } from "lucide-react";
 export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="grid min-h-svh lg:grid-cols-2">
-      <section className="relative hidden flex-col justify-between border-r border-border bg-sidebar p-14 lg:flex xl:p-20">
+      <section className="relative hidden flex-col justify-between border-e border-border bg-sidebar p-14 lg:flex xl:p-20">
         <div className="flex items-center gap-3 text-sm font-medium">
           <span className="flex size-9 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
             <Command className="size-5" />
@@ -29,7 +29,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
           <div className="mt-12 flex items-center gap-4 border-t border-border pt-6 text-xs text-muted-foreground">
             <span className="size-1.5 rounded-full bg-primary" />
             One workspace. Yours to shape.
-            <ArrowUpRight className="ml-auto size-4" />
+            <ArrowUpRight className="ms-auto size-4" />
           </div>
         </div>
         <p className="text-xs text-muted-foreground">

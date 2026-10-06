@@ -1,8 +1,8 @@
 """Owned work conversations spanning durable agent runs."""
 
 import hashlib
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import (
@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
 
-from command_center.db.base import Base, utc_now
+from command_center.db.base import Base, UTCDateTime, utc_now
 from command_center.db.crm import Opportunity, OwnedRecord, record_event
 from command_center.db.errors import RecordConflict, RecordNotFound
 from command_center.db.models import Task
@@ -33,6 +33,8 @@ class AgentSession(OwnedRecord, Base):
     """Canonical conversation identity, optionally attached to one work scope."""
 
     __tablename__ = "agent_sessions"
+    editable = frozenset({"title"})
+    required_text = frozenset({"title"})
     __table_args__ = (
         UniqueConstraint("id", "owner_id"),
         Index("ix_agent_sessions_owner_activity", "owner_id", "updated_at", "id"),
@@ -70,6 +72,40 @@ class AgentSession(OwnedRecord, Base):
     opportunity_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     last_sequence: Mapped[int] = mapped_column(Integer, default=0)
     context_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    def save_checkpoint(
+        self, *, record_id: UUID, title: str, expected_sequence: int, request_id: UUID
+    ) -> "SessionCheckpoint":
+        session = object_session(self)
+        if session is None:
+            raise ValueError("Conversation must belong to a transaction")
+        session.refresh(self, with_for_update=True)
+        if self.last_sequence != expected_sequence:
+            raise RecordConflict("Conversation changed. Refresh before saving a checkpoint.")
+        if not title.strip() or len(title) > 200:
+            raise ValueError("Checkpoint title must contain 1 to 200 characters")
+        if self.last_sequence == 0:
+            raise ValueError("Send a message before saving a checkpoint")
+        checkpoint = SessionCheckpoint(
+            id=record_id,
+            owner_id=self.owner_id,
+            session_id=self.id,
+            sequence=self.last_sequence,
+            kind="saved",
+            title=title.strip(),
+        )
+        session.add(checkpoint)
+        session.flush()
+        record_event(
+            session,
+            self.owner_id,
+            request_id,
+            "agent_session.checkpoint_saved",
+            self.__tablename__,
+            self.id,
+            checkpoint_id=str(checkpoint.id),
+        )
+        return checkpoint
 
     @classmethod
     def open_chat(
@@ -258,6 +294,17 @@ class AgentSession(OwnedRecord, Base):
                 session_id=self.id,
                 input_sequence=self.last_sequence,
             )
+            if self.last_sequence > 1:
+                session.add(
+                    SessionCheckpoint(
+                        owner_id=self.owner_id,
+                        session_id=self.id,
+                        sequence=self.last_sequence - 1,
+                        kind="continued",
+                        title="Conversation continued",
+                        run_id=active.id,
+                    )
+                )
         if fresh_answer:
             active.config_snapshot = {**active.config_snapshot, "fresh_answer": True}
         message = AgentMessage(
@@ -391,6 +438,18 @@ class AgentSession(OwnedRecord, Base):
             "run_id": str(run.id),
             "created_at": utc_now().isoformat(),
         }
+        session.add(
+            SessionCheckpoint(
+                owner_id=self.owner_id,
+                session_id=self.id,
+                sequence=covered,
+                kind="compacted",
+                title="Context summarized",
+                run_id=run.id,
+                summary=summary,
+                summary_revision=expected_revision + 1,
+            )
+        )
         record_event(
             session,
             self.owner_id,
@@ -434,6 +493,21 @@ class AgentSession(OwnedRecord, Base):
             return None
         session = object_session(self)
         if session is None:
+            return None
+        from command_center.db.memory import MemoryItem, MemoryRevision
+
+        # Session memory is mutable context. Even a revoked revision may have
+        # influenced the source answer, so these threads never use exact-answer reuse.
+        if session.scalar(
+            select(MemoryRevision.id)
+            .join(MemoryItem, MemoryItem.id == MemoryRevision.memory_id)
+            .where(
+                MemoryItem.owner_id == self.owner_id,
+                MemoryRevision.scope_type == "session",
+                MemoryRevision.scope_id == self.id,
+            )
+            .limit(1)
+        ):
             return None
         if session.scalar(select(AgentQuestion.id).where(AgentQuestion.run_id == run.id).limit(1)):
             return None
@@ -559,6 +633,37 @@ class AgentSession(OwnedRecord, Base):
             source_run_id=str(source.id),
         )
         return True
+
+
+class SessionCheckpoint(Base):
+    """Append-only conversation landmarks; computational run state stays in LangGraph."""
+
+    __tablename__ = "session_checkpoints"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["session_id", "owner_id"], ["agent_sessions.id", "agent_sessions.owner_id"]
+        ),
+        ForeignKeyConstraint(["run_id", "owner_id"], ["agent_runs.id", "agent_runs.owner_id"]),
+        CheckConstraint("sequence >= 1", name="sequence"),
+        CheckConstraint("kind IN ('saved', 'continued', 'compacted')", name="kind"),
+        CheckConstraint("length(title) BETWEEN 1 AND 200", name="title_length"),
+        CheckConstraint(
+            "summary IS NULL OR length(summary) BETWEEN 1 AND 10000", name="summary_length"
+        ),
+        UniqueConstraint("session_id", "summary_revision"),
+        Index("ix_session_checkpoints_session_created", "session_id", "created_at", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid)
+    session_id: Mapped[UUID] = mapped_column(Uuid)
+    sequence: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[Literal["saved", "continued", "compacted"]] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200))
+    run_id: Mapped[UUID | None] = mapped_column(Uuid)
+    summary: Mapped[str | None] = mapped_column(Text)
+    summary_revision: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
 
 class AgentMessage(OwnedRecord, Base):

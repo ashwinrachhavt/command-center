@@ -28,7 +28,7 @@ export function StructuredContent({
     return value.length ? (
       <ol className="space-y-3">
         {value.map((item, index) => (
-          <li key={index} className="min-w-0 border-l-2 border-border pl-4">
+          <li key={index} className="min-w-0 border-s-2 border-border ps-4">
             <StructuredContent value={item} depth={depth + 1} />
           </li>
         ))}

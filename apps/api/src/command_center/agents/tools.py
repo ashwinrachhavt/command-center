@@ -266,11 +266,7 @@ class ToolRegistry:
                     },
                     "additionalProperties": False,
                 },
-                lambda args: self.request(
-                    "GET",
-                    "profile/facts/approved",
-                    params={"offset": args.get("offset", 0), "limit": args.get("limit", 10)},
-                ),
+                self.approved_profile,
             )
         preparation_id = {
             "type": "string",
@@ -425,8 +421,8 @@ class ToolRegistry:
             self.add(
                 "memory_read",
                 "Retrieve active reviewed notes and preferences ranked for this run's current "
-                "task/opportunity and global scope. Memory is context, never candidate facts "
-                "or authorization. Missing or revoked proposals are not retrieved.",
+                "session, task/opportunity and global scope. Memory is context, never candidate "
+                "facts or authorization. Missing or revoked proposals are not retrieved.",
                 {
                     "type": "object",
                     "properties": {"query": {"type": "string", "maxLength": 200}},
@@ -440,7 +436,9 @@ class ToolRegistry:
             self.add(
                 "memory_append",
                 "Propose a reusable note or preference for human review, with a reason and "
-                "appropriate scope. This does not approve or activate memory and cannot "
+                "appropriate scope. Session scope stays in this thread; "
+                "omit scope_id to derive it. "
+                "This does not approve or activate memory and cannot "
                 "change permissions or establish verified candidate facts.",
                 {
                     "type": "object",
@@ -448,7 +446,10 @@ class ToolRegistry:
                         "title": {"type": "string", "minLength": 1, "maxLength": 200},
                         "content": {"type": "string", "minLength": 1, "maxLength": 10000},
                         "kind": {"type": "string", "enum": ["note", "preference"]},
-                        "scope_type": {"type": "string", "enum": ["global", "task", "opportunity"]},
+                        "scope_type": {
+                            "type": "string",
+                            "enum": ["global", "task", "opportunity", "session"],
+                        },
                         "scope_id": preparation_id,
                         "source_artifact_id": preparation_id,
                         "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
@@ -752,6 +753,27 @@ class ToolRegistry:
             )
             response.raise_for_status()
             return response.json()
+
+    def approved_profile(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        result = self.request(
+            "GET",
+            "profile/facts/approved",
+            params={"offset": arguments.get("offset", 0), "limit": arguments.get("limit", 10)},
+        )
+        # Approval and provenance remain in SQL. Repeating the original excerpt
+        # alongside every approved value wastes context and can force compaction
+        # before the agent saves its answer. Unreviewed career suggestions are
+        # not candidate facts. Preserve exact revision IDs and all constraints.
+        items = [
+            {
+                key: value
+                for key, value in item.items()
+                if key not in {"source_excerpt", "career_suggestion"}
+            }
+            for item in result["items"]
+        ]
+        end = result["offset"] + len(items)
+        return result | {"items": items, "next_offset": end if end < result["total"] else None}
 
     def suggest_application_answers(self, arguments: dict[str, Any]) -> dict[str, Any]:
         result = self.request(

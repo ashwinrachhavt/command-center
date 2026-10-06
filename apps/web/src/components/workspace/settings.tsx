@@ -1,4 +1,5 @@
 "use client";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -182,7 +183,10 @@ export function ProfileForm({ profile }: { profile: Profile }) {
         </div>
       ) : null}
       <Button className="mt-5" disabled={mutation.isPending}>
-        {mutation.isPending ? <Spinner /> : <Save />}Save profile
+        <AnimatedIcon state={mutation.isPending}>
+          {mutation.isPending ? <Spinner /> : <Save />}
+        </AnimatedIcon>
+        Save profile
       </Button>
       {mutation.error && (
         <p role="alert" className="mt-3 text-xs text-destructive">
@@ -235,7 +239,7 @@ export function Settings() {
         description="Your profile, connected services and the way your workspace works."
       />
       <div className="mx-5 flex max-w-4xl flex-col gap-8 md:mx-9">
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className="rounded-xl shadow-surface bg-card p-6">
           <h2 className="mb-1 text-sm font-medium">Your workspace</h2>
           <p className="mb-6 text-xs text-muted-foreground">
             Give your work a home. These details stay within your account.
@@ -267,7 +271,7 @@ export function Settings() {
         <SpendingSettings />
         <DocumentSettings />
         <LocalAIClients />
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-6">
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl shadow-surface bg-card p-6">
           <div>
             <h2 className="text-sm font-medium">Connected apps</h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -282,7 +286,7 @@ export function Settings() {
             </Link>
           </Button>
         </section>
-        <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <section className="overflow-hidden rounded-xl shadow-surface bg-card">
           <div className="border-b border-border p-6">
             <h2 className="flex items-center gap-2 text-sm font-medium">
               <Plug className="size-4" />

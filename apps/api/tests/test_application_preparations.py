@@ -838,6 +838,8 @@ def test_generation_enqueues_once_in_task_conversation(client, engine):
     with Session(engine) as db:
         run = db.get(AgentRun, UUID(generated.json()["run_id"]))
         assert run.state == "queued" and run.profile == "application"
+        assert run.config_snapshot["profile"]["runtime"] == "langgraph_application"
+        assert run.config_snapshot["profile"]["application_preparation_id"] == preparation["id"]
         assert str(preparation["id"]) in run.prompt
         assert (
             db.scalar(

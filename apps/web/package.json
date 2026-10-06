@@ -19,8 +19,10 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.4",
+    "@livekit/components-react": "^2.9.24",
     "@radix-ui/react-focus-scope": "^1.1.16",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
+    "@shadcn/react": "^0.3.1",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",

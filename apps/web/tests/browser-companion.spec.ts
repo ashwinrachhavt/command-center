@@ -508,156 +508,174 @@ test("changed URL and incompatible protocol are rejected before touching the for
   });
 });
 
-test("popup follows generation to completion and preserves a local answer", async ({
-  page,
-}) => {
-  await page.setContent(popupHtml);
-  await page.evaluate(() => {
-    const base = {
-      id: "preparation-1",
-      snapshot_id: "snapshot-1",
-      task_id: "task-1",
-      opportunity_id: null,
-      artifact_id: "artifact-1",
-      version_id: "version-1",
-      version: 1,
-      resume: null,
-      replace_fields: [],
-      upload_fields: [],
-      fields: [
-        {
-          field_id: "f0",
-          status: "needs_input",
-          value: null,
-          reason: "Needs an answer.",
-          evidence: [],
+for (const savesAnswer of [true, false]) {
+  test(`popup reports ${savesAnswer ? "saved drafts" : "no saved answers"} and preserves a local answer`, async ({
+    page,
+  }) => {
+    await page.goto("/health");
+    await page.setContent(popupHtml);
+    await page.evaluate((savesAnswer) => {
+      const base = {
+        id: "preparation-1",
+        snapshot_id: "snapshot-1",
+        task_id: "task-1",
+        opportunity_id: null,
+        artifact_id: "artifact-1",
+        version_id: "version-1",
+        version: 1,
+        resume: null,
+        replace_fields: [],
+        upload_fields: [],
+        fields: [
+          {
+            field_id: "f0",
+            status: "needs_input",
+            value: null,
+            reason: "Needs an answer.",
+            evidence: [],
+          },
+        ],
+        created_at: "2026-09-21T10:00:00Z",
+      };
+      const storage = {
+        connection: {
+          base: "http://localhost:8000",
+          token: "synthetic-device-token",
         },
-      ],
-      created_at: "2026-09-21T10:00:00Z",
-    };
-    const storage = {
-      connection: {
-        base: "http://localhost:8000",
-        token: "synthetic-device-token",
-      },
-      applicationDraft: {
-        snapshot: {
-          id: "snapshot-1",
-          protocol_version: 2,
-          page_url: "https://jobs.example.test/apply",
-          full_url: "https://jobs.example.test/apply",
-          title: "Synthetic application",
-          fields: [
-            {
-              id: "f0",
-              label: "Narrative",
-              type: "textarea",
-              required: true,
-              options: [],
-              option_labels: {},
-              value_state: "empty",
-              autocomplete: "",
-              accept: "",
-              unsupported_reason: null,
-            },
-          ],
-        },
-        preparation: base,
-        values: { f0: "Keep my local answer." },
-        touched: { f0: true },
-        replacementTouched: {},
-        uploadTouched: {},
-        replaceFields: [],
-        uploadFields: [],
-        resumeVersionId: null,
-        receipts: {},
-        generation: {
-          conversation_id: "session-1",
-          run_id: "run-1",
-          state: "queued",
-          error_code: null,
-        },
-      },
-      claimedCommands: [],
-    };
-    let generationPoll = 0;
-    Object.assign(window, {
-      CommandCenterContracts: new Proxy({}, { get: () => () => true }),
-      chrome: {
-        storage: {
-          local: {
-            setAccessLevel: async () => undefined,
-            get: async () => storage,
-            set: async (values: Record<string, unknown>) =>
-              Object.assign(storage, values),
-            remove: async () => undefined,
+        applicationDraft: {
+          snapshot: {
+            id: "snapshot-1",
+            protocol_version: 2,
+            page_url: "https://jobs.example.test/apply",
+            full_url: "https://jobs.example.test/apply",
+            title: "Synthetic application",
+            fields: [
+              {
+                id: "f0",
+                label: "Narrative",
+                type: "textarea",
+                required: true,
+                options: [],
+                option_labels: {},
+                value_state: "empty",
+                autocomplete: "",
+                accept: "",
+                unsupported_reason: null,
+              },
+            ],
+          },
+          preparation: base,
+          values: { f0: "Keep my local answer." },
+          touched: { f0: true },
+          replacementTouched: {},
+          uploadTouched: {},
+          replaceFields: [],
+          uploadFields: [],
+          resumeVersionId: null,
+          receipts: {},
+          generation: {
+            conversation_id: "session-1",
+            run_id: "run-1",
+            state: "queued",
+            error_code: null,
           },
         },
-        tabs: { query: async () => [] },
-        scripting: { executeScript: async () => undefined },
-      },
-      popupStorage: storage,
-    });
-    window.fetch = async (input) => {
-      const route = new URL(String(input)).pathname;
-      if (
-        route.endsWith("/device/resumes") ||
-        route.endsWith("/device/cover-letters")
-      )
-        return Response.json({ default_version_id: null, items: [] });
-      if (route.endsWith("/generation")) {
-        generationPoll += 1;
-        return Response.json({
-          conversation_id: "session-1",
-          run_id: "run-1",
-          state:
-            generationPoll === 1
-              ? "queued"
-              : generationPoll === 2
-                ? "running"
-                : "completed",
-          error_code: null,
-        });
-      }
-      if (route.endsWith("/device/preparations/preparation-1"))
-        return Response.json({
-          ...base,
-          version_id: "version-2",
-          version: 2,
-          fields: [
-            {
-              field_id: "f0",
-              status: "suggested",
-              value: "Generated answer must not replace the local edit.",
-              reason: "Generated from approved facts.",
-              evidence: [],
+        claimedCommands: [],
+      };
+      let generationPoll = 0;
+      Object.assign(window, {
+        CommandCenterContracts: new Proxy({}, { get: () => () => true }),
+        chrome: {
+          storage: {
+            local: {
+              setAccessLevel: async () => undefined,
+              get: async () => storage,
+              set: async (values: Record<string, unknown>) =>
+                Object.assign(storage, values),
+              remove: async () => undefined,
             },
-          ],
-        });
-      return Response.json(
-        { detail: `Unexpected fixture route: ${route}` },
-        { status: 404 },
-      );
-    };
-  });
-  await page.addScriptTag({ content: popupScript, type: "module" });
+          },
+          tabs: {
+            query: async () => [
+              { id: 1, url: "https://jobs.example.test/apply" },
+            ],
+          },
+          scripting: { executeScript: async () => undefined },
+        },
+        popupStorage: storage,
+      });
+      window.fetch = async (input) => {
+        const route = new URL(String(input)).pathname;
+        if (
+          route.endsWith("/device/resumes") ||
+          route.endsWith("/device/cover-letters")
+        )
+          return Response.json({ default_version_id: null, items: [] });
+        if (route.endsWith("/generation")) {
+          generationPoll += 1;
+          return Response.json({
+            conversation_id: "session-1",
+            run_id: "run-1",
+            state:
+              generationPoll === 1
+                ? "queued"
+                : generationPoll === 2
+                  ? "running"
+                  : "completed",
+            error_code: null,
+          });
+        }
+        if (route.endsWith("/device/preparations/preparation-1"))
+          return Response.json(
+            savesAnswer
+              ? {
+                  ...base,
+                  version_id: "version-2",
+                  version: 2,
+                  fields: [
+                    {
+                      field_id: "f0",
+                      status: "suggested",
+                      value:
+                        "Generated answer must not replace the local edit.",
+                      reason: "Generated from approved facts.",
+                      evidence: [],
+                    },
+                  ],
+                }
+              : base,
+          );
+        return Response.json(
+          { detail: `Unexpected fixture route: ${route}` },
+          { status: 404 },
+        );
+      };
+    }, savesAnswer);
+    await page.addScriptTag({ content: popupScript, type: "module" });
 
-  await expect(
-    page.getByRole("button", { name: "Generation queued" }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: /Save review/ }),
-  ).toBeDisabled();
-  await expect(
-    page.getByText("Grounded drafts are ready for review."),
-  ).toBeVisible({
-    timeout: 4_000,
+    await expect(
+      page.getByRole("button", { name: "Generation queued" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: /Save review/ }),
+    ).toBeDisabled();
+    await expect(
+      page.getByText(
+        savesAnswer
+          ? "Grounded drafts are ready for review."
+          : "Generation finished without saving new answers. Open the generation workspace for details, or try again.",
+      ),
+    ).toBeVisible({
+      timeout: 4_000,
+    });
+    await expect(page.getByLabel("Narrative")).toHaveValue(
+      "Keep my local answer.",
+    );
+    await expect(
+      page.getByRole("button", { name: "Generate grounded drafts" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: /Save review/ }),
+    ).toBeEnabled();
   });
-  await expect(page.getByLabel("Narrative")).toHaveValue(
-    "Keep my local answer.",
-  );
-  await expect(
-    page.getByRole("button", { name: "Generate grounded drafts" }),
-  ).toBeEnabled();
-  await expect(page.getByRole("button", { name: /Save review/ })).toBeEnabled();
-});
+}

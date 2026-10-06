@@ -316,6 +316,7 @@ async function fixture(
         const w = window as unknown as FixtureWindow;
         Object.assign(window, {
           chrome: {
+            permissions: { contains: async () => true },
             storage: {
               local: {
                 setAccessLevel: async () => {},

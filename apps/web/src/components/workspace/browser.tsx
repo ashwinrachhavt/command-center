@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -634,7 +635,9 @@ function PreparationForm({
             onClick={() => prepare.mutate()}
             disabled={prepare.isPending || generating}
           >
-            {prepare.isPending ? <Spinner /> : <FileCheck2 />}
+            <AnimatedIcon state={prepare.isPending}>
+              {prepare.isPending ? <Spinner /> : <FileCheck2 />}
+            </AnimatedIcon>
             {preparation ? "Prepare again" : "Prepare answers"}
           </Button>
           {preparation ? (
@@ -644,7 +647,9 @@ function PreparationForm({
               onClick={() => generate.mutate()}
               disabled={generate.isPending || generating}
             >
-              {generate.isPending || generating ? <Spinner /> : <Sparkles />}
+              <AnimatedIcon state={generate.isPending || generating}>
+                {generate.isPending || generating ? <Spinner /> : <Sparkles />}
+              </AnimatedIcon>
               {generating ? "Generating…" : "Generate narrative drafts"}
             </Button>
           ) : null}
@@ -662,7 +667,7 @@ function PreparationForm({
       {missing.length ? (
         <div className="mb-5 rounded-lg border border-[var(--status-amber)]/30 bg-[var(--status-amber)]/5 p-4">
           <p className="text-xs font-medium">Missing answers</p>
-          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+          <ul className="mt-2 list-disc space-y-1 ps-4 text-xs text-muted-foreground">
             {missing.map((item) => (
               <li key={item.field_id}>
                 {snapshot.fields.find((field) => field.id === item.field_id)
@@ -899,7 +904,9 @@ function PreparationForm({
         className="mt-5"
         disabled={!preparation || !hasActions || send.isPending || generating}
       >
-        {send.isPending ? <Spinner /> : <Send />}
+        <AnimatedIcon state={send.isPending}>
+          {send.isPending ? <Spinner /> : <Send />}
+        </AnimatedIcon>
         Save exact revision & send proposal
       </Button>
       <p className="mt-3 text-xs leading-6 text-muted-foreground">
@@ -1026,7 +1033,7 @@ export function BrowserPage() {
       />
       <div className="grid grid-cols-1 gap-6 px-5 md:px-9 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         <section className="flex flex-col gap-5">
-          <div className="rounded-xl border border-border bg-card p-6">
+          <div className="rounded-xl shadow-surface bg-card p-6">
             <h2 className="text-lg font-medium">Get ready in three steps</h2>
             <ol className="mt-5 space-y-5 text-sm">
               <li className="flex gap-3">
@@ -1127,7 +1134,7 @@ export function BrowserPage() {
               </div>
             ) : null}
           </div>
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl shadow-surface bg-card p-5">
             <h2 className="mb-4 text-sm font-medium">Paired browsers</h2>
             {devices.error ? (
               <ErrorState
@@ -1169,7 +1176,7 @@ export function BrowserPage() {
               ))
             )}
           </div>
-          <div className="rounded-xl border border-border bg-card p-5">
+          <div className="rounded-xl shadow-surface bg-card p-5">
             <h2 className="mb-3 text-sm font-medium">Recent fill proposals</h2>
             {commands.error ? (
               <ErrorState
@@ -1215,7 +1222,7 @@ export function BrowserPage() {
             ) : null}
           </div>
         </section>
-        <section className="rounded-xl border border-border bg-card p-6">
+        <section className="rounded-xl shadow-surface bg-card p-6">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-sm font-medium">Shared application forms</h2>
             <Button

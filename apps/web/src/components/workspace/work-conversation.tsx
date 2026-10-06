@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, MessagesSquare } from "lucide-react";
@@ -14,12 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import { AgentChatTranscript } from "@/components/agents-ui/agent-chat-transcript";
+import { ChatMessage, ChatMessageBody } from "./chat-message";
 import {
   api,
   ApiError,
@@ -36,6 +33,13 @@ import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
 import { RunActivity } from "./run-activity";
 import { AnswerReuseNotice } from "./answer-reuse-notice";
 import { AgentResponse } from "./agent-response";
+import {
+  checkpointKey,
+  ConversationCheckpoint,
+  SessionContext,
+  useSessionCheckpoints,
+} from "./session-context";
+import { useConversationDraft } from "./use-conversation-draft";
 import {
   appendSavedMessage,
   sessionMessageKey,
@@ -58,7 +62,7 @@ export function WorkConversation({
   const queryClient = useQueryClient();
   const scopeField = resource === "tasks" ? "task_id" : "opportunity_id";
   const sessionKey = ["agent-session", resource, recordId] as const;
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useConversationDraft(`${resource}:${recordId}`);
   const [profileId, setProfileId] = useState("lead");
   const [sendError, setSendError] = useState<Error>();
   const [cancelError, setCancelError] = useState<Error>();
@@ -85,6 +89,7 @@ export function WorkConversation({
     runs.data?.items.filter((run) => activeStates.has(run.state)) ?? [];
   const activeRun = activeRuns[0];
   const messages = useSessionMessages(session?.id, !!activeRun);
+  const checkpoints = useSessionCheckpoints(session?.id, !!activeRun);
 
   const addressedProfileId = activeRun?.profile ?? profileId;
   const selectedProfile =
@@ -168,6 +173,7 @@ export function WorkConversation({
           queryKey: ["agent-session-runs", target.id],
         }),
         queryClient.invalidateQueries({ queryKey: sessionKey }),
+        queryClient.invalidateQueries({ queryKey: checkpointKey(target.id) }),
       ]);
     },
     onError: (error) => setSendError(error),
@@ -232,6 +238,17 @@ export function WorkConversation({
             {resource === "tasks" ? "task" : "opportunity"}.
           </p>
         </div>
+        {session ? (
+          <SessionContext
+            key={session.id}
+            session={{
+              ...session,
+              last_sequence:
+                messages.data?.items.at(-1)?.sequence ?? session.last_sequence,
+            }}
+            checkpoints={checkpoints.data ?? []}
+          />
+        ) : null}
         {activeRuns.length ? (
           <span className="text-xs text-muted-foreground">
             {activeRuns.length} active run{activeRuns.length === 1 ? "" : "s"}
@@ -267,49 +284,58 @@ export function WorkConversation({
         </div>
       ) : (
         <>
-          <Conversation
+          <AgentChatTranscript
+            key={session?.id ?? recordId}
+            defaultScrollPosition="end"
+            contentClassName="gap-5 px-6 py-5"
             aria-label="Work conversation"
             className="h-[min(52vh,36rem)] min-h-52 flex-none border-y border-border"
           >
-            <ConversationContent className="gap-5 px-6 py-5">
-              {messages.error ? (
-                <ErrorState
-                  error={messages.error}
-                  retry={() => messages.refetch()}
-                />
-              ) : null}
-              {messages.isPending && session ? (
-                <LoadingRows />
-              ) : !messages.data?.items.length ? (
-                <div className="flex min-h-36 flex-col items-center justify-center text-center">
-                  <MessagesSquare className="mb-3 size-5 text-muted-foreground" />
-                  <p className="text-sm font-medium">No conversation yet</p>
-                  <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-                    Address the lead or a specialist when you are ready to
-                    begin.
-                  </p>
-                </div>
-              ) : (
-                messages.data.items.map((message) => {
-                  const instructionState =
-                    message.author === "user" && message.run_id
-                      ? message.sequence <= consumedSequence
-                        ? "Applied"
-                        : "Received"
-                      : undefined;
-                  const profileName =
-                    profiles.data?.find(
-                      (profile) => profile.id === message.profile,
-                    )?.name ?? label(message.profile);
-                  return (
-                    <Message key={message.id} from={message.author}>
+            {checkpoints.error ? (
+              <ErrorState
+                error={checkpoints.error}
+                retry={() => void checkpoints.refetch()}
+              />
+            ) : null}
+            {messages.error ? (
+              <ErrorState
+                error={messages.error}
+                retry={() => messages.refetch()}
+              />
+            ) : null}
+            {messages.isPending && session ? (
+              <LoadingRows />
+            ) : !messages.data?.items.length ? (
+              <div className="flex min-h-36 flex-col items-center justify-center text-center">
+                <MessagesSquare className="mb-3 size-5 text-muted-foreground" />
+                <p className="text-sm font-medium">No conversation yet</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+                  Address the lead or a specialist when you are ready to begin.
+                </p>
+              </div>
+            ) : (
+              messages.data.items.map((message) => {
+                const instructionState =
+                  message.author === "user" && message.run_id
+                    ? message.sequence <= consumedSequence
+                      ? "Applied"
+                      : "Received"
+                    : undefined;
+                const profileName =
+                  profiles.data?.find(
+                    (profile) => profile.id === message.profile,
+                  )?.name ?? label(message.profile);
+                return (
+                  <Fragment key={message.id}>
+                    <ChatMessage from={message.author} messageId={message.id}>
                       <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
                         {message.author === "user"
                           ? `You → ${profileName}`
                           : profileName}
                         {instructionState ? ` · ${instructionState}` : ""}
                       </p>
-                      <MessageContent
+                      <ChatMessageBody
+                        from={message.author}
                         className={
                           message.author === "user"
                             ? "whitespace-pre-wrap"
@@ -321,7 +347,7 @@ export function WorkConversation({
                         ) : (
                           message.content
                         )}
-                      </MessageContent>
+                      </ChatMessageBody>
                       <AnswerReuseNotice
                         message={message}
                         disabled={
@@ -340,44 +366,54 @@ export function WorkConversation({
                             });
                         }}
                       />
-                    </Message>
-                  );
-                })
-              )}
-              {runs.error ? (
-                <div className="px-6">
-                  <ErrorState error={runs.error} retry={() => runs.refetch()} />
-                </div>
-              ) : runs.data?.items.length ? (
-                <div
-                  className="space-y-3"
-                  role="group"
-                  aria-label="Recent run activity"
-                >
-                  {runs.data.items
-                    .slice(0, 10)
-                    .reverse()
-                    .map((run) => (
-                      <RunActivity
-                        key={run.id}
-                        run={run}
-                        deferDetails={!activeStates.has(run.state)}
-                        showOutput={!assistantRunIds.has(run.id)}
-                        cancelling={
-                          cancel.isPending && cancel.variables?.id === run.id
-                        }
-                        onCancel={
-                          activeStates.has(run.state)
-                            ? (item) => cancel.mutate(item)
-                            : undefined
-                        }
-                      />
-                    ))}
-                </div>
-              ) : null}
-            </ConversationContent>
-            <ConversationScrollButton />
-          </Conversation>
+                    </ChatMessage>
+                    {checkpoints.data
+                      ?.filter(
+                        (checkpoint) =>
+                          checkpoint.sequence === message.sequence,
+                      )
+                      .map((checkpoint) => (
+                        <ConversationCheckpoint
+                          key={checkpoint.id}
+                          checkpoint={checkpoint}
+                        />
+                      ))}
+                  </Fragment>
+                );
+              })
+            )}
+            {runs.error ? (
+              <div className="px-6">
+                <ErrorState error={runs.error} retry={() => runs.refetch()} />
+              </div>
+            ) : runs.data?.items.length ? (
+              <div
+                className="space-y-3"
+                role="group"
+                aria-label="Recent run activity"
+              >
+                {runs.data.items
+                  .slice(0, 10)
+                  .reverse()
+                  .map((run) => (
+                    <RunActivity
+                      key={run.id}
+                      run={run}
+                      deferDetails={!activeStates.has(run.state)}
+                      showOutput={!assistantRunIds.has(run.id)}
+                      cancelling={
+                        cancel.isPending && cancel.variables?.id === run.id
+                      }
+                      onCancel={
+                        activeStates.has(run.state)
+                          ? (item) => cancel.mutate(item)
+                          : undefined
+                      }
+                    />
+                  ))}
+              </div>
+            ) : null}
+          </AgentChatTranscript>
 
           {cancelError ? (
             <p className="mx-6 text-xs text-destructive" role="alert">
@@ -470,7 +506,9 @@ export function WorkConversation({
                 disabled={!canSend}
                 aria-label={activeRun ? "Send instruction" : "Send message"}
               >
-                {send.isPending ? <Spinner /> : <ArrowUp />}
+                <AnimatedIcon state={send.isPending}>
+                  {send.isPending ? <Spinner /> : <ArrowUp />}
+                </AnimatedIcon>
                 <span className="hidden sm:inline">
                   {sendError ? "Retry" : activeRun ? "Instruct" : "Send"}
                 </span>

@@ -85,3 +85,49 @@ def test_application_tools_bound_context_and_keep_review_outside_agent_grants(se
     assert "arguments invalid" in registry.execute("memory_append", note | {"confirm": True}, "bad")
     assert "arguments invalid" in registry.execute("memory_append", note | {"reason": ""}, "bad")
     assert len(requests) == 5
+
+
+def test_approved_profile_keeps_revision_constraints_without_duplicate_sources(settings, mocker):
+    profile = AgentProfile(
+        name="Application",
+        description="Synthetic",
+        model="gpt-5-mini",
+        instructions="Draft from approved facts.",
+        tools=["approved_profile"],
+    )
+    registry = ToolRegistry(settings, profile, uuid4(), uuid4(), "synthetic-capability")
+    fact = {
+        "id": str(uuid4()),
+        "fact_id": str(uuid4()),
+        "field": "answer",
+        "value": "Synthetic approved answer",
+        "context": "Exact employer question",
+        "source_version_id": str(uuid4()),
+        "source_excerpt": "Source evidence " * 1000,
+        "valid_until": "2026-10-01T00:00:00Z",
+        "review_state": "approved",
+        "career": {"kind": "employment"},
+        "career_suggestion": {"title": "Unreviewed"},
+    }
+    request = mocker.patch.object(
+        registry,
+        "request",
+        return_value={
+            "items": [fact],
+            "offset": 0,
+            "limit": 1,
+            "total": 2,
+        },
+    )
+    result = json.loads(registry.execute("approved_profile", {"limit": 1}, "read"))
+    request.assert_called_once_with(
+        "GET", "profile/facts/approved", params={"offset": 0, "limit": 1}
+    )
+    assert result["items"] == [
+        {k: v for k, v in fact.items() if k not in {"source_excerpt", "career_suggestion"}}
+    ]
+    assert result["next_offset"] == 1
+    assert len(json.dumps(result)) < len(json.dumps(fact)) / 2
+    assert "source_excerpt" in fact  # The canonical record is untouched.
+    request.return_value = {"items": [fact], "offset": 1, "limit": 1, "total": 2}
+    assert registry.approved_profile({"offset": 1})["next_offset"] is None

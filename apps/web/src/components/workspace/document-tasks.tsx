@@ -54,7 +54,7 @@ export function DocumentTasks({
           {tasks.data.items.map((task) => (
             <li key={task.id}>
               <button
-                className="flex w-full items-center justify-between gap-3 rounded-md py-3 text-left text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex w-full items-center justify-between gap-3 rounded-md py-3 text-start text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => workspace?.open("tasks", task.id)}
               >
                 <span className="min-w-0 break-words">{task.title}</span>
@@ -118,7 +118,7 @@ export function TaskDocuments({ taskId }: { taskId: string }) {
         <Button
           key={item.id}
           variant="outline"
-          className="h-auto w-full justify-start whitespace-normal py-3 text-left"
+          className="h-auto w-full justify-start whitespace-normal py-3 text-start"
           onClick={() =>
             workspace?.open("artifacts", item.id, { tab: "content" })
           }

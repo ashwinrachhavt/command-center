@@ -81,14 +81,14 @@ function QueuePages({
   return (
     <nav
       aria-label={`${name} pages`}
-      className="flex items-center justify-between gap-3 pt-3 text-xs text-muted-foreground"
+      className="flex flex-wrap items-center justify-between gap-3 pt-3 text-xs text-muted-foreground"
     >
       <span>
         {total === 0 || offset >= total
           ? "No items on this page"
           : `${offset + 1}–${Math.min(offset + pageSize, total)} of ${total}`}
       </span>
-      <div className="flex gap-1">
+      <div className="flex max-w-full flex-wrap gap-1">
         <Button
           variant="ghost"
           size="sm"
@@ -187,7 +187,7 @@ function DailyTaskList({ timezone }: { timezone: string }) {
       value={page.view}
       onValueChange={(view) => setPage({ view: view as TaskView, offset: 0 })}
     >
-      <div className="overflow-x-auto pb-1">
+      <div className="pb-1">
         <TabsList variant="line" aria-label="Task views">
           {Object.entries(views).map(([value, title]) => (
             <TabsTrigger key={value} value={value}>
@@ -235,7 +235,7 @@ function DailyTaskList({ timezone }: { timezone: string }) {
                       onClick={() => update.mutate(task)}
                     >
                       {task.state === "snoozed" || task.state === "waiting" ? (
-                        <Play aria-hidden />
+                        <Play aria-hidden className="translate-x-0.5" />
                       ) : (
                         <CircleCheck aria-hidden />
                       )}
@@ -243,7 +243,7 @@ function DailyTaskList({ timezone }: { timezone: string }) {
                     <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                       <Button
                         variant="link"
-                        className="h-auto w-fit max-w-full justify-start p-0 text-left whitespace-normal text-foreground"
+                        className="h-auto w-fit max-w-full justify-start p-0 text-start whitespace-normal text-foreground"
                         onClick={() => context?.open("tasks", task.id)}
                       >
                         {task.title}
@@ -304,7 +304,7 @@ export function DailyTasks({ title = "Your tasks" }: { title?: string } = {}) {
   });
   return (
     <section aria-labelledby="daily-tasks-heading" className="min-w-0">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 id="daily-tasks-heading" className="font-medium">
           {title}
         </h2>
@@ -402,7 +402,7 @@ function WorkLane({
                 <li key={`${item.kind}:${item.id}`}>
                   <Button
                     variant="ghost"
-                    className="h-auto w-full items-start justify-start gap-3 rounded-none px-1 py-4 text-left whitespace-normal"
+                    className="h-auto w-full items-start justify-start gap-3 rounded-none px-1 py-4 text-start whitespace-normal"
                     onClick={() => onOpen(item)}
                     aria-label={`Open ${item.title}`}
                   >

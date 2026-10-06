@@ -1,4 +1,6 @@
 "use client";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
@@ -111,7 +113,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="mb-5 flex w-full items-center gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-left transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mb-5 flex w-full items-center gap-2.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-start transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Account and workspace switcher"
           >
             <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-medium text-foreground">
@@ -151,7 +153,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className="cursor-pointer text-xs"
             >
-              <Settings2 className="mr-2 size-3.5" />
+              <Settings2 className="me-2 size-3.5" />
               Workspace settings
             </Link>
           </DropdownMenuItem>
@@ -161,7 +163,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className="cursor-pointer text-xs"
             >
-              <Plug className="mr-2 size-3.5" />
+              <Plug className="me-2 size-3.5" />
               Connected apps
             </Link>
           </DropdownMenuItem>
@@ -195,11 +197,14 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
               )}
             >
               <item.icon
-                className={cn("size-4", path === item.path && "text-primary")}
+                className={cn(
+                  "size-4 shrink-0",
+                  path === item.path && "text-primary",
+                )}
               />
               {item.name}
               {path === item.path && (
-                <span className="ml-auto size-1 rounded-full bg-primary" />
+                <span className="ms-auto size-1 shrink-0 rounded-full bg-primary" />
               )}
             </Link>
           </div>
@@ -225,21 +230,22 @@ function WorkspaceSearch({
 }) {
   const context = useWorkspaceContext();
   const [q, setQ] = useState("");
+  const settledQuery = useDebouncedValue(q.trim());
   const query = useQuery({
-    queryKey: ["search", q],
-    enabled: open && q.trim().length > 1,
+    queryKey: ["search", settledQuery],
+    enabled: open && settledQuery.length > 1 && q.trim() === settledQuery,
     queryFn: async ({ signal }) => {
       const [companies, opportunities, people] = await Promise.all([
         api<Page<Resources["companies"]>>(
-          `companies?q=${encodeURIComponent(q)}&limit=5`,
+          `companies?q=${encodeURIComponent(settledQuery)}&limit=5`,
           { signal },
         ),
         api<Page<Resources["opportunities"]>>(
-          `opportunities?q=${encodeURIComponent(q)}&limit=5`,
+          `opportunities?q=${encodeURIComponent(settledQuery)}&limit=5`,
           { signal },
         ),
         api<Page<Resources["contacts"]>>(
-          `contacts?q=${encodeURIComponent(q)}&limit=5`,
+          `contacts?q=${encodeURIComponent(settledQuery)}&limit=5`,
           { signal },
         ),
       ]);
@@ -279,7 +285,7 @@ function WorkspaceSearch({
           autoFocus
         />
         <div className="max-h-80 overflow-auto">
-          {query.isFetching ? (
+          {q.trim() !== settledQuery || query.isFetching ? (
             <p className="py-4 text-muted-foreground">Searching…</p>
           ) : query.error ? (
             <p role="alert" className="text-destructive">
@@ -341,7 +347,9 @@ function NavigationToggle() {
       onClick={toggleSidebar}
       className="shrink-0 text-muted-foreground"
     >
-      {expanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+      <AnimatedIcon state={expanded}>
+        {expanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+      </AnimatedIcon>
       <span className="hidden sm:inline">Navigation</span>
     </Button>
   );
@@ -360,7 +368,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         className={cn(chatPage && "h-dvh min-h-0 overflow-hidden")}
         style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
       >
-        <Sidebar collapsible="offcanvas" className="border-r border-border">
+        <Sidebar collapsible="offcanvas" className="border-e border-border">
           <SidebarNavigation />
         </Sidebar>
         <SidebarInset
@@ -371,21 +379,21 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         >
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-5 backdrop-blur-md md:px-7">
             <NavigationToggle />
-            <Breadcrumb>
+            <Breadcrumb className="min-w-0">
               <BreadcrumbList className="text-xs">
                 <BreadcrumbItem className="hidden sm:block">
                   Workspace
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden sm:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="block truncate">
                     {navigation.find((n) => n.path === path)?.name ??
                       "Workspace"}
                   </BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ms-auto flex shrink-0 items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon-sm"

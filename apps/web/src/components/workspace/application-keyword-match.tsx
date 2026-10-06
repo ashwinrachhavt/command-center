@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useEffect, useId, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Check, Minus, ScanText } from "lucide-react";
@@ -165,7 +166,9 @@ function KeywordCheck({
           });
         }}
       >
-        {check.isPending ? <Spinner /> : <ScanText aria-hidden="true" />}
+        <AnimatedIcon state={check.isPending}>
+          {check.isPending ? <Spinner /> : <ScanText aria-hidden="true" />}
+        </AnimatedIcon>
         {check.isPending
           ? "Checking keywords…"
           : check.error
@@ -296,7 +299,7 @@ function SourceLink({ label, source }: { label: string; source: Source }) {
     <Button
       type="button"
       variant="link"
-      className="h-auto max-w-full justify-start px-0 py-1 text-left text-xs whitespace-normal [overflow-wrap:anywhere]"
+      className="h-auto max-w-full justify-start px-0 py-1 text-start text-xs whitespace-normal [overflow-wrap:anywhere]"
       onClick={() =>
         workspace.open("artifacts", source.artifact_id, {
           tab: "content",

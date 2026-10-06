@@ -2,14 +2,45 @@ const contracts = globalThis.CommandCenterContracts;
 const element = (id) => document.getElementById(id);
 const allowedApis = new Set(["http://localhost:8000", "http://127.0.0.1:8000"]);
 await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+const [panelTab] = await chrome.tabs.query({
+  active: true,
+  currentWindow: true,
+});
+const draftKey = Number.isInteger(panelTab?.id)
+  ? `applicationDraft:${panelTab.id}`
+  : null;
 const stored = await chrome.storage.local.get([
   "connection",
   "applicationDraft",
   "claimedCommands",
   "pageReader",
+  ...(draftKey ? [draftKey] : []),
 ]);
 let connection = stored.connection;
-let draft = stored.applicationDraft;
+let draft = draftKey ? stored[draftKey] : undefined;
+// Upgrade the old shared draft once, only into its actual application tab.
+// Web Locks serialize migration across side panels without a resident worker.
+if (draftKey && !draft && stored.applicationDraft) {
+  draft = await navigator.locks.request(
+    "command-center-draft-migration",
+    async () => {
+      const current = await chrome.storage.local.get([
+        draftKey,
+        "applicationDraft",
+      ]);
+      if (current[draftKey]) return current[draftKey];
+      const legacy = current.applicationDraft;
+      const url =
+        legacy?.pageUrl ??
+        legacy?.snapshot?.full_url ??
+        legacy?.snapshot?.page_url;
+      if (url !== panelTab.url) return undefined;
+      await chrome.storage.local.set({ [draftKey]: legacy });
+      await chrome.storage.local.remove("applicationDraft");
+      return legacy;
+    },
+  );
+}
 let claimedCommands = new Set(stored.claimedCommands ?? []);
 let generationTimer;
 let resumeChoice;
@@ -18,6 +49,14 @@ let autofillBusy = false;
 let actionBusy = false;
 element("page-reader").value = stored.pageReader ?? "direct";
 renderReaderChoice();
+
+chrome.tabs.onActivated?.addListener(({ tabId, windowId }) => {
+  if (windowId === panelTab?.windowId && tabId !== panelTab.id)
+    location.reload();
+});
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes.connection) location.reload();
+});
 
 function renderReaderChoice() {
   element("reader-status").textContent =
@@ -157,7 +196,9 @@ function renderGeneration() {
     queued:
       "Generation is queued. This popup will refresh the draft when it finishes.",
     running: "Generation is running. Your local edits remain unchanged.",
-    completed: "Grounded drafts are ready for review.",
+    completed: draft?.generationSavedAnswers
+      ? "Grounded drafts are ready for review."
+      : "Generation finished without saving new answers. Open the generation workspace for details, or try again.",
     failed: `Generation failed${draft?.generation?.error_code ? ` (${draft.generation.error_code})` : ""}.`,
     cancelled: "Generation was cancelled. Your current draft is unchanged.",
   };
@@ -221,12 +262,43 @@ async function apiBytes(path) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-async function activeTab() {
+async function activeTab(requestAccess = false) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !/^https?:\/\//.test(tab.url ?? ""))
+  if (!Number.isInteger(tab?.id) || tab.id < 0)
     throw new Error(
-      "Open the application form in a website tab, then click the Command Center extension icon on that tab.",
+      "Open the application form in this Chrome window, then try Autofill again.",
     );
+  if (panelTab && tab.id !== panelTab.id)
+    throw new Error(
+      "The active tab changed. Reopen the companion on this application.",
+    );
+  if (!tab.url)
+    throw new Error(
+      "Chrome has not shared this tab with the companion. Reload the updated extension in chrome://extensions, then reopen it on the application page.",
+    );
+  if (!/^https?:\/\//.test(tab.url))
+    throw new Error(
+      "Select an application website tab. Chrome settings and extension pages cannot be filled.",
+    );
+  if (requestAccess) {
+    const page = new URL(tab.url);
+    // A global side panel survives tab switches, but activeTab does not grant
+    // access to the newly selected tab. Ask for only this site's permission
+    // from the explicit button gesture, never from a background refresh.
+    const permission = { origins: [`${page.protocol}//${page.hostname}/*`] };
+    if (!(await chrome.permissions.contains(permission))) {
+      const granted = await chrome.permissions.request(permission);
+      if (!granted)
+        throw new Error(
+          `Allow access to ${page.hostname} in Chrome's permission prompt, then try Autofill again.`,
+        );
+      const current = await activeTab();
+      if (current.id !== tab.id || current.url !== tab.url)
+        throw new Error(
+          "The active page changed. Return to the application and try again.",
+        );
+    }
+  }
   return tab;
 }
 
@@ -265,7 +337,9 @@ function receipt(kind) {
 }
 
 async function saveDraft() {
-  await chrome.storage.local.set({ applicationDraft: draft });
+  if (!draftKey)
+    throw new Error("Open the companion on an application tab first.");
+  await chrome.storage.local.set({ [draftKey]: draft });
 }
 
 function clearReceipt(kind) {
@@ -643,6 +717,14 @@ function scheduleGenerationPoll() {
   if (generationPending()) generationTimer = setTimeout(pollGeneration, 1000);
 }
 
+function suggestedAnswers(preparation) {
+  return JSON.stringify(
+    preparation.fields
+      .filter((field) => field.status === "suggested")
+      .map(({ field_id, value, evidence }) => ({ field_id, value, evidence })),
+  );
+}
+
 async function pollGeneration() {
   if (!draft?.preparation) return;
   const currentDraft = draft;
@@ -657,8 +739,15 @@ async function pollGeneration() {
         await api(`device/preparations/${draft.preparation.id}`),
       );
       if (draft !== currentDraft) return;
+      draft.generationBaseline ??= suggestedAnswers(draft.preparation);
+      draft.generationSavedAnswers =
+        suggestedAnswers(latest) !== draft.generationBaseline;
       mergePreparation(latest);
-      message("Grounded drafts are ready. Your local edits were kept.");
+      message(
+        draft.generationSavedAnswers
+          ? "Grounded drafts are ready. Your local edits were kept."
+          : "No new answers were saved. Your existing answers and local edits were kept. Open the generation workspace for details.",
+      );
     } else if (generation.state === "failed") {
       message(
         `Draft generation failed${generation.error_code ? ` (${generation.error_code})` : ""}. Review the conversation or try again.`,
@@ -953,10 +1042,12 @@ element("pair-form").addEventListener("submit", (event) => {
 
 element("disconnect").addEventListener("click", async () => {
   clearTimeout(generationTimer);
+  const keys = await chrome.storage.local.get(null);
   await chrome.storage.local.remove([
     "connection",
     "applicationDraft",
     "claimedCommands",
+    ...Object.keys(keys).filter((key) => key.startsWith("applicationDraft:")),
   ]);
   connection = undefined;
   draft = undefined;
@@ -1068,8 +1159,53 @@ async function agentBrowserStructure(tab, allowEmpty = false) {
   }
 }
 
-async function inspectForm(useReader = false) {
+async function inspectForm(useReader = false, openApplication = false) {
   const tab = await activeTab();
+  const page = new URL(tab.url);
+  // The job's Overview is not an application step. Autofill may enter the
+  // same Ashby posting's form, but never advances Next or submits a form.
+  if (
+    openApplication &&
+    page.hostname === "jobs.ashbyhq.com" &&
+    /^\/[^/]+\/[0-9a-f-]{36}\/?$/i.test(page.pathname)
+  ) {
+    page.pathname = `${page.pathname.replace(/\/$/, "")}/application`;
+    autofillStatus("Opening this job's application form…");
+    await chrome.tabs.update(tab.id, { url: page.href });
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const current = await activeTab();
+      if (
+        current.id !== tab.id ||
+        (current.url !== page.href &&
+          current.url !== tab.url &&
+          current.pendingUrl !== page.href)
+      )
+        throw new Error(
+          "The active page changed. Return to the application and try again.",
+        );
+      if (current.url !== page.href) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      const ready = await chrome.scripting
+        .executeScript({
+          target: { tabId: tab.id },
+          func: () =>
+            Boolean(
+              document.querySelector(
+                ".ashby-application-form-field-entry input,.ashby-application-form-field-entry textarea",
+              ),
+            ),
+        })
+        .catch(() => []);
+      if (ready[0]?.result) return inspectForm(useReader);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(
+      "The application form is still loading. Select Autofill this page again when its fields appear.",
+    );
+  }
   await chrome.scripting
     .executeScript({
       target: { tabId: tab.id },
@@ -1093,10 +1229,13 @@ async function inspectForm(useReader = false) {
     !historyExpandable
   ) {
     const workday = /(^|\.)myworkdayjobs\.com$/.test(new URL(tab.url).hostname);
+    const ashby = new URL(tab.url).hostname === "jobs.ashbyhq.com";
     throw new Error(
       workday
         ? "Open the Workday application step after signing in, then share the form again. This page is not ready for filling."
-        : "No supported application controls were found. Open the application step, then share again.",
+        : ashby
+          ? "No application fields are ready. Open the Application tab, wait for the form to load, then select Autofill this page again."
+          : "No supported application controls were found. Open the application step, then share again.",
     );
   }
   const structure = useReader
@@ -1110,6 +1249,7 @@ async function inspectForm(useReader = false) {
 
 element("share").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
+    await activeTab(true);
     clearTimeout(generationTimer);
     const { tab, snapshot } = await inspectForm();
     await api("snapshots", { method: "POST", body: snapshot });
@@ -1223,10 +1363,11 @@ async function runAutofill() {
   autofillBusy = true;
   syncAutofillControls();
   try {
+    await activeTab(true);
     // Keep the exact unfinished operation across popup closure and lost replies.
     if (!draft?.autofill || draft.autofill.stage === "done") {
       autofillStatus("Reading this application…");
-      const { tab, snapshot, structure } = await inspectForm(true);
+      const { tab, snapshot, structure } = await inspectForm(true, true);
       clearTimeout(generationTimer);
       const observedIdentity = jobIdentity(structure?.job_identity);
       const previousIdentity = previousJobIdentity(draft);
@@ -1538,7 +1679,7 @@ async function runAutofill() {
     }
   } catch (error) {
     autofillStatus(
-      "Autofill needs attention. Your progress is saved; see the message below.",
+      error.message ?? "Autofill could not finish. Please try again.",
     );
     throw error;
   } finally {
@@ -1548,7 +1689,10 @@ async function runAutofill() {
 }
 
 element("autofill").addEventListener("click", (event) =>
-  action(event.currentTarget, runAutofill),
+  action(event.currentTarget, async () => {
+    autofillStatus("Waiting for the active autofill to finish…");
+    await navigator.locks.request("command-center-autofill", runAutofill);
+  }),
 );
 
 for (const [id, continueApplication] of [
@@ -1635,6 +1779,8 @@ element("generate").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     if (generationPending())
       throw new Error("Generation is already in progress.");
+    draft.generationBaseline = suggestedAnswers(draft.preparation);
+    draft.generationSavedAnswers = false;
     const result = await api(
       `device/preparations/${draft.preparation.id}/generate`,
       {
@@ -1823,7 +1969,7 @@ element("propose").addEventListener("click", (event) =>
 element("discard-draft").addEventListener("click", async () => {
   clearTimeout(generationTimer);
   draft = undefined;
-  await chrome.storage.local.remove("applicationDraft");
+  if (draftKey) await chrome.storage.local.remove(draftKey);
   element("preparation").hidden = true;
   element("application-title").textContent = "Your next opportunity.";
   element("page-location").hidden = true;

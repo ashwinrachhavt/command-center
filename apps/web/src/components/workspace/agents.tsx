@@ -1,5 +1,6 @@
 "use client";
-import { useRef, useState } from "react";
+import { AnimatedIcon } from "@/components/ui/animated-icon";
+import { Fragment, useDeferredValue, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -22,6 +23,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -55,12 +57,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import { Message, MessageContent } from "@/components/ai-elements/message";
+import { AgentChatTranscript } from "@/components/agents-ui/agent-chat-transcript";
+import { ChatMessage, ChatMessageBody } from "./chat-message";
 import { deferView } from "./deferred-view";
 import { RunActivity } from "./run-activity";
 import { AnswerReuseNotice } from "./answer-reuse-notice";
@@ -71,6 +69,13 @@ import {
 } from "./use-session-messages";
 import { activeRunStates, useSessionRuns } from "./use-session-runs";
 import { ErrorState, LoadingRows, Spinner, Status } from "./primitives";
+import {
+  checkpointKey,
+  ConversationCheckpoint,
+  SessionContext,
+  useSessionCheckpoints,
+} from "./session-context";
+import { useConversationDraft } from "./use-conversation-draft";
 
 const RichAgentResponse = deferView<{ children: string }>(
   () =>
@@ -106,7 +111,11 @@ export function Agents() {
     });
   };
   const [profileId, setProfileId] = useState(params?.get("agent") ?? "lead");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt, updateThreadDraft] = useConversationDraft(
+    selectedSessionId ?? legacyRunId ?? "new",
+  );
+  const [historySearch, setHistorySearch] = useState("");
+  const deferredHistorySearch = useDeferredValue(historySearch);
   const [customProvider, setCustomProvider] = useState<ModelProvider>();
   const [customModel, setCustomModel] = useState<string>();
   const profiles = useQuery({
@@ -115,11 +124,11 @@ export function Agents() {
       api<(AgentProfile & { skills: string[] })[]>("agents/profiles"),
   });
   const sessions = useInfiniteQuery({
-    queryKey: ["agent-sessions", "history"],
+    queryKey: ["agent-sessions", "history", deferredHistorySearch],
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
       api<Page<AgentSession>>(
-        `agent-sessions?standalone=true&limit=30&offset=${pageParam}`,
+        `agent-sessions?q=${encodeURIComponent(deferredHistorySearch)}&limit=30&offset=${pageParam}`,
         { signal },
       ),
     getNextPageParam: (page) =>
@@ -158,6 +167,10 @@ export function Agents() {
   });
   const runs = useSessionRuns(sessionId, 1);
   const run = runs.data?.items[0] ?? (legacyRunId ? legacyRun.data : undefined);
+  const checkpoints = useSessionCheckpoints(
+    sessionId,
+    !!run && activeRunStates.has(run.state),
+  );
   const [profileScope, setProfileScope] = useState<string>();
   const conversationScope = sessionId ?? legacyRunId ?? "new";
   const profile = profiles.data?.find(
@@ -194,6 +207,22 @@ export function Agents() {
       legacyRunId?: string;
       fresh_answer?: boolean;
     }) => {
+      const clearDraft = (savedSessionId?: string | null) =>
+        setPrompt((current) => {
+          const remaining = current === submission.prompt ? "" : current;
+          if (
+            savedSessionId &&
+            savedSessionId !== (selectedSessionId ?? legacyRunId ?? "new")
+          ) {
+            updateThreadDraft(savedSessionId, (savedDraft) =>
+              savedDraft && savedDraft !== submission.prompt
+                ? savedDraft
+                : remaining,
+            );
+            return "";
+          }
+          return remaining;
+        });
       if (submission.legacyRunId && !submission.sessionId) {
         const body = {
           profile: submission.profile,
@@ -209,7 +238,7 @@ export function Agents() {
           key: intent.key,
         });
         runIntent.confirmRequest("POST", "agent-runs", body);
-        return { adopted };
+        return { adopted, clearDraft: () => clearDraft(adopted.session_id) };
       }
       let target = submission.sessionId;
       if (!target) {
@@ -223,6 +252,10 @@ export function Agents() {
         runIntent.confirmRequest("POST", "agent-sessions", body);
         client.setQueryData(["agent-session", created.id], created);
         target = created.id;
+        setPrompt((current) => {
+          updateThreadDraft(created.id, current);
+          return "";
+        });
         selectConversation(target);
       }
       const endpoint = `agent-sessions/${target}/messages`;
@@ -240,9 +273,12 @@ export function Agents() {
         key: intent.key,
       });
       runIntent.confirmRequest("POST", endpoint, body);
-      return { message };
+      return {
+        message,
+        clearDraft: () => clearDraft(message.session_id),
+      };
     },
-    onSuccess: (result, submission) => {
+    onSuccess: (result) => {
       const savedSessionId =
         result.message?.session_id ?? result.adopted?.session_id;
       if (result.message) appendSavedMessage(client, result.message);
@@ -254,11 +290,17 @@ export function Agents() {
         void client.invalidateQueries({
           queryKey: ["agent-session-runs", savedSessionId],
         });
+        void client.invalidateQueries({
+          queryKey: ["agent-session", savedSessionId],
+        });
+        void client.invalidateQueries({
+          queryKey: checkpointKey(savedSessionId),
+        });
       } else if (result.adopted)
         selectConversation(undefined, result.adopted.id);
       void client.invalidateQueries({ queryKey: ["agent-sessions"] });
       void client.invalidateQueries({ queryKey: ["runs"] });
-      setPrompt((current) => (current === submission.prompt ? "" : current));
+      result.clearDraft();
       toast.success("Message saved to your conversation");
     },
     onError: (e) => toast.error(e.message),
@@ -300,6 +342,13 @@ export function Agents() {
       <p className="mb-3 px-2 text-[10px] tracking-wider text-muted-foreground">
         RECENT CONVERSATIONS
       </p>
+      <Input
+        aria-label="Search conversations"
+        placeholder="Search conversations…"
+        className="mb-3"
+        value={historySearch}
+        onChange={(event) => setHistorySearch(event.target.value)}
+      />
       <div className="flex flex-col gap-1">
         {sessions.error ? (
           <ErrorState
@@ -311,7 +360,9 @@ export function Agents() {
           <LoadingRows />
         ) : !threads.length ? (
           <p className="px-2 py-4 text-xs leading-6 text-muted-foreground">
-            Your conversations and their outcomes will live here.
+            {historySearch
+              ? "No conversations match your search."
+              : "Your conversations and their outcomes will live here."}
           </p>
         ) : (
           threads.map((thread) => (
@@ -320,7 +371,7 @@ export function Agents() {
               disabled={send.isPending}
               aria-current={sessionId === thread.id ? "true" : undefined}
               className={cn(
-                "flex flex-col gap-2 rounded-lg p-3 text-left hover:bg-muted",
+                "flex flex-col gap-2 rounded-lg p-3 text-start hover:bg-muted",
                 sessionId === thread.id && "bg-muted",
               )}
               onClick={() => {
@@ -332,6 +383,13 @@ export function Agents() {
               <span className="line-clamp-2 text-xs leading-5">
                 {thread.title}
               </span>
+              {thread.task_id || thread.opportunity_id ? (
+                <span className="text-[10px] text-muted-foreground">
+                  {thread.task_id
+                    ? "Task conversation"
+                    : "Opportunity conversation"}
+                </span>
+              ) : null}
               <span className="hidden text-[10px] text-muted-foreground xl:inline">
                 {dateLabel(thread.updated_at)}
               </span>
@@ -371,7 +429,7 @@ export function Agents() {
                   <button
                     key={item.id}
                     disabled={send.isPending}
-                    className="rounded-lg p-3 text-left text-xs hover:bg-muted"
+                    className="rounded-lg p-3 text-start text-xs hover:bg-muted"
                     onClick={() => selectConversation(undefined, item.id)}
                   >
                     {item.title}
@@ -399,7 +457,7 @@ export function Agents() {
       aria-label="Chat workspace"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 md:px-6">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-3 md:px-6">
         <Button
           variant="ghost"
           size="sm"
@@ -414,11 +472,25 @@ export function Agents() {
               : setHistoryOpen(!historyOpen)
           }
         >
-          {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+          <AnimatedIcon state={historyExpanded}>
+            {historyExpanded ? <PanelLeftClose /> : <PanelLeftOpen />}
+          </AnimatedIcon>
           Chats
         </Button>
-        <h1 className="text-lg font-medium">Assistant</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <h1 className="min-w-0 break-words text-lg font-medium">Assistant</h1>
+        <div className="ms-auto flex max-w-full flex-wrap items-center gap-2">
+          {session.data ? (
+            <SessionContext
+              key={session.data.id}
+              session={{
+                ...session.data,
+                last_sequence:
+                  transcript.data?.items.at(-1)?.sequence ??
+                  session.data.last_sequence,
+              }}
+              checkpoints={checkpoints.data ?? []}
+            />
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -468,7 +540,7 @@ export function Agents() {
           <aside
             id="chat-history"
             aria-label="Conversation history"
-            className="min-h-0 overflow-y-auto border-r border-border bg-card/40"
+            className="min-h-0 overflow-y-auto border-e border-border bg-card/40"
           >
             {history}
           </aside>
@@ -477,53 +549,70 @@ export function Agents() {
         <div className="flex min-h-0 min-w-0 flex-col">
           {sessionId || legacyRunId ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <Conversation key={sessionId ?? legacyRunId} className="min-h-0">
-                <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-4 py-5 md:px-8">
-                  <div className="flex shrink-0 items-start gap-3">
-                    <Bot className="size-5 shrink-0 text-primary" />
-                    <p className="min-w-0 break-words text-sm font-medium">
-                      {session.data?.title ?? run?.title ?? "Conversation"}
-                    </p>
-                    {run ? <Status value={run.state} /> : null}
-                  </div>
-                  {session.error ? (
-                    <ErrorState
-                      error={session.error}
-                      retry={() => void session.refetch()}
-                    />
-                  ) : null}
-                  {legacyRun.error && legacyRunId ? (
-                    <ErrorState
-                      error={legacyRun.error}
-                      retry={() => void legacyRun.refetch()}
-                    />
-                  ) : null}
-                  {runs.error ? (
-                    <ErrorState
-                      error={runs.error}
-                      retry={() => void runs.refetch()}
-                    />
-                  ) : null}
+              <AgentChatTranscript
+                key={sessionId ?? legacyRunId}
+                className="min-h-0"
+                contentClassName="mx-auto w-full max-w-4xl gap-5 px-4 py-5 md:px-8"
+                defaultScrollPosition="end"
+              >
+                <div className="flex shrink-0 items-start gap-3">
+                  <Bot className="size-5 shrink-0 text-primary" />
+                  <p className="min-w-0 break-words text-sm font-medium">
+                    {session.data?.title ?? run?.title ?? "Conversation"}
+                  </p>
+                  {run ? <Status value={run.state} /> : null}
+                </div>
+                {session.error ? (
+                  <ErrorState
+                    error={session.error}
+                    retry={() => void session.refetch()}
+                  />
+                ) : null}
+                {legacyRun.error && legacyRunId ? (
+                  <ErrorState
+                    error={legacyRun.error}
+                    retry={() => void legacyRun.refetch()}
+                  />
+                ) : null}
+                {runs.error ? (
+                  <ErrorState
+                    error={runs.error}
+                    retry={() => void runs.refetch()}
+                  />
+                ) : null}
+                {checkpoints.error ? (
+                  <ErrorState
+                    error={checkpoints.error}
+                    retry={() => void checkpoints.refetch()}
+                  />
+                ) : null}
 
-                  {sessionId ? (
-                    <>
-                      {transcript.isPending && (
-                        <p
-                          className="text-sm text-muted-foreground"
-                          role="status"
+                {sessionId ? (
+                  <>
+                    {transcript.isPending && (
+                      <p
+                        className="text-sm text-muted-foreground"
+                        role="status"
+                      >
+                        Loading conversation…
+                      </p>
+                    )}
+                    {transcript.error && (
+                      <ErrorState
+                        error={transcript.error}
+                        retry={() => void transcript.refetch()}
+                      />
+                    )}
+                    {transcript.data?.items.map((message) => (
+                      <Fragment key={message.id}>
+                        <ChatMessage
+                          from={message.author}
+                          messageId={message.id}
                         >
-                          Loading conversation…
-                        </p>
-                      )}
-                      {transcript.error && (
-                        <ErrorState
-                          error={transcript.error}
-                          retry={() => void transcript.refetch()}
-                        />
-                      )}
-                      {transcript.data?.items.map((message) => (
-                        <Message key={message.id} from={message.author}>
-                          <MessageContent className="whitespace-pre-wrap">
+                          <ChatMessageBody
+                            from={message.author}
+                            className="whitespace-pre-wrap"
+                          >
                             {message.author === "assistant" ? (
                               <RichAgentResponse>
                                 {message.content}
@@ -531,7 +620,7 @@ export function Agents() {
                             ) : (
                               message.content
                             )}
-                          </MessageContent>
+                          </ChatMessageBody>
                           <AnswerReuseNotice
                             message={message}
                             disabled={
@@ -555,42 +644,55 @@ export function Agents() {
                                 });
                             }}
                           />
-                        </Message>
-                      ))}
-                    </>
-                  ) : run ? (
-                    <Message from="user">
-                      <MessageContent className="whitespace-pre-wrap">
-                        {run.prompt}
-                      </MessageContent>
-                    </Message>
-                  ) : null}
-                  {run ? (
-                    <RunActivity
-                      key={run.id}
-                      run={run}
-                      showOutput={
-                        !transcript.data?.items.some(
-                          (message) =>
-                            message.run_id === run.id &&
-                            message.author === "assistant",
-                        )
-                      }
-                      deferDetails={!activeRunStates.has(run.state)}
-                      cancelling={cancel.isPending}
-                      onCancel={(item) => cancel.mutate(item)}
-                    />
-                  ) : runs.isPending ? (
-                    <p role="status" className="text-sm text-muted-foreground">
-                      Loading saved activity…
-                    </p>
-                  ) : null}
-                </ConversationContent>
-                <ConversationScrollButton />
-              </Conversation>
+                        </ChatMessage>
+                        {checkpoints.data
+                          ?.filter(
+                            (checkpoint) =>
+                              checkpoint.sequence === message.sequence,
+                          )
+                          .map((checkpoint) => (
+                            <ConversationCheckpoint
+                              key={checkpoint.id}
+                              checkpoint={checkpoint}
+                            />
+                          ))}
+                      </Fragment>
+                    ))}
+                  </>
+                ) : run ? (
+                  <ChatMessage from="user" messageId={run.id}>
+                    <ChatMessageBody
+                      from="user"
+                      className="whitespace-pre-wrap"
+                    >
+                      {run.prompt}
+                    </ChatMessageBody>
+                  </ChatMessage>
+                ) : null}
+                {run ? (
+                  <RunActivity
+                    key={run.id}
+                    run={run}
+                    showOutput={
+                      !transcript.data?.items.some(
+                        (message) =>
+                          message.run_id === run.id &&
+                          message.author === "assistant",
+                      )
+                    }
+                    deferDetails={!activeRunStates.has(run.state)}
+                    cancelling={cancel.isPending}
+                    onCancel={(item) => cancel.mutate(item)}
+                  />
+                ) : runs.isPending ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Loading saved activity…
+                  </p>
+                ) : null}
+              </AgentChatTranscript>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-6 text-center sm:justify-center">
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-6 text-center sm:justify-center-safe">
               <h2 className="text-2xl font-medium tracking-tight">
                 What would you like to work on?
               </h2>
@@ -622,7 +724,7 @@ export function Agents() {
                   <button
                     key={item.text}
                     onClick={() => setPrompt(item.prompt)}
-                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-start text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <item.icon className="size-3.5" />
                     {item.text}
@@ -633,7 +735,7 @@ export function Agents() {
           )}
           <form
             aria-label="Chat composer"
-            className="max-h-[50%] shrink-0 overflow-y-auto border-t border-border bg-background px-3 py-3 md:px-6"
+            className="flex max-h-[45%] shrink-0 flex-col overflow-y-auto border-t border-border bg-background px-3 py-2 md:px-6"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend)
@@ -647,18 +749,22 @@ export function Agents() {
                 });
             }}
           >
-            <div className="mb-3 flex flex-wrap items-center gap-2.5">
+            <div className="mb-1 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1">
               <Select
                 value={profile?.id ?? profileId}
                 disabled={!!run && activeRunStates.has(run.state)}
                 onValueChange={(id) => {
+                  if (!id) return;
                   setProfileId(id);
                   setProfileScope(conversationScope);
                   setCustomProvider(undefined);
                   setCustomModel(undefined);
                 }}
               >
-                <SelectTrigger className="min-w-44" aria-label="Choose agent">
+                <SelectTrigger
+                  className="min-w-44 md:h-7"
+                  aria-label="Choose agent"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -684,8 +790,14 @@ export function Agents() {
                   {label(skill)} skill
                 </Badge>
               ))}
+              <Link
+                href="/memory"
+                className="ms-auto hidden text-[10px] text-muted-foreground underline underline-offset-2 md:inline"
+              >
+                Manage memory
+              </Link>
             </div>
-            <div className="rounded-2xl border border-input bg-muted/20 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+            <div className="flex min-h-0 flex-col rounded-2xl border border-input bg-muted/20 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
               <Textarea
                 aria-label="Message your agent"
                 placeholder={
@@ -698,13 +810,13 @@ export function Agents() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={submitChatOnEnter}
-                rows={2}
-                className="max-h-40 min-h-20 resize-none overflow-y-auto rounded-t-2xl border-0 bg-transparent px-4 pt-3 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                rows={1}
+                className="max-h-24 min-h-10 resize-none overflow-y-auto rounded-t-2xl border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
               />
               <div
                 role="group"
                 aria-label="Message actions"
-                className="flex min-w-0 items-center justify-end gap-2 px-3 pb-3"
+                className="sticky bottom-0 z-10 flex min-w-0 shrink-0 items-center justify-end gap-2 rounded-b-2xl bg-background px-2 pb-2"
               >
                 {profile && (
                   <ModelSwitcher
@@ -724,27 +836,26 @@ export function Agents() {
                   className="size-9 shrink-0 rounded-full"
                   disabled={!canSend}
                 >
-                  {send.isPending ? <Spinner /> : <ArrowUp />}
+                  <AnimatedIcon state={send.isPending}>
+                    {send.isPending ? <Spinner /> : <ArrowUp />}
+                  </AnimatedIcon>
                 </Button>
               </div>
             </div>
-            <div className="mt-2 hidden flex-wrap justify-between gap-2 text-[10px] text-muted-foreground md:flex">
-              <span>
-                Skills and tool grants are pinned to each run.{" "}
-                <Link href="/memory" className="underline underline-offset-2">
-                  Manage memory
-                </Link>
-              </span>
-              <span>
-                {profile && !profile.ready ? (
-                  <Link href="/settings" className="text-[var(--status-amber)]">
-                    Configure {profile.missing_credentials.join(", ")} to start
-                  </Link>
-                ) : (
-                  "Runs use your configured provider account."
-                )}
-              </span>
-            </div>
+            {profile && !profile.ready ? (
+              <Link
+                href="/settings"
+                className="mt-1 text-xs text-[var(--status-amber)]"
+              >
+                Configure {profile.missing_credentials.join(", ")} to start
+              </Link>
+            ) : null}
+            {run && !profile && !profiles.isPending ? (
+              <p role="status" className="mt-1 text-xs text-muted-foreground">
+                This thread’s previous agent is unavailable. Choose an available
+                agent to continue.
+              </p>
+            ) : null}
             {profiles.isPending && !profiles.data ? (
               <p className="mt-3 text-xs text-muted-foreground" role="status">
                 Loading agent profiles…

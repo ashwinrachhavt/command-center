@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Save, Wallet, X } from "lucide-react";
@@ -342,7 +343,10 @@ function RateCardEditor({ done }: { done: (id: string) => void }) {
         </p>
       )}
       <Button disabled={save.isPending}>
-        {save.isPending ? <Spinner /> : <Save />}Save rate card
+        <AnimatedIcon state={save.isPending}>
+          {save.isPending ? <Spinner /> : <Save />}
+        </AnimatedIcon>
+        Save rate card
       </Button>
     </form>
   );
@@ -457,7 +461,10 @@ function PolicyForm({
         )}
         <div className="flex flex-wrap gap-2">
           <Button disabled={save.isPending || !cardId}>
-            {save.isPending ? <Spinner /> : <Save />}Save limits
+            <AnimatedIcon state={save.isPending}>
+              {save.isPending ? <Spinner /> : <Save />}
+            </AnimatedIcon>
+            Save limits
           </Button>
           <Button
             type="button"
@@ -494,7 +501,7 @@ export function SpendingSettings() {
     queryFn: () => api<RateCard[]>("spending/rate-cards"),
   });
   return (
-    <section className="rounded-xl border border-border bg-card p-6">
+    <section className="rounded-xl shadow-surface bg-card p-6">
       <div className="mb-5 flex items-center gap-2">
         <Wallet className="size-4 text-primary" />
         <h2 className="text-sm font-medium">Spending controls</h2>

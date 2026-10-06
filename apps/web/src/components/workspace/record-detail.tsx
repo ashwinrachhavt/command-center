@@ -340,7 +340,7 @@ export function ArtifactContent({
               <>
                 {downloadableImport || version?.payload === null ? (
                   <Button
-                    className="ml-auto"
+                    className="ms-auto"
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => download.mutate()}
@@ -354,7 +354,7 @@ export function ArtifactContent({
                     <Download />
                   </Button>
                 ) : (
-                  <span className="ml-auto" />
+                  <span className="ms-auto" />
                 )}
                 {canUploadOriginal ? (
                   <Button
@@ -848,7 +848,7 @@ export function RecordDetail({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="ml-auto text-muted-foreground"
+                className="ms-auto text-muted-foreground"
                 aria-label="Archive record"
                 onClick={() => setConfirm(true)}
               >

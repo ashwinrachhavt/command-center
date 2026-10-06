@@ -207,10 +207,29 @@ def write_scope(
     if identity.run_id is None or scope_type == "global":
         return scope_type, scope_id
     task_id, opportunity_id = run_scope(db, identity)
-    derived = task_id if scope_type == "task" else opportunity_id
+    derived = (
+        run_session_id(db, identity)
+        if scope_type == "session"
+        else task_id
+        if scope_type == "task"
+        else opportunity_id
+    )
     if derived is None or (scope_id is not None and scope_id != derived):
         raise HTTPException(403, "Agent memory scope must match its current run")
     return scope_type, derived
+
+
+def run_session_id(db: Database, identity: Identity) -> UUID | None:
+    return (
+        db.scalar(
+            select(AgentRun.session_id).where(
+                AgentRun.id == identity.run_id,
+                AgentRun.owner_id == identity.id,
+            )
+        )
+        if identity.run_id
+        else None
+    )
 
 
 @router.get("/retrieve", response_model=s.Page[RetrievedMemoryRead])
@@ -220,9 +239,14 @@ def retrieve_memories(
     q: Search = "",
     task_id: UUID | None = None,
     opportunity_id: UUID | None = None,
+    session_id: UUID | None = None,
     limit: int = Query(default=10, ge=1, le=20),
 ) -> dict[str, Any]:
     if identity.run_id is not None:
+        derived_session = run_session_id(db, identity)
+        if session_id is not None and session_id != derived_session:
+            raise HTTPException(403, "Agent memory scope must match its current run")
+        session_id = derived_session
         derived_task, derived_opportunity = run_scope(db, identity)
         if task_id is not None and task_id != derived_task:
             raise HTTPException(403, "Agent memory scope must match its current run")
@@ -236,6 +260,7 @@ def retrieve_memories(
         task_id=task_id,
         opportunity_id=opportunity_id,
         limit=limit,
+        session_id=session_id,
     )
     return {
         "items": [
@@ -256,6 +281,7 @@ def memories(
     identity: CurrentIdentity,
     db: Database,
     q: Search = "",
+    session_id: UUID | None = None,
     limit: Limit = 30,
     offset: Offset = 0,
 ) -> dict[str, Any]:
@@ -265,6 +291,11 @@ def memories(
         .join(MemoryRevision, MemoryRevision.id == MemoryItem.current_revision_id)
         .where(MemoryItem.owner_id == identity.id, MemoryItem.archived_at.is_(None))
     )
+    if session_id is not None:
+        MemoryItem._owned_scope(db, identity.id, "session", session_id)
+        statement = statement.where(
+            MemoryRevision.scope_type == "session", MemoryRevision.scope_id == session_id
+        )
     if q:
         pattern = f"%{q}%"
         statement = statement.where(

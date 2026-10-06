@@ -1,4 +1,5 @@
 "use client";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -96,6 +97,7 @@ export function Records({ resource }: { resource: Resource }) {
   const context = useWorkspaceContext();
   const selected = search.get("record");
   const [q, setQ] = useState("");
+  const settledQuery = useDebouncedValue(q.trim());
   const [filter, setFilter] = useState("all");
   const [offset, setOffset] = useState(0);
   const [ascending, setAscending] = useState(false);
@@ -105,7 +107,7 @@ export function Records({ resource }: { resource: Resource }) {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const limit = 20;
   const params = new URLSearchParams({
-    q,
+    q: settledQuery,
     limit: String(limit),
     offset: String(offset),
   });
@@ -196,14 +198,14 @@ export function Records({ resource }: { resource: Resource }) {
         className={cn(
           "min-w-0",
           selected &&
-            "hidden md:block md:overflow-y-auto md:border-r md:border-border",
+            "hidden md:block md:overflow-y-auto md:border-e md:border-border",
         )}
       >
         <PageHeading
           title={name.plural}
           description={selected ? undefined : name.description}
           action={
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
               {resource === "opportunities" || resource === "contacts" ? (
                 <Button
                   size={selected ? "icon-sm" : "default"}
@@ -243,7 +245,7 @@ export function Records({ resource }: { resource: Resource }) {
             )}
           >
             <div className="relative w-full max-w-64">
-              <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" />
+              <Search className="absolute top-2.5 start-2.5 size-3.5 text-muted-foreground" />
               <Input
                 value={q}
                 onChange={(e) => {
@@ -252,7 +254,7 @@ export function Records({ resource }: { resource: Resource }) {
                 }}
                 aria-label={`Search ${name.plural.toLowerCase()}`}
                 placeholder={`Search ${name.plural.toLowerCase()}…`}
-                className="h-8 border-border bg-card pl-8 text-xs"
+                className="h-8 border-border bg-card ps-8 text-xs"
               />
             </div>
             {["opportunities", "tasks"].includes(resource) && (
@@ -276,7 +278,14 @@ export function Records({ resource }: { resource: Resource }) {
                       All {resource === "tasks" ? "statuses" : "stages"}
                     </SelectItem>
                     {(resource === "tasks"
-                      ? ["open", "in_progress", "waiting", "snoozed", "done", "cancelled"]
+                      ? [
+                          "open",
+                          "in_progress",
+                          "waiting",
+                          "snoozed",
+                          "done",
+                          "cancelled",
+                        ]
                       : stages
                     ).map((v) => (
                       <SelectItem value={v} key={v}>
@@ -288,7 +297,7 @@ export function Records({ resource }: { resource: Resource }) {
               </Select>
             )}
             {resource === "opportunities" && (
-              <div className="ml-auto flex gap-1">
+              <div className="ms-auto flex gap-1">
                 <Button
                   variant={viewMode === "list" ? "secondary" : "ghost"}
                   size="icon-sm"
@@ -312,7 +321,10 @@ export function Records({ resource }: { resource: Resource }) {
             <Button
               variant="ghost"
               size="sm"
-              className={cn("text-muted-foreground", resource !== "opportunities" && "ml-auto")}
+              className={cn(
+                "text-muted-foreground",
+                resource !== "opportunities" && "ms-auto",
+              )}
               onClick={() => setAscending(!ascending)}
               aria-pressed={ascending}
             >
@@ -325,7 +337,7 @@ export function Records({ resource }: { resource: Resource }) {
               <details className="min-w-0 flex-1">
                 <summary className="cursor-pointer text-xs font-medium">
                   LinkedIn connection notes{" "}
-                  <span className="ml-2 font-normal text-muted-foreground">
+                  <span className="ms-2 font-normal text-muted-foreground">
                     200 characters · Work opportunities · Customize brief
                   </span>
                 </summary>
@@ -349,7 +361,7 @@ export function Records({ resource }: { resource: Resource }) {
                 </label>
               </details>
               <ContactBatchEnrich
-                key={params.toString()}
+                key={JSON.stringify([resource, q, filter, offset])}
                 contacts={rows as Resources["contacts"][]}
                 instructions={outreachBrief}
               />
@@ -422,7 +434,7 @@ export function Records({ resource }: { resource: Resource }) {
             >
               <TableHeader>
                 <TableRow className="bg-card/50 hover:bg-card/50">
-                  <TableHead className="w-12 pl-5 md:pl-9">
+                  <TableHead className="w-12 ps-5 md:ps-9">
                     <span className="text-[10px] text-muted-foreground">#</span>
                   </TableHead>
                   <TableHead>
@@ -473,7 +485,7 @@ export function Records({ resource }: { resource: Resource }) {
                       selected === row.id && "bg-accent/60",
                     )}
                   >
-                    <TableCell className="pl-5 text-xs text-muted-foreground md:pl-9">
+                    <TableCell className="ps-5 text-xs text-muted-foreground md:ps-9">
                       {resource === "tasks" ? (
                         <Button
                           variant="ghost"
@@ -499,7 +511,7 @@ export function Records({ resource }: { resource: Resource }) {
                     </TableCell>
                     <TableCell>
                       <button
-                        className="flex w-full max-w-96 items-center gap-3 text-left"
+                        className="flex w-full max-w-[min(24rem,calc(100vw-8rem))] items-center gap-3 text-start"
                         onClick={() => select(row.id)}
                       >
                         <Mark name={recordName(row)} />
@@ -572,7 +584,7 @@ export function Records({ resource }: { resource: Resource }) {
                       ) : resource === "companies" ? (
                         (row as Resources["companies"]).latest_research ? (
                           <button
-                            className="max-w-64 text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="max-w-64 text-start hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             onClick={() => context?.open("companies", row.id)}
                           >
                             <span className="line-clamp-2 leading-5">
@@ -601,7 +613,7 @@ export function Records({ resource }: { resource: Resource }) {
                         dateLabel(row.updated_at)
                       )}
                     </TableCell>
-                    <TableCell className="pr-5">
+                    <TableCell className="pe-5">
                       <Button
                         size="icon-xs"
                         variant="ghost"

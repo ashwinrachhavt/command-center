@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Copy, Mail, Pencil, SearchCheck } from "lucide-react";
@@ -120,7 +121,10 @@ export function ContactOutreach({
             onClick={() => void edit()}
             aria-label={`Edit note for ${contact.name}`}
           >
-            {loading ? <Spinner /> : <Pencil />}Edit
+            <AnimatedIcon state={loading}>
+              {loading ? <Spinner /> : <Pencil />}
+            </AnimatedIcon>
+            Edit
           </Button>
           {linkedin && (
             <Button asChild size="sm" variant="ghost">
@@ -131,7 +135,7 @@ export function ContactOutreach({
             </Button>
           )}
           <span
-            className={`ml-auto text-[10px] tabular-nums ${message.length > 200 ? "text-destructive" : "text-muted-foreground"}`}
+            className={`ms-auto text-[10px] tabular-nums ${message.length > 200 ? "text-destructive" : "text-muted-foreground"}`}
           >
             {message.length}/200
           </span>
@@ -139,7 +143,7 @@ export function ContactOutreach({
       )}
       {research && (
         <button
-          className="flex items-center gap-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex items-center gap-1.5 text-start text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setResearchOpen(true)}
         >
           <SearchCheck className="size-3.5 shrink-0" />
@@ -247,7 +251,7 @@ export function ContactOutreach({
                       return (
                         <blockquote
                           key={`${citation.source_version_id}:${index}`}
-                          className="space-y-1 border-l-2 pl-3 text-sm leading-6"
+                          className="space-y-1 border-s-2 ps-3 text-sm leading-6"
                         >
                           <p>{citation.quote}</p>
                           {source && (

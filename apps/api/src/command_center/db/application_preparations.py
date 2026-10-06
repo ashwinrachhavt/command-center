@@ -1119,6 +1119,25 @@ class ApplicationPreparation(Base):
         )
         if active is not None:
             return conversation.id, active.id
+        # Only browser answer drafting uses the bounded graph. Other application
+        # work (documents, profile extraction) keeps the configured agent runtime.
+        configuration = configuration | {
+            "runtime": "langgraph_application",
+            "application_preparation_id": str(self.id),
+            "tools": [
+                "application_context",
+                "approved_profile",
+                "document_read",
+                "suggest_application_answers",
+            ],
+            "prompt_tools": None,
+            "tool_call_limits": {},
+            "skills": [],
+            "skill_files": {},
+            "specialists": {},
+            "jev_routing": False,
+            "max_steps": 3,
+        }
         message = conversation.receive(
             content=f"Prepare editable grounded answers for application preparation {self.id}. "
             "Read application_context and active approved_profile facts. "

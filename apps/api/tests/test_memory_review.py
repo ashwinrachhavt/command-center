@@ -50,6 +50,54 @@ def create_memory(client, **overrides):
     return response.json()
 
 
+def test_session_memory_is_isolated_reviewed_and_available_to_its_thread(client):
+    first = request(client, "POST", "agent-sessions", {"title": "First thread"}).json()
+    second = request(client, "POST", "agent-sessions", {"title": "Second thread"}).json()
+    memory = create_memory(client, scope_type="session", scope_id=first["id"])
+    own = client.get(f"/api/v1/memories/retrieve?session_id={first['id']}")
+    assert own.status_code == 200, own.text
+    assert [row["memory_id"] for row in own.json()["items"]] == [memory["id"]]
+    assert client.get(f"/api/v1/memories/retrieve?session_id={second['id']}").json()["items"] == []
+    assert client.get("/api/v1/memories/retrieve").json()["items"] == []
+    assert client.get(f"/api/v1/memories?session_id={second['id']}").json()["items"] == []
+    assert client.get(f"/api/v1/memories?session_id={first['id']}").json()["total"] == 1
+    revoked = review(client, memory, decision="revoked")
+    assert revoked.status_code == 200, revoked.text
+    assert client.get(f"/api/v1/memories/retrieve?session_id={first['id']}").json()["items"] == []
+
+
+def test_agent_session_memory_scope_is_derived_and_cannot_be_redirected(client, engine, settings):
+    other = request(client, "POST", "agent-sessions", {"title": "Other thread"}).json()
+    task_id = uuid4()
+    with Session(engine) as db, db.begin():
+        db.add(Task(id=task_id, owner_id=client.actor_id, title="Scoped synthetic work"))
+    run_id, lease_id = running_agent(engine, client.actor_id, task_id=task_id)
+    with Session(engine) as db:
+        session_id = db.get(AgentRun, run_id).session_id
+    client.app.dependency_overrides.pop(authenticate)
+    headers = {"Authorization": "Bearer " + issue_run_token(settings, run_id, lease_id)}
+    body = {
+        "title": "Session proposal",
+        "content": "Retain this synthetic constraint.",
+        "scope_type": "session",
+        "reason": "Specific to this thread.",
+    }
+    proposed = request(client, "POST", "memories", body, headers=headers)
+    assert proposed.status_code == 201, proposed.text
+    assert proposed.json()["current"]["scope_id"] == str(session_id)
+    assert proposed.json()["active"] is None
+    forbidden = request(
+        client, "POST", "memories", {**body, "scope_id": other["id"]}, headers=headers
+    )
+    assert forbidden.status_code == 403
+    assert (
+        client.get(
+            f"/api/v1/memories/retrieve?session_id={other['id']}", headers=headers
+        ).status_code
+        == 403
+    )
+
+
 def review(client, memory, *, revision_id=None, decision="approved", reason=None):
     return request(
         client,

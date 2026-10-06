@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -83,8 +84,8 @@ const LINE_NUMBER_CLASSES = cn(
   "before:inline-block",
   "before:[counter-increment:line]",
   "before:w-8",
-  "before:mr-4",
-  "before:text-right",
+  "before:me-4",
+  "before:text-end",
   "before:text-muted-foreground/50",
   "before:font-mono",
   "before:select-none",
@@ -365,7 +366,7 @@ export const CodeBlockActions = ({
   ...props
 }: HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("-my-1 -mr-1 flex items-center gap-2", className)}
+    className={cn("-my-1 -me-1 flex items-center gap-2", className)}
     {...props}
   >
     {children}
@@ -493,17 +494,20 @@ export const CodeBlockCopyButton = ({
     [],
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
     <Button
       className={cn("shrink-0", className)}
       onClick={copyToClipboard}
+      aria-label={isCopied ? "Copied code" : "Copy code"}
       size="icon"
       variant="ghost"
       {...props}
     >
-      {children ?? <Icon size={14} />}
+      {children ?? (
+        <AnimatedIcon state={isCopied} className="size-3.5">
+          {isCopied ? <CheckIcon /> : <CopyIcon />}
+        </AnimatedIcon>
+      )}
     </Button>
   );
 };

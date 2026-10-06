@@ -18,6 +18,19 @@ def clear_question_fixtures(engine: Engine) -> None:
     with engine.begin() as connection:
         # Only synthetic state is normalized for the full schema round-trip.
         tables = set(inspect(connection).get_table_names())
+        if "session_checkpoints" in tables:
+            connection.execute(text("ALTER TABLE session_checkpoints DISABLE TRIGGER USER"))
+            connection.execute(text("DELETE FROM session_checkpoints"))
+            connection.execute(text("ALTER TABLE session_checkpoints ENABLE TRIGGER USER"))
+            # Clear only synthetic session memory before exercising old constraints.
+            connection.execute(text("ALTER TABLE memory_revisions DISABLE TRIGGER USER"))
+            connection.execute(
+                text(
+                    "UPDATE memory_revisions SET scope_type='global', scope_id=NULL "
+                    "WHERE scope_type='session'"
+                )
+            )
+            connection.execute(text("ALTER TABLE memory_revisions ENABLE TRIGGER USER"))
         if "document_decisions" in tables:
             connection.execute(
                 text("DELETE FROM spending_reservations WHERE document_decision_id IS NOT NULL")

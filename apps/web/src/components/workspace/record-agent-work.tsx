@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedIcon } from "@/components/ui/animated-icon";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -146,7 +147,9 @@ function StartWork({
         disabled={disabled || start.isPending}
         onClick={() => start.mutate()}
       >
-        {start.isPending ? <Spinner /> : <Sparkles />}
+        <AnimatedIcon state={start.isPending}>
+          {start.isPending ? <Spinner /> : <Sparkles />}
+        </AnimatedIcon>
         {start.isPending
           ? "Starting…"
           : start.error
@@ -230,7 +233,7 @@ export function RecordAgentWork({
           ? "Agent follow-up drafting"
           : "Company research"
       }
-      className="space-y-4 rounded-xl border bg-card p-4 sm:p-5"
+      className="space-y-4 rounded-xl shadow-surface bg-card p-4 sm:p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

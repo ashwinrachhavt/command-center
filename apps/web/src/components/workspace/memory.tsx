@@ -39,7 +39,7 @@ type MemoryRevision = {
   title: string;
   content: string;
   kind: "note" | "preference";
-  scope_type: "global" | "task" | "opportunity";
+  scope_type: "global" | "task" | "opportunity" | "session";
   scope_id: string | null;
   valid_until: string | null;
   source: "human" | "agent" | "legacy_human" | "legacy_agent";
@@ -70,15 +70,18 @@ function sourceLabel(source: MemoryRevision["source"]) {
 
 function scopeLabel(revision: MemoryRevision) {
   if (revision.scope_type === "global") return "All work";
+  if (revision.scope_type === "session") return "This conversation";
   return `${revision.scope_type === "task" ? "Task" : "Opportunity"} scope`;
 }
 
 function MemoryEditor({
   record,
   close,
+  sessionId,
 }: {
   record?: Memory;
   close: () => void;
+  sessionId?: string;
 }) {
   const [title, setTitle] = useState(record?.current.title ?? "");
   const [content, setContent] = useState(record?.current.content ?? "");
@@ -92,8 +95,9 @@ function MemoryEditor({
         title: submission.title,
         content: submission.content,
         kind: record?.current.kind ?? "note",
-        scope_type: record?.current.scope_type ?? "global",
-        scope_id: record?.current.scope_id ?? null,
+        scope_type:
+          record?.current.scope_type ?? (sessionId ? "session" : "global"),
+        scope_id: record?.current.scope_id ?? sessionId ?? null,
         valid_until: record?.current.valid_until ?? null,
         source_artifact_id: record?.current.source_artifact_id ?? null,
         reason: null,
@@ -114,8 +118,9 @@ function MemoryEditor({
         title: submission.title,
         content: submission.content,
         kind: record?.current.kind ?? "note",
-        scope_type: record?.current.scope_type ?? "global",
-        scope_id: record?.current.scope_id ?? null,
+        scope_type:
+          record?.current.scope_type ?? (sessionId ? "session" : "global"),
+        scope_id: record?.current.scope_id ?? sessionId ?? null,
         valid_until: record?.current.valid_until ?? null,
         source_artifact_id: record?.current.source_artifact_id ?? null,
         reason: null,
@@ -175,9 +180,14 @@ function MemoryEditor({
             </Field>
           </FieldGroup>
           <p className="mt-4 text-xs leading-5 text-muted-foreground">
-            Scope: {record ? scopeLabel(record.current) : "All work"}. Editing
-            creates an immutable revision and makes this reviewed version
-            active.
+            Scope:{" "}
+            {record
+              ? scopeLabel(record.current)
+              : sessionId
+                ? "This conversation"
+                : "All work"}
+            . Editing creates an immutable revision and makes this reviewed
+            version active.
           </p>
           <Button className="mt-5" disabled={save.isPending}>
             Save and confirm memory
@@ -193,7 +203,7 @@ function MemoryEditor({
   );
 }
 
-export function MemoryPage() {
+export function MemoryPage({ sessionId }: { sessionId?: string } = {}) {
   const [editing, setEditing] = useState<Memory | "new">();
   const [offset, setOffset] = useState(0);
   const limit = 30;
@@ -201,9 +211,11 @@ export function MemoryPage() {
   const [reviewIntent] = useState(() => new RetainedRequestIntent());
   const [archiveIntent] = useState(() => new RetainedRequestIntent());
   const query = useQuery({
-    queryKey: ["memories", offset],
+    queryKey: ["memories", sessionId ?? "all", offset],
     queryFn: () =>
-      api<Page<Memory>>(`memories?limit=${limit}&offset=${offset}`),
+      api<Page<Memory>>(
+        `memories?limit=${limit}&offset=${offset}${sessionId ? `&session_id=${sessionId}` : ""}`,
+      ),
   });
   const review = useMutation({
     mutationFn: ({
@@ -294,8 +306,12 @@ export function MemoryPage() {
   return (
     <>
       <PageHeading
-        title="Workspace memory"
-        description="Reviewed notes and preferences available as scoped agent context."
+        title={sessionId ? "Conversation memory" : "Workspace memory"}
+        description={
+          sessionId
+            ? "Reviewed notes for this thread. Available to its next run within the context budget."
+            : "Reviewed notes and preferences available as scoped agent context."
+        }
         action={
           <Button onClick={() => setEditing("new")}>
             <Plus />
@@ -340,10 +356,10 @@ export function MemoryPage() {
                 return (
                   <article
                     key={memory.id}
-                    className="rounded-xl border border-border bg-card p-5"
+                    className="min-w-0 rounded-xl shadow-surface bg-card p-5"
                   >
                     <div className="flex items-start gap-3">
-                      <h2 className="flex-1 text-sm font-medium">
+                      <h2 className="min-w-0 flex-1 break-words text-sm font-medium">
                         {memory.current.title}
                       </h2>
                       <Button
@@ -402,12 +418,12 @@ export function MemoryPage() {
                       >
                         {scopeLabel(memory.current)}
                       </Badge>
-                      <span className="ml-auto text-[10px] text-muted-foreground">
+                      <span className="ms-auto text-[10px] text-muted-foreground">
                         {dateLabel(memory.updated_at)}
                       </span>
                     </div>
                     {proposed ? (
-                      <div className="mt-4 flex gap-2">
+                      <div className="mt-4 flex flex-wrap gap-2">
                         <Button
                           size="sm"
                           disabled={review.isPending}
@@ -445,12 +461,12 @@ export function MemoryPage() {
                 );
               })}
             </div>
-            <div className="mt-6 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>
                 {offset + 1}–{Math.min(offset + limit, page?.total ?? 0)} of{" "}
                 {page?.total ?? 0}
               </span>
-              <div className="flex gap-2">
+              <div className="flex max-w-full flex-wrap gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -476,6 +492,7 @@ export function MemoryPage() {
       </div>
       {editing ? (
         <MemoryEditor
+          sessionId={sessionId}
           record={editing === "new" ? undefined : editing}
           close={() => setEditing(undefined)}
         />

@@ -2,6 +2,14 @@
 
 Deep Agents remains the default. `AgentProfile.runtime` accepts `deepagents` or `strands`, pinned in each run's configuration snapshot. Strands Harness 0.1.2 and Strands Agents 1.57.0 are optional dependencies. Install them in the API/worker environment with `uv sync --project apps/api --extra strands --frozen`. `make check` installs and tests this extra; normal production installation does not enable it.
 
+## Runtime decision after companion QA, 2026-09-24
+
+Keep Deep Agents. A live application-generation run performed 16 tool calls, including repeated reads of the same approved-profile pages and application context, then returned prose without saving an answer. This does not demonstrate a framework tool-call ceiling: the application profile's 12-model-call limit and default 32-tool-call limit are Command Center controls. The Strands adapter shares those controls and the host compactor.
+
+Address the observed failure by reducing duplicate source text in approved-fact responses, retaining revision IDs and contextual constraints, prioritizing the save operation, and verifying that a completed run actually changed saved suggestions before showing a success message. Do not solve repeated reads by removing spending or execution bounds. Source documents and human-review evidence remain unchanged.
+
+If this bounded repair remains unreliable, move the application-generation slice to an explicit LangGraph sequence (load context, draft, validate, save, verify), while retaining Deep Agents for open-ended work. Deep Agents already uses LangGraph; this would be a narrower workflow implementation, not a repository-wide runtime migration. A Strands migration needs a matched live task comparison showing improved saved-output completion and cost, plus equivalent human-question and resume behavior. Existing synthetic adapter results alone do not establish that advantage.
+
 ## What the experiment measures
 
 [Strands' launch announcement](https://strandsagents.com/blog/introducing-strands-harness/) reports 28% lower token cost across six benchmark suites with comparable accuracy. This is a vendor result, not proof of fewer tokens or lower cost for Command Center. Prompt size, model choice, tool output, retries and task success all affect the result.
