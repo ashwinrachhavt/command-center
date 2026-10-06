@@ -61,6 +61,13 @@ const Applications = deferView<Record<string, never>>(
     })),
   "applications",
 );
+const ApplicationsAutomation = deferView<Record<string, never>>(
+  () =>
+    import("./applications-automation").then((module) => ({
+      default: module.ApplicationsAutomation,
+    })),
+  "automation runs",
+);
 const Activity = deferView<Record<string, never>>(
   () =>
     import("./activity").then((module) => ({ default: module.ActivityPage })),
@@ -89,6 +96,7 @@ export type WorkspaceSection =
   | "memory"
   | "browser"
   | "applications"
+  | "automation"
   | "activity"
   | "actions";
 
@@ -125,6 +133,8 @@ export function SectionView({ section }: { section: WorkspaceSection }) {
           <Applications />
         </>
       );
+    case "automation":
+      return <ApplicationsAutomation />;
     case "opportunities":
     case "jobs":
       return (

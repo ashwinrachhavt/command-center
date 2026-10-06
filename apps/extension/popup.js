@@ -2014,3 +2014,88 @@ if (connection) {
     );
   }
 }
+
+// Automation sites: pre-granted per-origin access for the background worker.
+// Grants only ever happen from this explicit user gesture; the background
+// never requests permissions and only operates on granted origins.
+const automationEnabled = element("automation-enabled");
+const automationOrigins = element("automation-origins");
+const automationOriginInput = element("automation-origin");
+const automationStatus = element("automation-status");
+
+const automationOriginsKey = "grantedOrigins";
+const automationEnabledKey = "automationSettings";
+
+async function renderAutomationOrigins() {
+  const granted = new Set((await chrome.permissions.getAll()).origins ?? []);
+  const stored = await chrome.storage.local.get({ [automationOriginsKey]: [] });
+  const tracked = stored[automationOriginsKey].filter((origin) => granted.has(`${origin}/*`) || granted.has(origin));
+  await chrome.storage.local.set({ [automationOriginsKey]: tracked });
+  automationOrigins.replaceChildren(
+    ...tracked.map((origin) => {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = origin;
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "text-button";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", async () => {
+        await chrome.permissions.remove({ origins: [`${origin}/*`] });
+        await chrome.storage.local.set({
+          [automationOriginsKey]: tracked.filter((candidate) => candidate !== origin),
+        });
+        await renderAutomationOrigins();
+      });
+      item.append(label, revoke);
+      return item;
+    }),
+  );
+  if (!tracked.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "No automation sites granted.";
+    automationOrigins.append(empty);
+  }
+}
+
+automationEnabled.addEventListener("change", async () => {
+  const enabled = automationEnabled.checked;
+  await chrome.storage.local.set({ [automationEnabledKey]: { enabled } });
+  automationStatus.textContent = enabled
+    ? "Automation polls your workspace every minute."
+    : "Automation paused.";
+});
+
+element("automation-add-site").addEventListener("click", async () => {
+  let candidate;
+  try {
+    candidate = new URL(automationOriginInput.value);
+  } catch {
+    automationStatus.textContent = "Enter a full origin, such as https://boards.greenhouse.io.";
+    return;
+  }
+  if (candidate.protocol !== "https:") {
+    automationStatus.textContent = "Automation sites must be https origins.";
+    return;
+  }
+  const origin = candidate.origin;
+  const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
+  if (!granted) {
+    automationStatus.textContent = "Chrome denied access to that site.";
+    return;
+  }
+  const stored = await chrome.storage.local.get({ [automationOriginsKey]: [] });
+  const tracked = stored[automationOriginsKey];
+  if (!tracked.includes(origin)) tracked.push(origin);
+  await chrome.storage.local.set({ [automationOriginsKey]: tracked });
+  automationOriginInput.value = "";
+  automationStatus.textContent = `${origin} is available to automation.`;
+  await renderAutomationOrigins();
+});
+
+const storedAutomation = await chrome.storage.local.get({
+  [automationEnabledKey]: { enabled: false },
+  [automationOriginsKey]: [],
+});
+automationEnabled.checked = storedAutomation[automationEnabledKey].enabled === true;
+await renderAutomationOrigins();

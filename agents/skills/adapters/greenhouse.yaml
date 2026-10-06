@@ -1,0 +1,57 @@
+# Greenhouse application adapter.
+#
+# Declarative and deterministic: the extension's adapter runner executes these
+# steps in order against a live Greenhouse posting tab. Identity fields first,
+# resume upload second, known questions third, then validation. Adapters never
+# contain submit-button selectors; runs end in ready_for_review.
+platform: greenhouse
+revision: auto
+match_host: boards.greenhouse.io|job-boards.greenhouse.io
+settle_ms: 800
+steps:
+  - kind: identity
+    fields:
+      - id: f001
+        label: First name
+        selector: "input#first_name"
+        source: profile.first_name
+        required: true
+      - id: f002
+        label: Last name
+        selector: "input#last_name"
+        source: profile.last_name
+        required: true
+      - id: f003
+        label: Email
+        selector: "input#email"
+        source: profile.email
+        required: true
+      - id: f004
+        label: Phone
+        selector: "input#phone"
+        source: profile.phone
+        required: false
+  - kind: resume
+    fields:
+      - id: f010
+        label: Resume
+        selector: "input[type=file]"
+        source: resume.current_version
+        required: false
+  - kind: question
+    fields:
+      - id: f020
+        label: Location
+        selector: "input#location"
+        source: profile.location
+        required: false
+  - kind: validate
+    required_fields: [f001, f002, f003]
+    settle_ms: 500
+  - kind: simplify_handoff
+    selector: "[data-simplify-click], .simplify-button"
+    on_unavailable: continue
+    settle_ms: 2000
+  - kind: validate
+    required_fields: [f001, f002, f003]
+    settle_ms: 500

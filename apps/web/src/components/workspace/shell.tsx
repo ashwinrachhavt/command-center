@@ -18,6 +18,7 @@ import {
   Files,
   FolderOpen,
   House,
+  PlayCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
@@ -75,6 +76,7 @@ export const navigation = [
   { path: "/companies", name: "Companies", icon: Building2 },
   { path: "/agent-settings", name: "Agents", icon: Bot },
   { path: "/browser", name: "Browser companion", icon: Puzzle },
+  { path: "/automation", name: "Automation runs", icon: PlayCircle },
   { path: "/activity", name: "Activity", icon: Activity },
   { path: "/settings", name: "Settings", icon: Settings2 },
 ];
@@ -86,6 +88,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
       {
         "/briefing": "/",
         "/applications": "/opportunities",
+        "/automation": "/opportunities",
         "/jobs": "/opportunities",
         "/notes": "/library",
         "/artifacts": "/library",

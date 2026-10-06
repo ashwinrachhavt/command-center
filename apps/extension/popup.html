@@ -73,6 +73,29 @@
             Reads this Chrome tab. No separate browser needed.
           </p>
         </details>
+        <details class="capture-settings" id="automation-settings">
+          <summary>Automation sites</summary>
+          <label for="automation-enabled">
+            <input type="checkbox" id="automation-enabled" />
+            Run queued applications automatically
+          </label>
+          <p class="hint">
+            The background worker only opens sites you grant below. Runs end
+            ready for review; nothing is ever submitted automatically.
+          </p>
+          <ul id="automation-origins" class="hint"></ul>
+          <div class="automation-site-add">
+            <input
+              type="url"
+              id="automation-origin"
+              placeholder="https://boards.greenhouse.io"
+            />
+            <button id="automation-add-site" type="button" class="text-button">
+              Add site
+            </button>
+          </div>
+          <p id="automation-status" class="hint" role="status"></p>
+        </details>
         <p class="hint">
           Autofill saves the form structure and, when identified, the job
           description to this application in your workspace.

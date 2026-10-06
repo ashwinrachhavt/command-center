@@ -101,7 +101,7 @@ export class ApiError extends Error {
 export async function api<T>(
   path: string,
   options: {
-    method?: "GET" | "POST" | "PUT" | "PATCH";
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: unknown;
     key?: string;
     signal?: AbortSignal;

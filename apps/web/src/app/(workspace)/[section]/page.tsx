@@ -32,6 +32,7 @@ export default async function SectionPage({
       "memory",
       "browser",
       "applications",
+      "automation",
       "activity",
       "actions",
     ].includes(section)
