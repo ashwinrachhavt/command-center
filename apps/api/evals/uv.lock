@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.14"
 
 [[package]]
@@ -497,6 +497,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
+    { name = "pyyaml" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -528,6 +529,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.10,<3" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "python-multipart", specifier = ">=0.0.22,<1" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "strands-agents", marker = "extra == 'strands'", specifier = "==1.57.0" },
     { name = "strands-harness", marker = "extra == 'strands'", specifier = "==0.1.2" },
