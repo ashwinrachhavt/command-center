@@ -12,8 +12,8 @@ from command_center.db.applications_automation import (
     ApplicationImport,
     AutomationRun,
 )
-from command_center.db.browser import BrowserDevice
 from command_center.db.base import utc_now
+from command_center.db.browser import BrowserDevice
 from command_center.db.errors import RecordConflict
 from command_center.db.models import Actor, AuditEvent
 

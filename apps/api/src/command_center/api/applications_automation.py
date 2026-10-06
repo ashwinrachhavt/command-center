@@ -1,7 +1,7 @@
 """Application CSV intake and automation-run HTTP boundary."""
 
 from typing import Annotated, Any, Literal, cast
-from uuid import UUID, uuid5
+from uuid import UUID, uuid4, uuid5
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, select
