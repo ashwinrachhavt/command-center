@@ -108,6 +108,10 @@ export function AgentChatTranscript({
   ...props
 }: AgentChatTranscriptProps) {
   const reducedMotion = useReducedMotion();
+  // The accessible name lands on the log role itself: an aria-label on the
+  // outer div has no role to bind to, so screen readers and role queries
+  // never see "Work conversation" on the transcript.
+  const { "aria-label": transcriptLabel, ...rootProps } = props;
   return (
     <MessageScrollerProvider
       autoScroll={autoScroll}
@@ -116,7 +120,7 @@ export function AgentChatTranscript({
       scrollEdgeThreshold={scrollEdgeThreshold}
       scrollPreviousItemPeek={scrollPreviousItemPeek}
     >
-      <MessageScroller className={className} {...props}>
+      <MessageScroller className={className} {...rootProps}>
         <MessageScrollerViewport
           aria-label="Conversation messages"
           className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
@@ -126,6 +130,7 @@ export function AgentChatTranscript({
             className={contentClassName}
             spacerClassName={spacerClassName}
             aria-busy={agentState === "thinking"}
+            aria-label={transcriptLabel}
           >
             {children ??
               messages.map((receivedMessage) => {

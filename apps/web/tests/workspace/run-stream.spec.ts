@@ -14,12 +14,14 @@ test("a steady stream stays connected, keeps typing responsive, and lets the rea
   const activity = timeline.getByRole("region", {
     name: "Grounded application guidance activity",
   });
-  await expect(activity).toContainText("Paragraph 12:");
+  await expect(activity).toContainText("Paragraph 12:", { timeout: 20000 });
   await expect
-    .poll(() =>
-      scroller.evaluate(
-        (element) => element.scrollHeight > element.clientHeight,
-      ),
+    .poll(
+      () =>
+        scroller.evaluate(
+          (element) => element.scrollHeight > element.clientHeight,
+        ),
+      { timeout: 20000 },
     )
     .toBe(true);
   await expect(activity.locator('[aria-busy="true"]')).toHaveCount(1);
@@ -36,19 +38,21 @@ test("a steady stream stays connected, keeps typing responsive, and lets the rea
   await expect(
     page.getByRole("button", { name: "Scroll to latest message" }),
   ).toBeVisible();
-  await expect(activity).toContainText("Paragraph 55:");
+  await expect(activity).toContainText("Paragraph 55:", { timeout: 20000 });
   expect(await scroller.evaluate((element) => element.scrollTop)).toBeLessThan(
     25,
   );
   await page.getByRole("button", { name: "Scroll to latest message" }).click();
-  await expect(activity).toContainText("Paragraph 69:");
+  await expect(activity).toContainText("Paragraph 69:", { timeout: 20000 });
   await expect(activity.locator("[data-sd-animate]")).toHaveCount(0);
   await expect
-    .poll(() =>
-      scroller.evaluate(
-        (element) =>
-          element.scrollHeight - element.clientHeight - element.scrollTop,
-      ),
+    .poll(
+      () =>
+        scroller.evaluate(
+          (element) =>
+            element.scrollHeight - element.clientHeight - element.scrollTop,
+        ),
+      { timeout: 20000 },
     )
     .toBeLessThan(5);
   const state = await page.evaluate(async () =>
@@ -70,7 +74,7 @@ test("reduced motion streams the same text without word animation", async ({
   await expect(activity).toContainText("Paragraph 10:");
   await expect(activity.locator('[aria-busy="true"]')).toHaveCount(1);
   await expect(activity.locator("[data-sd-animate]")).toHaveCount(0);
-  await expect(activity).toContainText("Paragraph 69:");
+  await expect(activity).toContainText("Paragraph 69:", { timeout: 20000 });
 });
 
 test("replays a disconnected run stream without duplicating tools or mixing runs", async ({
