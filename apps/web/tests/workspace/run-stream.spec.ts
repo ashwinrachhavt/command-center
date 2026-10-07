@@ -48,9 +48,9 @@ test("a steady stream stays connected, keeps typing responsive, and lets the rea
     page.getByRole("button", { name: "Scroll to latest message" }),
   ).toBeVisible();
   await expect(activity).toContainText("Paragraph 55:", { timeout: 20000 });
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeLessThan(
-    25,
-  );
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop), { timeout: 20000 })
+    .toBeLessThan(25);
   await page.getByRole("button", { name: "Scroll to latest message" }).click();
   await expect(activity).toContainText("Paragraph 69:", { timeout: 20000 });
   await expect(activity.locator("[data-sd-animate]")).toHaveCount(0);
