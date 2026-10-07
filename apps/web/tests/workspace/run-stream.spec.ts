@@ -18,9 +18,18 @@ test("a steady stream stays connected, keeps typing responsive, and lets the rea
   await expect
     .poll(
       () =>
-        scroller.evaluate(
-          (element) => element.scrollHeight > element.clientHeight,
-        ),
+        scroller.evaluate((element) => {
+          let scrollable = element.scrollHeight > element.clientHeight;
+          for (
+            let parent = element.parentElement;
+            parent && !scrollable;
+            parent = parent.parentElement
+          )
+            scrollable =
+              /auto|scroll/.test(getComputedStyle(parent).overflowY) &&
+              parent.scrollHeight > parent.clientHeight;
+          return scrollable;
+        }),
       { timeout: 20000 },
     )
     .toBe(true);
