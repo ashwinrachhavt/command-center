@@ -116,7 +116,7 @@ def test_authorized_submit_mode_enqueue_then_complete(session, owner):
     application.authorize(request_id=uuid4())
     run = enqueue(session, application, mode="submit")
     session.flush()
-    claimed = AutomationRun.claim(session, device_id=make_device(session, owner))
+    claimed = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     assert claimed is not None and claimed.id == run.id
     assert application.status == "running"
     claimed.complete(
@@ -133,7 +133,7 @@ def test_fill_only_run_completes_to_ready_for_review(session, owner):
     application.authorize(request_id=uuid4())  # authorized but fill_only anyway
     run = enqueue(session, application, mode="fill_only")
     session.flush()
-    claimed = AutomationRun.claim(session, device_id=make_device(session, owner))
+    claimed = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     assert claimed is not None and claimed.id == run.id
     claimed.complete(
         claimed.run_token,
@@ -148,7 +148,7 @@ def test_failed_and_unknown_runs_mark_application_failed(session, owner):
     application = make_application(session, owner)
     run = enqueue(session, application)
     session.flush()
-    claimed = AutomationRun.claim(session, device_id=make_device(session, owner))
+    claimed = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     claimed.mark_outcome_unknown(
         claimed.run_token, detail="page changed mid-run", request_id=uuid4()
     )
@@ -162,7 +162,7 @@ def test_run_token_fence_rejects_wrong_token(session, owner):
     application = make_application(session, owner)
     run = enqueue(session, application)
     session.flush()
-    claimed = AutomationRun.claim(session, device_id=make_device(session, owner))
+    claimed = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     with pytest.raises(RecordConflict, match="token was lost"):
         claimed.complete(UUID(int=1), field_evidence={}, request_id=uuid4())
     assert run.state == "running"
@@ -172,7 +172,7 @@ def test_expire_stale_recycles_for_reclaim(session, owner):
     application = make_application(session, owner)
     run = enqueue(session, application)
     session.flush()
-    first = AutomationRun.claim(session, device_id=make_device(session, owner))
+    first = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     assert first.id == run.id
     # Force the token to expire.
     first.run_token_expires_at = utc_now() - timedelta(minutes=1)
@@ -181,7 +181,7 @@ def test_expire_stale_recycles_for_reclaim(session, owner):
     assert expired == 1
     assert run.state == "failed"
     assert run.error == "run_token_expired"
-    second = AutomationRun.claim(session, device_id=make_device(session, owner))
+    second = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     if second is not None:
         # Recycling creates a new attempt, never a silently reused token.
         assert second.id != run.id or second.run_token != first.run_token
@@ -191,7 +191,7 @@ def test_no_path_reaches_submitted_without_authorization(session, owner):
     application = make_application(session, owner)
     enqueue(session, application, mode="fill_only")
     session.flush()
-    claimed = AutomationRun.claim(session, device_id=make_device(session, owner))
+    claimed = AutomationRun.claim(session, device_id=make_device(session, owner), owner_id=owner)
     claimed.complete(claimed.run_token, field_evidence={}, request_id=uuid4())
     session.flush()
     assert application.status == "ready_for_review"

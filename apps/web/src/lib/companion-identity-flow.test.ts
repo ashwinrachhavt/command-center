@@ -6,6 +6,18 @@ import { waitFor } from "@testing-library/dom";
 import { afterEach, expect, it, vi } from "vitest";
 import type { components } from "./api-types";
 
+// Typed accessor for the per-tab draft key the popup writes.
+type DraftRecord = {
+  autofill?: { stage: string };
+  snapshot?: { id: string };
+  structure?: { engine?: string };
+  preparation?: { task_id?: string; id?: string; job_identity?: unknown };
+  [key: string]: unknown;
+};
+const perTab = (storage: unknown): DraftRecord | undefined =>
+  (storage as Record<string, DraftRecord | undefined>)["applicationDraft:7"];
+
+
 type JobIdentity = components["schemas"]["JobIdentity"];
 type Snapshot = components["schemas"]["SnapshotCreate"];
 type Preparation = components["schemas"]["ApplicationPreparationRead"];
@@ -322,7 +334,7 @@ it.each(["agent-browser", "direct"] as const)(
     expect(
       f.calls.find((call) => call.path === "snapshots")?.body,
     ).not.toHaveProperty("full_url");
-    expect(f.storage.applicationDraft?.preparation?.task_id).toBe(
+    expect(perTab(f.storage)?.preparation?.task_id).toBe(
       f.previousPreparation.task_id,
     );
     expect(document.getElementById("application-choice")).not.toBeVisible();
@@ -335,7 +347,7 @@ it.each(["agent-browser", "direct"] as const)(
         target: { tabId: 7 },
         files: ["page-structure.js"],
       });
-      expect(f.storage.applicationDraft?.structure?.engine).toBe(
+      expect(perTab(f.storage)?.structure?.engine).toBe(
         "direct-browser",
       );
     } else expect(f.chrome.runtime.sendNativeMessage).toHaveBeenCalledOnce();
@@ -353,7 +365,7 @@ it.each([
     await f.click();
     expect(f.prepareCalls()[0].body.continue_preparation_id).toBeNull();
     expect(f.prepareCalls()[0].body).not.toHaveProperty("continue_on_new_page");
-    expect(f.storage.applicationDraft?.preparation?.task_id).not.toBe(
+    expect(perTab(f.storage)?.preparation?.task_id).not.toBe(
       f.previousPreparation.task_id,
     );
     expect(document.getElementById("application-choice")).not.toBeVisible();
@@ -413,14 +425,14 @@ it("carries saved identity through unknown pages and reuses the newest preparati
   const f = await fixture({ observedIdentity: null });
   await f.click();
   await f.click("continue-application");
-  const carried = f.storage.applicationDraft?.preparation;
+  const carried = perTab(f.storage)?.preparation;
   expect(carried?.job_identity).toEqual(originalIdentity);
   f.tab.url = originalUrl + "/review";
   f.readerState.identity = originalIdentity;
   await f.click();
   expect(f.prepareCalls()[1].body.continue_preparation_id).toBe(carried?.id);
   expect(f.prepareCalls()[1].body).not.toHaveProperty("continue_on_new_page");
-  expect(f.storage.applicationDraft?.preparation?.task_id).toBe(
+  expect(perTab(f.storage)?.preparation?.task_id).toBe(
     f.previousPreparation.task_id,
   );
 });
@@ -552,14 +564,14 @@ it("retains the exact observed identity and receipt after a lost reply and reope
   const f = await fixture({ losePrepare: true });
   await f.click();
   const original = structuredClone(f.prepareCalls()[0]);
-  expect(f.storage.applicationDraft?.autofill?.stage).toBe("prepare");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("prepare");
   f.readerState.identity = otherIdentity;
   await f.reopen();
   await f.click();
   expect(f.prepareCalls()).toEqual([original, original]);
   expect(f.receipts.size).toBe(1);
   expect(f.chrome.runtime.sendNativeMessage).toHaveBeenCalledOnce();
-  expect(f.storage.applicationDraft?.autofill?.stage).toBe("done");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("done");
 });
 
 it.each(["tab", "url"])(
@@ -567,14 +579,20 @@ it.each(["tab", "url"])(
   async (change) => {
     const f = await fixture({ losePrepare: true });
     await f.click();
-    if (change === "tab") f.tab.id += 1;
-    else f.tab.url += "?step=other";
-    await f.reopen();
-    await f.click();
-    expect(f.prepareCalls()).toHaveLength(1);
-    expect(document.getElementById("message")).toHaveTextContent(
-      "captured application tab",
-    );
+    if (change === "tab") {
+      // Per-tab drafts: another tab cannot replay the pending operation.
+      f.tab.id += 1;
+      await f.reopen();
+      expect(f.storage["applicationDraft:7"]).toBeDefined();
+    } else {
+      f.tab.url += "?step=other";
+      await f.reopen();
+      await f.click();
+      expect(f.prepareCalls()).toHaveLength(1);
+      expect(document.getElementById("message")).toHaveTextContent(
+        "captured application tab",
+      );
+    }
   },
 );
 
@@ -591,7 +609,7 @@ it.each([originalIdentity, null])(
       expect(f.prepareCalls()[1].body.job_identity).toEqual(identity);
     else expect(f.prepareCalls()[1].body).not.toHaveProperty("job_identity");
     expect(f.prepareCalls()[1].body).not.toHaveProperty("continue_on_new_page");
-    expect(f.storage.applicationDraft?.preparation?.task_id).toBe(
+    expect(perTab(f.storage)?.preparation?.task_id).toBe(
       f.previousPreparation.task_id,
     );
   },

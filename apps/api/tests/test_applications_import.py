@@ -35,7 +35,7 @@ def test_upload_creates_normalized_rows(client):
     response = upload(
         client,
         "company,job_title,job_url,job_location\n"
-        "Acme, Engineer, https://boards.greenhouse.io/acme/jobs/123, Remote\n"
+        "Acme, Engineer, https://boards.greenhouse.io/acme/jobs/123, Remote\n",
     )
     assert response.status_code == 201, response.text
     body = response.json()

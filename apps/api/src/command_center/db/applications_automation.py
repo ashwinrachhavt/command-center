@@ -47,9 +47,7 @@ class ApplicationImport(Base):
     __tablename__ = "application_imports"
     __table_args__ = (
         UniqueConstraint("id", "owner_id", name="uq_application_imports_id_owner"),
-        CheckConstraint(
-            "state IN ('queued', 'running', 'parse_error', 'completed')", name="state"
-        ),
+        CheckConstraint("state IN ('queued', 'running', 'parse_error', 'completed')", name="state"),
         CheckConstraint(f"byte_size BETWEEN 1 AND {MAX_IMPORT_BYTES}", name="byte_size"),
         CheckConstraint("row_version >= 1", name="row_version"),
         CheckConstraint("(state = 'parse_error') = (error IS NOT NULL)", name="error_state"),
@@ -74,9 +72,7 @@ class ApplicationImport(Base):
     __mapper_args__ = {"version_id_col": row_version}
 
     @classmethod
-    def parse_rows(
-        cls, text: str
-    ) -> tuple[list[dict[str, str]], dict[int, str]]:
+    def parse_rows(cls, text: str) -> tuple[list[dict[str, str]], dict[int, str]]:
         """Parse one CSV upload into candidate rows and per-row rejection reasons.
 
         The header requires company, job_title and job_url columns. Rows missing a
@@ -377,8 +373,7 @@ class AutomationRun(Base):
             ["device_id"], ["browser_devices.id"], name="fk_automation_runs_device_id"
         ),
         CheckConstraint(
-            "state IN ('queued', 'running', 'completed', 'failed', 'outcome_unknown', "
-            "'cancelled')",
+            "state IN ('queued', 'running', 'completed', 'failed', 'outcome_unknown', 'cancelled')",
             name="state",
         ),
         CheckConstraint("attempt >= 1", name="attempt"),
@@ -387,9 +382,7 @@ class AutomationRun(Base):
             "(state = 'running') = (run_token IS NOT NULL AND run_token_expires_at IS NOT NULL)",
             name="token_state",
         ),
-        CheckConstraint(
-            "mode = 'fill_only' OR attempt > 0", name="submission_mode"
-        ),
+        CheckConstraint("mode = 'fill_only' OR attempt > 0", name="submission_mode"),
         CheckConstraint("row_version >= 1", name="row_version"),
     )
 
@@ -539,9 +532,7 @@ class AutomationRun(Base):
             self.simplify_step = simplify_step
         self.updated_at = utc_now()
 
-    def _finish(
-        self, state: str, run_token: UUID, *, error: str | None, request_id: UUID
-    ) -> None:
+    def _finish(self, state: str, run_token: UUID, *, error: str | None, request_id: UUID) -> None:
         if not self.accepts(run_token):
             raise RecordConflict("Automation run token was lost")
         session = object_session(self)

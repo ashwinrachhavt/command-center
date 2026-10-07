@@ -60,7 +60,9 @@ def test_skill_loader_never_ingests_adapters(tmp_path, monkeypatch):
     directives.mkdir()
     (directives / "research.md").write_text("Synthetic directive content.")
     profiles_path = tmp_path / "profiles.toml"
-    profiles_path.write_text(tomllib.__name__ and """
+    profiles_path.write_text(
+        tomllib.__name__
+        and """
 [profiles.synthetic]
 name = "Synthetic"
 description = "Synthetic profile"
@@ -72,7 +74,8 @@ skills = ["opportunity-work"]
 directive = "research"
 max_steps = 1
 max_output_tokens = 256
-""")
+"""
+    )
     # A profile cannot reference the adapters subdirectory: slugs cannot contain '/'.
     profiles_bad = profiles_path.read_text().replace(
         'skills = ["opportunity-work"]', 'skills = ["adapters/greenhouse"]'

@@ -6,6 +6,18 @@ import { afterEach, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/dom";
 import type { components } from "./api-types";
 
+// Typed accessor for the per-tab draft key the popup writes.
+type DraftRecord = {
+  autofill?: { stage: string };
+  snapshot?: { id: string };
+  structure?: { engine?: string };
+  preparation?: { task_id?: string; id?: string; job_identity?: unknown };
+  [key: string]: unknown;
+};
+const perTab = (storage: unknown): DraftRecord | undefined =>
+  (storage as Record<string, DraftRecord | undefined>)["applicationDraft:7"];
+
+
 type Snapshot = components["schemas"]["SnapshotCreate"];
 type Preparation = components["schemas"]["ApplicationPreparationRead"];
 type Operation = {
@@ -219,7 +231,7 @@ afterEach(() => vi.unstubAllGlobals());
 it("keeps query-distinct jobs separate until a persistent explicit choice", async () => {
   const state = await fixture();
   await state.click("autofill");
-  expect(state.storage.applicationDraft).toMatchObject({
+  expect(state.storage["applicationDraft:7"]).toMatchObject({
     snapshot: state.currentSnapshot,
     structure: state.structure,
     pageUrl: nextUrl,
@@ -260,7 +272,7 @@ it("keeps query-distinct jobs separate until a persistent explicit choice", asyn
     continue_preparation_id: state.previousPreparation.id,
     continue_on_new_page: true,
   });
-  expect(state.storage.applicationDraft?.autofill?.stage).toBe("done");
+  expect(perTab(state.storage)?.autofill?.stage).toBe("done");
 });
 
 it("starts a separate application only after the new-application choice", async () => {
@@ -280,7 +292,7 @@ it("retains explicit continuation and the exact request across a lost reply and 
   const state = await fixture({ losePrepare: true });
   await state.click("autofill");
   await state.click("continue-application");
-  expect(state.storage.applicationDraft?.autofill).toMatchObject({
+  expect(perTab(state.storage)?.autofill).toMatchObject({
     stage: "prepare",
     previousId: state.previousPreparation.id,
     continueOnNewPage: true,
@@ -295,7 +307,7 @@ it("retains explicit continuation and the exact request across a lost reply and 
   expect(state.prepareCalls()).toEqual([firstRequest, firstRequest]);
   expect(state.receipts.size).toBe(1);
   expect(state.chrome.tabs.sendMessage).toHaveBeenCalledTimes(1);
-  expect(state.storage.applicationDraft?.autofill?.stage).toBe("done");
+  expect(perTab(state.storage)?.autofill?.stage).toBe("done");
 });
 
 it.each(["tab", "url"])(
@@ -307,7 +319,7 @@ it.each(["tab", "url"])(
     else state.tab.url += "&step=2";
     await state.click("continue-application");
     expect(state.calls.filter((call) => call.key)).toEqual([]);
-    expect(state.storage.applicationDraft?.autofill?.stage).toBe(
+    expect(perTab(state.storage)?.autofill?.stage).toBe(
       "choose_application",
     );
     expect(document.getElementById("message")).toHaveTextContent(
@@ -339,7 +351,7 @@ it("keeps automatic continuation and the legacy request body for the exact same 
 
 it("resumes a legacy saved operation without changing its preparation request", async () => {
   const state = await fixture();
-  state.storage.applicationDraft = {
+  state.storage["applicationDraft:7"] = {
     snapshot: state.currentSnapshot,
     pageUrl: nextUrl,
     receipts: { "auto-prepare": "synthetic-legacy-receipt" },
@@ -373,6 +385,7 @@ it("can discard a pending choice and capture a fresh application", async () => {
   const state = await fixture();
   await state.click("autofill");
   await state.click("discard-draft");
+  expect(state.storage["applicationDraft:7"]).toBeUndefined();
   expect(state.storage.applicationDraft).toBeUndefined();
   expect(document.getElementById("application-choice")).not.toBeVisible();
   await state.click("autofill");

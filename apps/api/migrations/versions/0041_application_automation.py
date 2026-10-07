@@ -37,9 +37,7 @@ def upgrade() -> None:
                 CHECK ((state = 'parse_error') = (error IS NOT NULL))
         )
     """)
-    op.execute(
-        "CREATE INDEX ix_application_imports_owner_id ON application_imports (owner_id)"
-    )
+    op.execute("CREATE INDEX ix_application_imports_owner_id ON application_imports (owner_id)")
     op.execute("""
         CREATE TABLE applications (
             id UUID PRIMARY KEY,

@@ -42,8 +42,7 @@ def pair(client) -> dict[str, str]:
 
 
 GREENHOUSE_CSV = (
-    "company,job_title,job_url\n"
-    "Acme,Engineer,https://boards.greenhouse.io/acme/jobs/123\n"
+    "company,job_title,job_url\nAcme,Engineer,https://boards.greenhouse.io/acme/jobs/123\n"
 )
 
 
@@ -65,9 +64,7 @@ def test_poll_claims_queued_run_with_token(client):
         client, f"applications-automation/applications/{application_id}/runs", {"mode": "fill_only"}
     )
     assert queued["state"] == "queued"
-    poll = client.get(
-        "/api/v1/browser/device/automation/commands", headers=device
-    )
+    poll = client.get("/api/v1/browser/device/automation/commands", headers=device)
     assert poll.status_code == 200, poll.text
     commands = poll.json()
     assert len(commands) == 1
@@ -120,9 +117,7 @@ def test_result_completes_run_and_updates_application(client):
         },
     )
     assert result.status_code == 200, result.text
-    detail = client.get(
-        f"/api/v1/applications-automation/applications/{application_id}"
-    ).json()
+    detail = client.get(f"/api/v1/applications-automation/applications/{application_id}").json()
     assert detail["status"] == "ready_for_review"
     assert detail["submit_authorized_at"] is None
 

@@ -773,7 +773,9 @@ class ToolRegistry:
             for item in result["items"]
         ]
         end = result["offset"] + len(items)
-        return result | {"items": items, "next_offset": end if end < result["total"] else None}
+        merged: dict[str, Any] = {**result, "items": items}
+        merged["next_offset"] = end if end < result["total"] else None
+        return merged
 
     def suggest_application_answers(self, arguments: dict[str, Any]) -> dict[str, Any]:
         result = self.request(

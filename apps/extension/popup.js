@@ -20,26 +20,32 @@ let connection = stored.connection;
 let draft = draftKey ? stored[draftKey] : undefined;
 // Upgrade the old shared draft once, only into its actual application tab.
 // Web Locks serialize migration across side panels without a resident worker.
+// Contexts without Web Locks (non-Chrome hosts) migrate without the lock; the
+// migration is idempotent, so a racing panel only re-runs the same copy.
+async function migrateLegacyDraft() {
+  const current = await chrome.storage.local.get([
+    draftKey,
+    "applicationDraft",
+  ]);
+  if (current[draftKey]) return current[draftKey];
+  const legacy = current.applicationDraft;
+  const url =
+    legacy?.pageUrl ??
+    legacy?.snapshot?.full_url ??
+    legacy?.snapshot?.page_url;
+  if (url !== panelTab.url) return undefined;
+  await chrome.storage.local.set({ [draftKey]: legacy });
+  await chrome.storage.local.remove("applicationDraft");
+  return legacy;
+}
 if (draftKey && !draft && stored.applicationDraft) {
-  draft = await navigator.locks.request(
-    "command-center-draft-migration",
-    async () => {
-      const current = await chrome.storage.local.get([
-        draftKey,
-        "applicationDraft",
-      ]);
-      if (current[draftKey]) return current[draftKey];
-      const legacy = current.applicationDraft;
-      const url =
-        legacy?.pageUrl ??
-        legacy?.snapshot?.full_url ??
-        legacy?.snapshot?.page_url;
-      if (url !== panelTab.url) return undefined;
-      await chrome.storage.local.set({ [draftKey]: legacy });
-      await chrome.storage.local.remove("applicationDraft");
-      return legacy;
-    },
-  );
+  draft = navigator.locks
+    ? await navigator.locks.request("command-center-draft-migration", migrateLegacyDraft)
+    : await migrateLegacyDraft();
+  // An unmigrated legacy draft belongs to another tab, but it still carries
+  // this workspace's continuations; reads continue until a panel on the
+  // actual tab migrates it. Saves always target this panel's per-tab key.
+  draft ??= stored.applicationDraft;
 }
 let claimedCommands = new Set(stored.claimedCommands ?? []);
 let generationTimer;
@@ -286,7 +292,9 @@ async function activeTab(requestAccess = false) {
     // access to the newly selected tab. Ask for only this site's permission
     // from the explicit button gesture, never from a background refresh.
     const permission = { origins: [`${page.protocol}//${page.hostname}/*`] };
-    if (!(await chrome.permissions.contains(permission))) {
+    // Contexts without the permissions namespace (non-extension hosts) skips
+    // the prompt; Chrome always provides it for extension pages.
+    if (chrome.permissions && !(await chrome.permissions.contains(permission))) {
       const granted = await chrome.permissions.request(permission);
       if (!granted)
         throw new Error(
@@ -1351,7 +1359,17 @@ function sameJob(left, right) {
 }
 
 async function autofillTab(operation) {
-  const tab = await activeTab();
+  // The captured operation defines the tab that matters; a global panel moving
+  // to another tab is the captured-tab mismatch, not a lost panel.
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!Number.isInteger(tab?.id) || tab.id < 0)
+    throw new Error(
+      "Open the application form in this Chrome window, then try Autofill again.",
+    );
+  if (!tab.url || !/^https?:\/\//.test(tab.url))
+    throw new Error(
+      "Select an application website tab. Chrome settings and extension pages cannot be filled.",
+    );
   if (tab.id !== operation.tabId || tab.url !== operation.pageUrl)
     throw new Error(
       "Return to the captured application tab, or start over on this page.",
@@ -1691,7 +1709,11 @@ async function runAutofill() {
 element("autofill").addEventListener("click", (event) =>
   action(event.currentTarget, async () => {
     autofillStatus("Waiting for the active autofill to finish…");
-    await navigator.locks.request("command-center-autofill", runAutofill);
+    // Contexts without Web Locks take the lock-free path; Chrome side panels
+    // always serialize here.
+    if (navigator.locks)
+      await navigator.locks.request("command-center-autofill", runAutofill);
+    else await runAutofill();
   }),
 );
 
@@ -1970,6 +1992,8 @@ element("discard-draft").addEventListener("click", async () => {
   clearTimeout(generationTimer);
   draft = undefined;
   if (draftKey) await chrome.storage.local.remove(draftKey);
+  // The working draft may be an unmigrated legacy copy; discard removes both.
+  await chrome.storage.local.remove("applicationDraft");
   element("preparation").hidden = true;
   element("application-title").textContent = "Your next opportunity.";
   element("page-location").hidden = true;
@@ -2027,6 +2051,10 @@ const automationOriginsKey = "grantedOrigins";
 const automationEnabledKey = "automationSettings";
 
 async function renderAutomationOrigins() {
+  if (!chrome.permissions?.getAll) {
+    automationOrigins.replaceChildren();
+    return;
+  }
   const granted = new Set((await chrome.permissions.getAll()).origins ?? []);
   const stored = await chrome.storage.local.get({ [automationOriginsKey]: [] });
   const tracked = stored[automationOriginsKey].filter((origin) => granted.has(`${origin}/*`) || granted.has(origin));
@@ -2097,5 +2125,5 @@ const storedAutomation = await chrome.storage.local.get({
   [automationEnabledKey]: { enabled: false },
   [automationOriginsKey]: [],
 });
-automationEnabled.checked = storedAutomation[automationEnabledKey].enabled === true;
+automationEnabled.checked = storedAutomation[automationEnabledKey]?.enabled === true;
 await renderAutomationOrigins();
