@@ -4,7 +4,7 @@ import base64
 import binascii
 import hashlib
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import Field, HttpUrl, model_validator
@@ -325,3 +325,84 @@ class ApplyMessage(s.Contract):
 
 class ApplyResult(FillResult):
     message: str = Field(default="", max_length=500)
+
+
+class AdapterField(s.Contract):
+    """One field of an ordered adapter step; selectors are direct CSS only."""
+
+    id: FieldId
+    label: OptionLabel = ""
+    selector: str = Field(min_length=1, max_length=500)
+    source: str = Field(min_length=1, max_length=200)
+    required: bool = False
+    settle_ms: int = Field(default=0, ge=0, le=30000)
+
+
+class AdapterStep(s.Contract):
+    """One ordered adapter phase: identity, resume, question, validate or Simplify."""
+
+    kind: Literal["identity", "resume", "question", "validate", "simplify_handoff"]
+    fields: list[AdapterField] = Field(default_factory=list, max_length=50)
+    required_fields: list[FieldId] = Field(default_factory=list, max_length=50)
+    selector: str | None = Field(default=None, max_length=500)
+    on_unavailable: Literal["continue", "stop"] = "continue"
+    settle_ms: int = Field(default=0, ge=0, le=60000)
+
+
+class AdapterDefinition(s.Contract):
+    """Served site adapter; the revision pins the YAML content a run was built on."""
+
+    platform: JobPlatform
+    revision: Sha256
+    match_host: str = Field(min_length=1, max_length=200)
+    settle_ms: int = Field(default=0, ge=0, le=60000)
+    steps: list[AdapterStep] = Field(min_length=1, max_length=20)
+
+
+class AutomationApplicationSummary(s.Contract):
+    id: UUID
+    company: str = Field(min_length=1, max_length=2048)
+    job_title: str = Field(min_length=1, max_length=2048)
+    job_url: str = Field(min_length=1, max_length=4096)
+    job_location: str | None = Field(default=None, max_length=2048)
+    mode: Literal["fill_only", "submit"]
+
+
+class PendingAutomationCommand(s.Contract):
+    run_id: UUID
+    run_token: str = Field(min_length=16, max_length=64)
+    attempt: int = Field(ge=1)
+    application: AutomationApplicationSummary
+    adapter: AdapterDefinition
+    mode: Literal["fill_only", "submit"]
+    expires_at: datetime | None = None
+
+
+class AutomationClaimResult(s.Contract):
+    state: Literal["claimed"]
+    run_id: UUID
+    run_token: str = Field(min_length=16, max_length=64)
+    expires_at: datetime
+
+
+class FieldEvidence(s.Contract):
+    """DOM-structural evidence for one attempted field; never a screenshot."""
+
+    status: Literal[
+        "filled", "uploaded", "preserved", "unsupported", "rejected", "failed", "outcome_unknown"
+    ]
+    selector: str = Field(default="", max_length=500)
+    matched_label: str = Field(default="", max_length=500)
+    detail: str = Field(default="", max_length=500)
+
+
+class AutomationEvidenceReport(s.Contract):
+    run_token: str = Field(min_length=16, max_length=64)
+    field_evidence: dict[str, FieldEvidence] = Field(max_length=100)
+    page_evidence: dict[str, Any] | None = None
+    simplify_step: dict[str, Any] | None = None
+
+
+class AutomationRunResult(AutomationEvidenceReport):
+    state: Literal["completed", "failed", "outcome_unknown"]
+    detail: str = Field(default="", max_length=500)

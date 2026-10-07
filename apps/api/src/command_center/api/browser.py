@@ -11,12 +11,16 @@ from sqlalchemy import select
 
 from command_center.api import schemas as s
 from command_center.api.browser_contracts import (
+    AutomationClaimResult,
+    AutomationEvidenceReport,
+    AutomationRunResult,
     ClaimResult,
     FillCreate,
     FillResult,
     PairCreate,
     PairCredentials,
     PairExchange,
+    PendingAutomationCommand,
     PendingCommand,
     ResumeOptions,
     SnapshotCreate,
@@ -24,6 +28,7 @@ from command_center.api.browser_contracts import (
 from command_center.api.workspace import Database, WriteKey, serialize, write
 from command_center.core.auth import bearer
 from command_center.core.identity import CurrentIdentity
+from command_center.db.applications_automation import Application, AutomationRun
 from command_center.db.base import utc_now
 from command_center.db.browser import (
     BrowserCommand,
@@ -399,3 +404,169 @@ def command_file(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@router.get("/device/automation/commands", response_model=list[PendingAutomationCommand])
+def automation_commands(device: Device, db: Database, request: Request) -> list[dict[str, Any]]:
+    """Poll for one queued automation run. Claim is fenced and device-scoped.
+
+    A retry after an expired token receives a recycled run with a fresh token;
+    each claim is the only holder of its run_token.
+    """
+    run = AutomationRun.claim(db, device_id=device.id, owner_id=device.owner_id)
+    if run is None:
+        return []
+    application = db.get(Application, run.application_id)
+    if application is None:
+        raise RecordConflict("The claimed application is unavailable")
+    from command_center.db.adapters import load_adapter_definition
+
+    try:
+        adapter = load_adapter_definition(run.adapter_platform)
+    except ValueError:
+        run.fail(
+            run.run_token,  # type: ignore[arg-type]
+            error="adapter_unavailable",
+            request_id=UUID(request.state.request_id),
+        )
+        return []
+    return [
+        {
+            "run_id": str(run.id),
+            "run_token": str(run.run_token),
+            "expires_at": run.run_token_expires_at,
+            "attempt": run.attempt,
+            "mode": run.mode,
+            "application": {
+                "id": str(application.id),
+                "company": application.company,
+                "job_title": application.job_title,
+                "job_url": application.job_url,
+                "job_location": application.job_location,
+                "mode": run.mode,
+            },
+            "adapter": adapter.model_dump(),
+        }
+    ]
+
+
+@router.post("/device/automation/commands/{run_id}/claim", response_model=AutomationClaimResult)
+def automation_claim(
+    run_id: UUID, device: Device, db: Database, request: Request
+) -> dict[str, Any]:
+    run = db.scalar(
+        select(AutomationRun).where(
+            AutomationRun.id == run_id,
+            AutomationRun.device_id == device.id,
+            AutomationRun.owner_id == device.owner_id,
+        )
+    )
+    if run is None or run.run_token is None:
+        raise HTTPException(404, "Automation run not found")
+    return {
+        "state": "claimed",
+        "run_id": str(run.id),
+        "run_token": str(run.run_token),
+        "expires_at": run.run_token_expires_at,
+    }
+
+
+@router.post("/device/automation/commands/{run_id}/evidence")
+def automation_evidence(
+    run_id: UUID, body: AutomationEvidenceReport, device: Device, db: Database
+) -> dict[str, str]:
+    """Persist mid-run evidence; fenced by the claim's run_token."""
+    run = db.scalar(
+        select(AutomationRun).where(
+            AutomationRun.id == run_id,
+            AutomationRun.device_id == device.id,
+            AutomationRun.owner_id == device.owner_id,
+        )
+    )
+    if run is None:
+        raise HTTPException(404, "Automation run not found")
+    try:
+        run.report(
+            UUID(body.run_token),
+            field_evidence={key: value.model_dump() for key, value in body.field_evidence.items()},
+            page_evidence=body.page_evidence,
+            simplify_step=body.simplify_step,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"state": "recorded"}
+
+
+@router.post("/device/automation/commands/{run_id}/result")
+def automation_result(
+    run_id: UUID, body: AutomationRunResult, device: Device, db: Database
+) -> dict[str, str]:
+    """Record one run's terminal state; dispatches by the reported state."""
+    run = db.scalar(
+        select(AutomationRun).where(
+            AutomationRun.id == run_id,
+            AutomationRun.device_id == device.id,
+            AutomationRun.owner_id == device.owner_id,
+        )
+    )
+    if run is None:
+        raise HTTPException(404, "Automation run not found")
+    token = UUID(body.run_token)
+    evidence = {key: value.model_dump() for key, value in body.field_evidence.items()}
+    request_id = UUID(body.run_token)  # deterministic per attempt; token is the fence
+    try:
+        if body.state == "completed":
+            run.complete(
+                token,
+                field_evidence=evidence,
+                page_evidence=body.page_evidence,
+                simplify_step=body.simplify_step,
+                request_id=request_id,
+            )
+        elif body.state == "failed":
+            run.fail(token, error=body.detail, field_evidence=evidence, request_id=request_id)
+        else:
+            run.mark_outcome_unknown(
+                token, detail=body.detail, field_evidence=evidence, request_id=request_id
+            )
+    except RecordConflict as exc:
+        raise HTTPException(409, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"state": "recorded"}
+
+
+@router.get("/device/adapters")
+def device_adapters(device: Device) -> list[dict[str, str]]:
+    """Served adapter index: platform, revision, host match."""
+
+    from command_center.db.adapters import ADAPTERS_DIR
+
+    index = []
+    for path in sorted(ADAPTERS_DIR.glob("*.yaml")):
+        from command_center.db.adapters import load_adapter_definition
+
+        try:
+            adapter = load_adapter_definition(path.stem)
+        except ValueError:
+            continue
+        index.append(
+            {
+                "platform": adapter.platform,
+                "revision": adapter.revision,
+                "match_host": adapter.match_host,
+            }
+        )
+    return index
+
+
+@router.get("/device/adapters/{platform}")
+def device_adapter(platform: str, device: Device) -> dict[str, Any]:
+    """One full served adapter definition."""
+    from command_center.db.adapters import load_adapter_definition
+
+    try:
+        adapter = load_adapter_definition(platform)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+    return adapter.model_dump()

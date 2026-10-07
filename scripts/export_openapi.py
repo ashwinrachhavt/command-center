@@ -33,9 +33,14 @@ models = {
         "PendingCommand",
         "ClaimResult",
         "FillResult",
+        "AdapterDefinition",
+        "PendingAutomationCommand",
+        "AutomationClaimResult",
+        "AutomationRunResult",
     )
 }
 models["PendingCommands"] = list[browser_contracts.PendingCommand]
+models["PendingAutomationCommands"] = list[browser_contracts.PendingAutomationCommand]
 Path(".local/browser-contracts.json").write_text(
     json.dumps(
         {name: TypeAdapter(model).json_schema() for name, model in models.items()},

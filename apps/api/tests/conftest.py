@@ -13,6 +13,7 @@ from command_center.db import (  # noqa: F401
     agent_events,
     agent_questions,
     application_preparations,
+    applications_automation,
     artifacts,
     document_decisions,
     document_imports,

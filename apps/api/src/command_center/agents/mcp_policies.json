@@ -1,4 +1,9 @@
 {
+  "DELETE /api/v1/applications-automation/applications/{application_id}/authorization": {
+    "name": "cc_applications_revoke_submit",
+    "policy": "human",
+    "reason": "Submission revocation is a human decision; never a model tool."
+  },
   "GET /api/v1/activity": {
     "name": "cc_workspace_activity",
     "policy": "tool",
@@ -44,6 +49,11 @@
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
   },
+  "GET /api/v1/agent-sessions/{record_id}/checkpoints": {
+    "name": "cc_conversations_checkpoints",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
+  },
   "GET /api/v1/agent-sessions/{record_id}/messages": {
     "name": "cc_conversations_messages",
     "policy": "tool",
@@ -73,6 +83,26 @@
     "name": "cc_applications_applications",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/applications-automation/applications": {
+    "name": "cc_applications_automation_list",
+    "policy": "tool",
+    "reason": "Workspace-faceted write covered by the workspace token policy."
+  },
+  "GET /api/v1/applications-automation/applications/{application_id}": {
+    "name": "cc_applications_automation_detail",
+    "policy": "tool",
+    "reason": "Workspace-faceted write covered by the workspace token policy."
+  },
+  "GET /api/v1/applications-automation/imports": {
+    "name": "cc_automation_imports",
+    "policy": "transport",
+    "reason": "Device/ext-facing read; not a general model tool."
+  },
+  "GET /api/v1/applications-automation/imports/{import_id}": {
+    "name": "cc_applications_import_detail",
+    "policy": "tool",
+    "reason": "Workspace-faceted write covered by the workspace token policy."
   },
   "GET /api/v1/applications/{task_id}": {
     "name": "cc_applications_detail",
@@ -143,6 +173,21 @@
     "name": "cc_browser_cover_letters",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/browser/device/adapters": {
+    "name": "cc_automation_adapters",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/adapters/{platform}": {
+    "name": "cc_automation_adapter",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "GET /api/v1/browser/device/automation/commands": {
+    "name": "cc_automation_pending_commands",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
   },
   "GET /api/v1/browser/device/commands": {
     "name": "cc_browser_pending_commands",
@@ -284,6 +329,11 @@
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
   },
+  "GET /api/v1/documents/decisions/{decision_id}": {
+    "name": "cc_document_decisions_inspect_decision",
+    "policy": "tool",
+    "reason": "Read one existing owner-scoped document assessment and its recorded evidence; no execution authority."
+  },
   "GET /api/v1/documents/imports": {
     "name": "cc_documents_list_imports",
     "policy": "tool",
@@ -294,10 +344,30 @@
     "policy": "tool",
     "reason": "Check an uploaded Document Vault import and its extraction status, original and extracted version references. Read completed contents with document_read."
   },
+  "GET /api/v1/documents/policy": {
+    "name": "cc_document_decisions_get_document_policy",
+    "policy": "tool",
+    "reason": "Inspect the owner's document classification and rename settings without changing consent or execution policy."
+  },
   "GET /api/v1/documents/versions/{version_id}/text": {
     "name": "document_read",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification": {
+    "name": "cc_document_decisions_get_classification",
+    "policy": "tool",
+    "reason": "Inspect an owned document's existing type assessment and pending human review without provider calls."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification/history": {
+    "name": "cc_document_decisions_decision_history",
+    "policy": "tool",
+    "reason": "Read the paginated assessment history of an owned document without new inference."
+  },
+  "GET /api/v1/documents/{artifact_id}/classification/reviews": {
+    "name": "cc_document_decisions_review_history",
+    "policy": "tool",
+    "reason": "Inspect an owned document's recorded human review history without approving or changing it."
   },
   "GET /api/v1/follow-ups/{artifact_id}": {
     "name": "cc_correspondence_get_follow_up",
@@ -414,6 +484,16 @@
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
   },
+  "GET /api/v1/spaces": {
+    "name": "cc_spaces_list_spaces",
+    "policy": "tool",
+    "reason": "List owner-scoped Spaces; archived contexts require an explicit filter."
+  },
+  "GET /api/v1/spaces/{space_id}": {
+    "name": "cc_spaces_get_space",
+    "policy": "tool",
+    "reason": "Inspect an owned Space and its existing owner-scoped record links."
+  },
   "GET /api/v1/spending": {
     "name": "cc_spending_spending",
     "policy": "tool",
@@ -433,6 +513,11 @@
     "name": "cc_spending_rate_cards",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "GET /api/v1/system/status": {
+    "name": "cc_system_status",
+    "policy": "human",
+    "reason": "Operator status uses the separate API administrator credential; inspect it in the local operator flow."
   },
   "GET /api/v1/tasks": {
     "name": "cc_workspace_list_tasks",
@@ -473,6 +558,11 @@
     "name": "cc_writing_read_recovery",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "PATCH /api/v1/agent-sessions/{record_id}": {
+    "name": "cc_conversations_rename_session",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
   },
   "PATCH /api/v1/applications/{task_id}": {
     "name": "cc_applications_update",
@@ -524,6 +614,11 @@
     "policy": "tool",
     "reason": "Unapproved proposal revision only; never authorize or execute connected write."
   },
+  "PATCH /api/v1/spaces/{space_id}": {
+    "name": "cc_spaces_update_space",
+    "policy": "tool",
+    "reason": "Edit an owned Space title or purpose with revision checks, idempotency and audit."
+  },
   "PATCH /api/v1/tasks/{record_id}": {
     "name": "cc_workspace_update_task",
     "policy": "tool",
@@ -549,6 +644,11 @@
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
   },
+  "POST /api/v1/agent-sessions/{record_id}/checkpoints": {
+    "name": "cc_conversations_create_checkpoint",
+    "policy": "human",
+    "reason": "Conversation checkpoint and organization controls belong to the human owner."
+  },
   "POST /api/v1/agent-sessions/{record_id}/messages": {
     "name": "cc_conversations_receive_message",
     "policy": "tool",
@@ -558,6 +658,21 @@
     "name": "save_application_material",
     "policy": "runtime",
     "reason": "Requires the assigned live AgentRun and exact material request."
+  },
+  "POST /api/v1/applications-automation/applications/{application_id}/authorization": {
+    "name": "cc_applications_authorize_submit",
+    "policy": "human",
+    "reason": "Submission authorization is a human decision; never a model tool."
+  },
+  "POST /api/v1/applications-automation/applications/{application_id}/runs": {
+    "name": "cc_applications_queue_run",
+    "policy": "tool",
+    "reason": "Workspace-faceted write covered by the workspace token policy."
+  },
+  "POST /api/v1/applications-automation/csv": {
+    "name": "cc_applications_import_csv",
+    "policy": "tool",
+    "reason": "Workspace-faceted write covered by the workspace token policy."
   },
   "POST /api/v1/applications/{task_id}/job-context": {
     "name": "cc_applications_add_context",
@@ -603,6 +718,21 @@
     "name": "cc_browser_propose_fill",
     "policy": "human",
     "reason": "Issues a command to the open browser companion; requires a human browser flow."
+  },
+  "POST /api/v1/browser/device/automation/commands/{run_id}/claim": {
+    "name": "cc_automation_claim",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/automation/commands/{run_id}/evidence": {
+    "name": "cc_automation_evidence",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
+  },
+  "POST /api/v1/browser/device/automation/commands/{run_id}/result": {
+    "name": "cc_automation_result",
+    "policy": "transport",
+    "reason": "Browser device or streaming transport protocol; not a general model tool."
   },
   "POST /api/v1/browser/device/commands": {
     "name": "cc_browser_device_propose_fill",
@@ -744,6 +874,26 @@
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
   },
+  "POST /api/v1/documents/renames/{rename_id}/apply": {
+    "name": "cc_document_decisions_apply_rename",
+    "policy": "human",
+    "reason": "Applying an exact reviewed document rename requires the human workspace owner."
+  },
+  "POST /api/v1/documents/renames/{rename_id}/cancel": {
+    "name": "cc_document_decisions_cancel_rename",
+    "policy": "human",
+    "reason": "Cancelling a pending reviewed document rename belongs to the human review workflow."
+  },
+  "POST /api/v1/documents/{artifact_id}/classification": {
+    "name": "cc_document_decisions_request_classification",
+    "policy": "human",
+    "reason": "Sending extracted text and comparison context to a paid provider requires explicit human acknowledgement."
+  },
+  "POST /api/v1/documents/{artifact_id}/classification/review": {
+    "name": "cc_document_decisions_review_classification",
+    "policy": "human",
+    "reason": "Accepting or retaining a document type is an exact human review, never model approval."
+  },
   "POST /api/v1/gmail/search": {
     "name": "gmail_search",
     "policy": "tool",
@@ -783,6 +933,11 @@
     "name": "capture_lead",
     "policy": "tool",
     "reason": "Owner-scoped workspace operation; normal client authorization and idempotency apply."
+  },
+  "POST /api/v1/leads/intake": {
+    "name": "capture_lead_content",
+    "policy": "tool",
+    "reason": "Save private source content and linked lead records atomically. Uses owned records and immutable provenance; performs no external writes."
   },
   "POST /api/v1/mcp-clients": {
     "name": "cc_mcp_clients_create_client",
@@ -889,6 +1044,36 @@
     "policy": "human",
     "reason": "Exact connected action approval dispatches an external write; requires real human review."
   },
+  "POST /api/v1/spaces": {
+    "name": "cc_spaces_create_space",
+    "policy": "tool",
+    "reason": "Create ordinary owner-scoped workspace context with idempotency and audit; no external execution."
+  },
+  "POST /api/v1/spaces/{space_id}/archive": {
+    "name": "cc_spaces_archive_space",
+    "policy": "tool",
+    "reason": "Reversibly archive an owned Space with revision checks; linked records are preserved."
+  },
+  "POST /api/v1/spaces/{space_id}/links": {
+    "name": "cc_spaces_link_space_record",
+    "policy": "tool",
+    "reason": "Link an existing same-owner record to an active Space; no record copying or external execution."
+  },
+  "POST /api/v1/spaces/{space_id}/links/{link_id}/unlink": {
+    "name": "cc_spaces_unlink_space_record",
+    "policy": "tool",
+    "reason": "Remove an owned Space membership with revision checks while preserving the linked record."
+  },
+  "POST /api/v1/spaces/{space_id}/restore": {
+    "name": "cc_spaces_restore_space",
+    "policy": "tool",
+    "reason": "Restore an owned archived Space with revision checks, idempotency and audit."
+  },
+  "POST /api/v1/spaces/{space_id}/tasks": {
+    "name": "cc_spaces_create_space_task",
+    "policy": "tool",
+    "reason": "Atomically capture an ordinary owned task and its Space link; never dispatches agent work."
+  },
   "POST /api/v1/spending/defaults": {
     "name": "cc_spending_apply_defaults",
     "policy": "human",
@@ -929,6 +1114,11 @@
     "policy": "human",
     "reason": "Working editor drafts belong to the human; agents propose separate immutable artifact versions."
   },
+  "PUT /api/v1/documents/policy": {
+    "name": "cc_document_decisions_update_document_policy",
+    "policy": "human",
+    "reason": "External processing consent, automatic classification and rename policy require the human workspace owner."
+  },
   "PUT /api/v1/spending/opportunities/{opportunity_id}": {
     "name": "cc_spending_configure_opportunity",
     "policy": "human",
@@ -948,125 +1138,5 @@
     "name": "cc_writing_save_draft",
     "policy": "human",
     "reason": "Working editor drafts belong to the human; agents propose separate immutable artifact versions."
-  },
-  "GET /api/v1/system/status": {
-    "name": "cc_system_status",
-    "policy": "human",
-    "reason": "Operator status uses the separate API administrator credential; inspect it in the local operator flow."
-  },
-  "POST /api/v1/leads/intake": {
-    "name": "capture_lead_content",
-    "policy": "tool",
-    "reason": "Save private source content and linked lead records atomically. Uses owned records and immutable provenance; performs no external writes."
-  },
-  "GET /api/v1/spaces": {
-    "name": "cc_spaces_list_spaces",
-    "policy": "tool",
-    "reason": "List owner-scoped Spaces; archived contexts require an explicit filter."
-  },
-  "GET /api/v1/spaces/{space_id}": {
-    "name": "cc_spaces_get_space",
-    "policy": "tool",
-    "reason": "Inspect an owned Space and its existing owner-scoped record links."
-  },
-  "POST /api/v1/spaces": {
-    "name": "cc_spaces_create_space",
-    "policy": "tool",
-    "reason": "Create ordinary owner-scoped workspace context with idempotency and audit; no external execution."
-  },
-  "PATCH /api/v1/spaces/{space_id}": {
-    "name": "cc_spaces_update_space",
-    "policy": "tool",
-    "reason": "Edit an owned Space title or purpose with revision checks, idempotency and audit."
-  },
-  "POST /api/v1/spaces/{space_id}/archive": {
-    "name": "cc_spaces_archive_space",
-    "policy": "tool",
-    "reason": "Reversibly archive an owned Space with revision checks; linked records are preserved."
-  },
-  "POST /api/v1/spaces/{space_id}/restore": {
-    "name": "cc_spaces_restore_space",
-    "policy": "tool",
-    "reason": "Restore an owned archived Space with revision checks, idempotency and audit."
-  },
-  "POST /api/v1/spaces/{space_id}/links": {
-    "name": "cc_spaces_link_space_record",
-    "policy": "tool",
-    "reason": "Link an existing same-owner record to an active Space; no record copying or external execution."
-  },
-  "POST /api/v1/spaces/{space_id}/links/{link_id}/unlink": {
-    "name": "cc_spaces_unlink_space_record",
-    "policy": "tool",
-    "reason": "Remove an owned Space membership with revision checks while preserving the linked record."
-  },
-  "POST /api/v1/spaces/{space_id}/tasks": {
-    "name": "cc_spaces_create_space_task",
-    "policy": "tool",
-    "reason": "Atomically capture an ordinary owned task and its Space link; never dispatches agent work."
-  },
-  "GET /api/v1/documents/policy": {
-    "name": "cc_document_decisions_get_document_policy",
-    "policy": "tool",
-    "reason": "Inspect the owner's document classification and rename settings without changing consent or execution policy."
-  },
-  "GET /api/v1/documents/{artifact_id}/classification": {
-    "name": "cc_document_decisions_get_classification",
-    "policy": "tool",
-    "reason": "Inspect an owned document's existing type assessment and pending human review without provider calls."
-  },
-  "GET /api/v1/documents/decisions/{decision_id}": {
-    "name": "cc_document_decisions_inspect_decision",
-    "policy": "tool",
-    "reason": "Read one existing owner-scoped document assessment and its recorded evidence; no execution authority."
-  },
-  "GET /api/v1/documents/{artifact_id}/classification/history": {
-    "name": "cc_document_decisions_decision_history",
-    "policy": "tool",
-    "reason": "Read the paginated assessment history of an owned document without new inference."
-  },
-  "GET /api/v1/documents/{artifact_id}/classification/reviews": {
-    "name": "cc_document_decisions_review_history",
-    "policy": "tool",
-    "reason": "Inspect an owned document's recorded human review history without approving or changing it."
-  },
-  "PUT /api/v1/documents/policy": {
-    "name": "cc_document_decisions_update_document_policy",
-    "policy": "human",
-    "reason": "External processing consent, automatic classification and rename policy require the human workspace owner."
-  },
-  "POST /api/v1/documents/{artifact_id}/classification": {
-    "name": "cc_document_decisions_request_classification",
-    "policy": "human",
-    "reason": "Sending extracted text and comparison context to a paid provider requires explicit human acknowledgement."
-  },
-  "POST /api/v1/documents/{artifact_id}/classification/review": {
-    "name": "cc_document_decisions_review_classification",
-    "policy": "human",
-    "reason": "Accepting or retaining a document type is an exact human review, never model approval."
-  },
-  "POST /api/v1/documents/renames/{rename_id}/apply": {
-    "name": "cc_document_decisions_apply_rename",
-    "policy": "human",
-    "reason": "Applying an exact reviewed document rename requires the human workspace owner."
-  },
-  "POST /api/v1/documents/renames/{rename_id}/cancel": {
-    "name": "cc_document_decisions_cancel_rename",
-    "policy": "human",
-    "reason": "Cancelling a pending reviewed document rename belongs to the human review workflow."
-  },
-  "GET /api/v1/agent-sessions/{record_id}/checkpoints": {
-    "name": "cc_conversations_checkpoints",
-    "policy": "human",
-    "reason": "Conversation checkpoint and organization controls belong to the human owner."
-  },
-  "PATCH /api/v1/agent-sessions/{record_id}": {
-    "name": "cc_conversations_rename_session",
-    "policy": "human",
-    "reason": "Conversation checkpoint and organization controls belong to the human owner."
-  },
-  "POST /api/v1/agent-sessions/{record_id}/checkpoints": {
-    "name": "cc_conversations_create_checkpoint",
-    "policy": "human",
-    "reason": "Conversation checkpoint and organization controls belong to the human owner."
   }
 }

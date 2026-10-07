@@ -35,7 +35,7 @@ class DraftModel(BaseChatModel):
         assert kwargs == {"tool_choice": "DraftAnswers"}
         return self
 
-    def _generate(self, messages, **kwargs):
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         self.seen.append(messages)
         if self.fail:
             raise RuntimeError("synthetic provider failure")

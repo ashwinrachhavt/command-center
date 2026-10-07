@@ -19,6 +19,7 @@ from command_center.api import (
     application_materials,
     application_preparations,
     applications,
+    applications_automation,
     artifacts,
     browser,
     contact_discovery,
@@ -43,6 +44,9 @@ from command_center.api import (
 )
 from command_center.api.routes import api_router, health_router
 from command_center.core.config import Settings
+from command_center.db import (
+    applications_automation as applications_automation_models,  # noqa: F401
+)
 from command_center.db import browser as browser_models  # noqa: F401
 from command_center.db.errors import RecordConflict, RecordNotFound
 from command_center.db.idempotency import IdempotencyConflict
@@ -192,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(browser.router)
     app.include_router(application_preparations.router)
     app.include_router(applications.router)
+    app.include_router(applications_automation.router)
     app.include_router(application_materials.router)
     app.include_router(memory.router)
     app.include_router(reviewed_actions.router)

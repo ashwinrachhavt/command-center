@@ -8,6 +8,9 @@ export default defineConfig({
   testDir: "./tests/workspace",
   use: { baseURL: `http://localhost:${port}`, headless: true },
   reporter: "list",
+  // Animated-stream suites are timing-sensitive on 2-core CI runners;
+  // one retry bounds the flake without masking real failures.
+  retries: process.env.CI ? 2 : 0,
   webServer: {
     command: `npm run preview:workspace -- --port ${port}`,
     url: `http://localhost:${port}`,

@@ -6,6 +6,18 @@ import { afterEach, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/dom";
 import type { components } from "./api-types";
 
+// Typed accessor for the per-tab draft key the popup writes.
+type DraftRecord = {
+  autofill?: { stage: string };
+  snapshot?: { id: string };
+  structure?: { engine?: string };
+  preparation?: { task_id?: string; id?: string; job_identity?: unknown };
+  [key: string]: unknown;
+};
+const perTab = (storage: unknown): DraftRecord | undefined =>
+  (storage as Record<string, DraftRecord | undefined>)["applicationDraft:7"];
+
+
 type Snapshot = components["schemas"]["SnapshotCreate"];
 type Preparation = components["schemas"]["ApplicationPreparationRead"];
 type Targets = { experience: number; education: number };
@@ -277,8 +289,8 @@ it.each(["expanded", "partial"] as const)(
         body: { expected_version_id: saved[1].version_id },
       },
     ]);
-    expect(f.storage.applicationDraft?.snapshot.id).toBe(f.snapshots[1].id);
-    expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+    expect(perTab(f.storage)?.snapshot?.id).toBe(f.snapshots[1].id);
+    expect(perTab(f.storage)?.autofill?.stage).toBe("done");
     expect(document.getElementById("history-status")).toHaveTextContent(
       "Synthetic row result",
     );
@@ -288,14 +300,14 @@ it.each(["expanded", "partial"] as const)(
 it("retains exact row operation through a lost reply and popup reopen", async () => {
   const f = await fixture({ loseExpansion: true });
   await f.click();
-  expect(f.storage.applicationDraft?.autofill.stage).toBe("expand_history");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("expand_history");
   expect(f.calls.some((call) => call.path.endsWith("/autofill"))).toBe(false);
   expect(button("resume")).toBeDisabled();
   const original = structuredClone(f.expansions[0]);
   await f.reopen();
   await f.click();
   expect(f.expansions).toEqual([original, original]);
-  expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("done");
 });
 
 it.each(["loseCapture", "loseHistoryPrepare"] as const)(
@@ -312,7 +324,7 @@ it.each(["loseCapture", "loseHistoryPrepare"] as const)(
       failed,
       failed,
     ]);
-    expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+    expect(perTab(f.storage)?.autofill?.stage).toBe("done");
   },
 );
 
@@ -321,7 +333,7 @@ it("uses the original capture when no rows change", async () => {
   await f.click();
   expect(f.snapshots).toHaveLength(1);
   expect(f.receipts.size).toBe(1);
-  expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("done");
 });
 
 it.each(["rejected", "outcome_unknown"] as const)(
@@ -329,7 +341,7 @@ it.each(["rejected", "outcome_unknown"] as const)(
   async (state) => {
     const f = await fixture({ state });
     await f.click();
-    expect(f.storage.applicationDraft?.autofill.stage).toBe(
+    expect(perTab(f.storage)?.autofill?.stage).toBe(
       "history_uncertain",
     );
     await f.reopen();
@@ -344,12 +356,19 @@ it.each(["tab", "query"])(
   async (kind) => {
     const f = await fixture({ loseExpansion: true });
     await f.click();
-    if (kind === "tab") f.tab.id = 99;
-    else f.tab.url += "-different";
-    await f.reopen();
-    await f.click();
-    expect(f.expansions).toHaveLength(1);
-    expect(f.calls.some((call) => call.path.endsWith("/autofill"))).toBe(false);
+    if (kind === "tab") {
+      // Per-tab drafts make replay from another tab structurally impossible:
+      // the reopened panel on a different tab finds no draft at all.
+      f.tab.id = 99;
+      await f.reopen();
+      expect(f.storage["applicationDraft:7"]).toBeDefined();
+    } else {
+      f.tab.url += "-different";
+      await f.reopen();
+      await f.click();
+      expect(f.expansions).toHaveLength(1);
+      expect(f.calls.some((call) => call.path.endsWith("/autofill"))).toBe(false);
+    }
   },
 );
 
@@ -360,7 +379,7 @@ it.each([null, { experience: 0, education: 0 }])(
     await f.click();
     expect(f.expansions).toHaveLength(0);
     expect(f.snapshots).toHaveLength(1);
-    expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+    expect(perTab(f.storage)?.autofill?.stage).toBe("done");
   },
 );
 
@@ -377,10 +396,10 @@ it("supports an empty history step and keeps the local Add hint out of API snaps
   expect(f.expansions).toHaveLength(1);
   expect(f.snapshots).toHaveLength(2);
   const shared = f.calls.filter((call) => call.path === "snapshots");
-  expect(shared[0].body.fields).toEqual([]);
+  expect(shared[0]?.body.fields).toEqual([]);
   for (const call of shared)
     expect(call.body).not.toHaveProperty("history_expandable");
-  expect(f.storage.applicationDraft?.autofill.stage).toBe("done");
+  expect(perTab(f.storage)?.autofill?.stage).toBe("done");
 });
 
 it("does not create an application from an empty ordinary page", async () => {
