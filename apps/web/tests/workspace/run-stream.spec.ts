@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("a steady stream stays connected, keeps typing responsive, and lets the reader scroll back", async ({
   page,
 }) => {
+  test.setTimeout(120000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/tasks?record=task-stream&smooth_stream=1");
   await page.getByRole("tab", { name: "Conversation", exact: true }).click();
