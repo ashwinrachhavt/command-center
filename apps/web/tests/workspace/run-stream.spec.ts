@@ -16,24 +16,40 @@ test("a steady stream stays connected, keeps typing responsive, and lets the rea
     name: "Grounded application guidance activity",
   });
   await expect(activity).toContainText("Paragraph 12:", { timeout: 20000 });
-  await expect
-    .poll(
-      () =>
-        scroller.evaluate((element) => {
-          let scrollable = element.scrollHeight > element.clientHeight;
-          for (
-            let parent = element.parentElement;
-            parent && !scrollable;
-            parent = parent.parentElement
-          )
-            scrollable =
-              /auto|scroll/.test(getComputedStyle(parent).overflowY) &&
-              parent.scrollHeight > parent.clientHeight;
-          return scrollable;
-        }),
-      { timeout: 20000 },
-    )
-    .toBe(true);
+  try {
+    await expect
+      .poll(
+        () =>
+          scroller.evaluate((element) => {
+            let scrollable = element.scrollHeight > element.clientHeight;
+            for (
+              let parent = element.parentElement;
+              parent && !scrollable;
+              parent = parent.parentElement
+            )
+              scrollable =
+                /auto|scroll/.test(getComputedStyle(parent).overflowY) &&
+                parent.scrollHeight > parent.clientHeight;
+            return scrollable;
+          }),
+        { timeout: 20000 },
+      )
+      .toBe(true);
+  } catch {
+    // Surface the actual geometry in the retry log instead of a bare timeout.
+    const dump = await scroller.evaluate((element) => ({
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      overflowY: getComputedStyle(element).overflowY,
+      parents: (() => {
+        const rows = [];
+        for (let p = element.parentElement; p; p = p.parentElement)
+          rows.push([p.scrollHeight, p.clientHeight, getComputedStyle(p).overflowY]);
+        return rows;
+      })(),
+    }));
+    throw new Error(`Scroller never became scrollable: ${JSON.stringify(dump)}`);
+  }
   await expect(activity.locator('[aria-busy="true"]')).toHaveCount(1);
   await expect(activity.locator("[data-sd-animate]").first()).toBeAttached();
   const message = page.getByRole("textbox", { name: "Message", exact: true });
